@@ -1,0 +1,18 @@
+{
+  "documentTemplate": {
+    "version": 1,
+    "comment": "Required fields/attributes per document template. Copy to document-template.json to customize.",
+    "templates": [
+      {
+        "name": "ManufacturingDrawing",
+        "requiredBlocks": [ "TitleBlock", "RevisionBlock", "DimensionNotes" ],
+        "requiredAttributes": [ "DrawingNumber", "Revision", "Material", "SurfaceFinish" ]
+      },
+      {
+        "name": "AssemblyDrawing",
+        "requiredBlocks": [ "TitleBlock", "BillOfMaterials", "RevisionBlock" ],
+        "requiredAttributes": [ "DrawingNumber", "Revision", "PartsListReference" ]
+      }
+    ]
+  }
+}

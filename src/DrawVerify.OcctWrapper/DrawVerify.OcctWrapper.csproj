@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>DrawVerify.OcctWrapper</RootNamespace>
+    <AssemblyName>DrawVerify.OcctWrapper</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Generated\**\*.cs" />
+  </ItemGroup>
+
+</Project>

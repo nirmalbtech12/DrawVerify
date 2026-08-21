@@ -1,0 +1,85 @@
+# Build output
+bin/
+obj/
+[Bb]in/
+[Oo]bj/
+
+# IDE
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Visual Studio cache/options
+*.ncb
+*.opendb
+*.opensdf
+*.sdf
+*.cachefile
+*.VC.db
+*.VC.VC.opendb
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/[Dd]ebug/
+[Bb]in/[Rr]elease/
+
+# Native OCCT build output
+native/build/
+native/bin/
+native/occt/
+
+# SWIG generated wrapper output (regenerated via scripts/generate-wrapper.ps1)
+src/DrawVerify.OcctWrapper/Generated/*.cs
+src/DrawVerify.OcctWrapper/Generated/*.cxx
+!src/DrawVerify.OcctWrapper/Generated/.gitkeep
+
+# Logs
+*.log
+logs/
+*.trace
+
+# Test results
+[Tt]est[Rr]esult*/
+[Tt]est[Rr]esults/
+*.trx
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+
+# User-specific / machine-specific
+*.rsuser
+*.vscode
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local app settings (may contain machine-specific paths)
+appsettings.Development.json
+appsettings.local.json
+
+# Encrypted/secret material — never commit keys
+*.pfx
+*.p12
+*.key
+*.pem
+!*.pem.pub
+
+# Coverage
+*.coverage
+*.coveragexml
+coverage/

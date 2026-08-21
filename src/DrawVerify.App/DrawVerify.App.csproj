@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <OutputType>WinExe</OutputType>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>DrawVerify.App</RootNamespace>
+    <AssemblyName>DrawVerify.App</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DrawVerify.Application\DrawVerify.Application.csproj" />
+    <ProjectReference Include="..\DrawVerify.Core\DrawVerify.Core.csproj" />
+    <ProjectReference Include="..\DrawVerify.Geometry\DrawVerify.Geometry.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

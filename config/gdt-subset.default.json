@@ -1,0 +1,28 @@
+{
+  "gdtSubset": {
+    "version": 1,
+    "comment": "MVP GD&T controls supported by the verifier. The full documented subset lives in docs/gdt-subset.md.",
+    "controls": [
+      {
+        "type": "Position",
+        "schema": "⌀t(L|M) datum[A-Z]...",
+        "evaluation": "Measured true position within tolerance zone"
+      },
+      {
+        "type": "Flatness",
+        "schema": "⏥ t",
+        "evaluation": "Surface must lie between two parallel planes t apart"
+      },
+      {
+        "type": "Parallelism",
+        "schema": "// t datum[A-Z]",
+        "evaluation": "Feature surface/axis within zone parallel to datum"
+      },
+      {
+        "type": "Perpendicularity",
+        "schema": "⊥ t datum[A-Z]",
+        "evaluation": "Feature surface/axis within zone perpendicular to datum"
+      }
+    ]
+  }
+}

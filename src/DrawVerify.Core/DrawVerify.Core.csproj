@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>DrawVerify.Core</RootNamespace>
+    <AssemblyName>DrawVerify.Core</AssemblyName>
+  </PropertyGroup>
+
+</Project>

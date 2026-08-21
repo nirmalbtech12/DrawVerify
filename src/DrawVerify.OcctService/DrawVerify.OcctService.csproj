@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>DrawVerify.OcctService</RootNamespace>
+    <AssemblyName>DrawVerify.OcctService</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DrawVerify.Geometry\DrawVerify.Geometry.csproj" />
+    <ProjectReference Include="..\DrawVerify.OcctWrapper\DrawVerify.OcctWrapper.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,9 @@
+DrawVerify is licensed under the GNU Lesser General Public License v3.0 (LGPL-3.0-or-later).
+
+This project embeds and links against Open CASCADE Technology (OCCT), which is licensed
+under the LGPL-2.1 with additional terms. Distribution of the native OCCT libraries and
+the resulting combined work must comply with the OCCT licensing terms.
+
+See docs/lgpl-compliance.md for the full compliance record and obligations.
+
+Full LGPL-3.0 license text: https://www.gnu.org/licenses/lgpl-3.0.html

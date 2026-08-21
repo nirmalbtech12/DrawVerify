@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>DrawVerify.Application</RootNamespace>
+    <AssemblyName>DrawVerify.Application</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DrawVerify.Core\DrawVerify.Core.csproj" />
+  </ItemGroup>
+
+</Project>

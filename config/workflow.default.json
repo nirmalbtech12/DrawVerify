@@ -1,0 +1,36 @@
+{
+  "workflow": {
+    "version": 1,
+    "comment": "Workflow rules are configuration-driven and never hard-coded in code. Copy to workflow.json to customize.",
+    "states": [
+      {
+        "name": "Draft",
+        "allowedTransitions": [ "Submitted" ]
+      },
+      {
+        "name": "Submitted",
+        "allowedTransitions": [ "UnderVerification", "Rejected" ]
+      },
+      {
+        "name": "UnderVerification",
+        "allowedTransitions": [ "Approved", "ReturnedForRevision", "Rejected" ]
+      },
+      {
+        "name": "ReturnedForRevision",
+        "allowedTransitions": [ "Submitted" ]
+      },
+      {
+        "name": "Approved",
+        "allowedTransitions": [ "Archived" ]
+      },
+      {
+        "name": "Rejected",
+        "allowedTransitions": []
+      },
+      {
+        "name": "Archived",
+        "allowedTransitions": []
+      }
+    ]
+  }
+}
