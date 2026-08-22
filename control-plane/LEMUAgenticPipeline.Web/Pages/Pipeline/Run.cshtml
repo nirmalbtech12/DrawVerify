@@ -1,0 +1,73 @@
+@page
+@model RunModel
+@{
+    ViewData["Title"] = "Run Pipeline";
+}
+<h1>Run Pipeline</h1>
+<form method="post">
+  <div class="mb-3">
+    <label class="form-label">Jira Story IDs (comma-separated)</label>
+    <input asp-for="Input.JiraIdsRaw" class="form-control" placeholder="KAN-19,KAN-20" />
+    <span asp-validation-for="Input.JiraIdsRaw" class="text-danger"></span>
+    @if(Model.PreviewIds.Any()){
+      <div class="mt-2"><strong>Selected Jira Stories</strong><ol>@foreach(var id in Model.PreviewIds){<li>@id</li>}</ol></div>
+    }
+  </div>
+  <div class="mb-3">
+    <label>Schedule</label><br/>
+    <input type="radio" asp-for="Input.ScheduleType" value="Immediate" checked /> Immediate
+    <input type="radio" asp-for="Input.ScheduleType" value="OneTime" class="ms-3" /> OneTime
+    <div id="onetime" class="mt-2" style="display:none">
+      <label>Time today (HH:mm)</label>
+      <input asp-for="Input.OneTimeTime" type="time" class="form-control" style="width:200px" />
+      <span class="text-muted">Only future time today allowed</span>
+    </div>
+  </div>
+  <div class="mb-3">
+    <label><input type="checkbox" asp-for="Input.StopOnFailure" /> Stop on failure</label>
+  </div>
+  <div class="mb-3">
+    <h5>Select Pipeline Agents</h5>
+    <p class="text-muted">Agents come from configuration. Dependencies auto-selected.</p>
+    <table class="table table-sm">
+      <thead><tr><th>Agent</th><th>Dependency</th><th>Approval</th><th>Selection</th></tr></thead>
+      <tbody>
+      @for(int i=0;i<Model.Agents.Count;i++){
+        <tr>
+          <td><strong>@Model.Agents[i].Name</strong><br/><small>@Model.Agents[i].Description</small></td>
+          <td>@(Model.Agents[i].Dependencies.Any() ? string.Join(", ", Model.Agents[i].Dependencies) : "None")</td>
+          <td>@(Model.Agents[i].RequiresHumanApproval ? "Yes" : "No")</td>
+          <td><input type="checkbox" name="Input.SelectedAgentIds" value="@Model.Agents[i].AgentId" @(Model.Input.SelectedAgentIds.Contains(Model.Agents[i].AgentId) ? "checked" : "") /></td>
+        </tr>
+      }
+      </tbody>
+    </table>
+    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.querySelectorAll('input[name=&quot;Input.SelectedAgentIds&quot;]').forEach(c=>c.checked=true)">Select All</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.querySelectorAll('input[name=&quot;Input.SelectedAgentIds&quot;]').forEach(c=>c.checked=false)">Clear All</button>
+    <button type="submit" asp-page-handler="Default" class="btn btn-sm btn-outline-primary">Use Default Pipeline</button>
+  </div>
+  @if(Model.AutoSelected.Any()){
+    <div class="alert alert-info">Automatically selected dependencies: @string.Join(", ", Model.AutoSelected)</div>
+  }
+  @if(!ViewData.ModelState.IsValid){
+    <div class="alert alert-danger"><ul>@foreach(var e in ViewData.ModelState.Values.SelectMany(v=>v.Errors)){<li>@e.ErrorMessage</li>}</ul></div>
+  }
+
+  <div class="card mt-3 p-3">
+    <h5>Pipeline Preview</h5>
+    <p>Schedule: @Model.Input.ScheduleType @if(Model.Input.ScheduleType==Models.ScheduleType.OneTime){<span>@Model.Input.OneTimeTime</span>}</p>
+    <p>Stories: @(Model.PreviewIds.Any() ? string.Join(", ", Model.PreviewIds) : "(none)")</p>
+    <p>Selected Agents: @(Model.Input.SelectedAgentIds.Any() ? string.Join(" → ", Model.Input.SelectedAgentIds) : "(none)")</p>
+    <p>Execution Mode: Sequential (one story at a time)</p>
+  </div>
+
+  <button type="submit" class="btn btn-primary mt-3">Confirm & Start</button>
+  <a href="/Pipeline" class="btn btn-secondary mt-3">Back</a>
+</form>
+@section Scripts{
+<script>
+  document.querySelectorAll('input[name="Input.ScheduleType"]').forEach(r=>r.addEventListener('change',()=>{
+    document.getElementById('onetime').style.display = document.querySelector('input[name="Input.ScheduleType"]:checked').value==='OneTime' ? 'block':'none';
+  }));
+</script>
+}

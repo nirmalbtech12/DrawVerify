@@ -1,747 +1,1267 @@
 {
-  "DrawVerify.App/App.xaml": {
+  ".opencode/plugins/graphify.js": {
+    "mtime": 1786684634.081485,
+    "ast_hash": "d214f56e81ecdc75e19e339d09371570",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Orchestrator/Examples/StoryFlows.cs": {
+    "mtime": 1787314677.0402396,
+    "ast_hash": "94c8013a10516a5ecbe405082737655f",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Orchestrator/LEMUAgenticPipeline.Orchestrator.csproj": {
+    "mtime": 1787318129.630377,
+    "ast_hash": "c61e287238db786a088abc199caaa396",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Orchestrator/Program.cs": {
+    "mtime": 1787375059.0193944,
+    "ast_hash": "874f8439af4364908d5708d8658f8a24",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline/Claude/ClaudeAgentService.cs": {
+    "mtime": 1787314677.0390177,
+    "ast_hash": "ca9f9354f0bdadbf58e02e5eeedb1a52",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline/Configuration/PipelineOptions.cs": {
+    "mtime": 1787403346.273795,
+    "ast_hash": "037585a48acd983f27b0bbbfbd1ff3b6",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline/Jira/JiraRestService.cs": {
+    "mtime": 1787319391.2087383,
+    "ast_hash": "f72e7f4ec2dbf93b849d12796507c15e",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline/LEMUAgenticPipeline.csproj": {
+    "mtime": 1787314695.724557,
+    "ast_hash": "b1386621c1cfbc7b105095e47472150f",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline/Models/PipelineModels.cs": {
+    "mtime": 1787397859.1071885,
+    "ast_hash": "2445582457155c63f8d9ff0b7bbba9ae",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline/OpenAI/OpenAIAgentService.cs": {
+    "mtime": 1787374527.243407,
+    "ast_hash": "36e86a9a50ff3bdbcdfb265b894bb71b",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline/OpenCode/OpenCodeAgentService.cs": {
+    "mtime": 1787403379.05585,
+    "ast_hash": "4bd493a116d80bc01cf53b477ca52793",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline/Orchestrator/PipelineOrchestrator.cs": {
+    "mtime": 1787314677.0389032,
+    "ast_hash": "00566780b29394fcd9c185ca69b6f13b",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline/Orchestrator/StateMachine.cs": {
+    "mtime": 1787314677.038781,
+    "ast_hash": "8f98cf37641fd5c56342d20832c018bd",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline/Services/IBuildTestService.cs": {
+    "mtime": 1787314677.037492,
+    "ast_hash": "bd8388b867afc04c157a6620a5b62f4c",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline/Services/ICodeAgentService.cs": {
+    "mtime": 1787314677.038056,
+    "ast_hash": "ae7f6b45c31be49cc0a7df882527a1af",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline/Services/IGitService.cs": {
+    "mtime": 1787314677.0382707,
+    "ast_hash": "2ec88d0950807d13db00becccc7c554c",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline/Services/IJiraService.cs": {
+    "mtime": 1787314677.0384612,
+    "ast_hash": "502753fb40ca9f7dbde8ea1b247e4c47",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline/Services/IOpenCodeAgentService.cs": {
+    "mtime": 1787314677.0378375,
+    "ast_hash": "838070aeb2210062e762a7320475f317",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline/Services/IPipelineOrchestrator.cs": {
+    "mtime": 1787314677.0376348,
+    "ast_hash": "2ec69bdccd11aef6097397d1c7b795ad",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline/State/FileStateStore.cs": {
+    "mtime": 1787318765.3687568,
+    "ast_hash": "703e21d986bd20b74be006bbd4abe245",
+    "semantic_hash": ""
+  },
+  ".pipeline/schemas/implementation-result.schema.json": {
+    "mtime": 1787304884.0357707,
+    "ast_hash": "870499362330e9572b4ee36eff300ab3",
+    "semantic_hash": ""
+  },
+  ".pipeline/schemas/review-result.schema.json": {
+    "mtime": 1787304884.0373855,
+    "ast_hash": "ae4d2c4b6f77b71a3ad85441e54ff0a0",
+    "semantic_hash": ""
+  },
+  ".pipeline/schemas/technical-design.schema.json": {
+    "mtime": 1787304884.0326827,
+    "ast_hash": "e72c6b0d909e299e6c4613f7afb0ea91",
+    "semantic_hash": ""
+  },
+  ".pipeline/schemas/test-design.schema.json": {
+    "mtime": 1787304884.034242,
+    "ast_hash": "3f843d29cc8a4457f41d314d7fc4adea",
+    "semantic_hash": ""
+  },
+  "DrawVerify.sln": {
+    "mtime": 1787314973.2145302,
+    "ast_hash": "2efbdc6080db42fffbf4035bdd9afa56",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Data/PipelineDbContext.cs": {
+    "mtime": 1787314841.5448136,
+    "ast_hash": "03283774fd2143a3711e55000ce2bdb7",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Hubs/PipelineHub.cs": {
+    "mtime": 1787314841.5448904,
+    "ast_hash": "c5d6969c85e34749240ee434a9fe2622",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/LEMUAgenticPipeline.Web.csproj": {
+    "mtime": 1787318129.4807699,
+    "ast_hash": "a0c5e07c83491df80ffc5bc122176472",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Models/AgentDefinition.cs": {
+    "mtime": 1787394055.1407616,
+    "ast_hash": "46d72234cb0d7ef0ada26daa03c0a5f7",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Models/PipelineModels.cs": {
+    "mtime": 1787314841.5437324,
+    "ast_hash": "a2ea9fe28709e64e837a92d2406abb2f",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Pages/Error.cshtml": {
+    "mtime": 1787311870.7427838,
+    "ast_hash": "34b4b090be52ec4885be6fa2afff5c8d",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Pages/Error.cshtml.cs": {
+    "mtime": 1787314841.5438685,
+    "ast_hash": "be6d4e3958cb0ff0c041c05f40ed95e1",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Pages/Index.cshtml": {
+    "mtime": 1787311870.745064,
+    "ast_hash": "818dc46c594ee83d1c54f2a28f1af859",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Pages/Index.cshtml.cs": {
+    "mtime": 1787314841.5439973,
+    "ast_hash": "5146ff0d5d4edfee5d7af29673dce260",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Pages/Pipeline/Index.cshtml": {
+    "mtime": 1787312050.6769354,
+    "ast_hash": "916402dc46151fd454e01e290916393a",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Pages/Pipeline/Index.cshtml.cs": {
+    "mtime": 1787314841.545634,
+    "ast_hash": "6d47eaf0845a9361c638e7aff1cccb0a",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Pages/Pipeline/Run.cshtml": {
+    "mtime": 1787312070.7768729,
+    "ast_hash": "67ed54e05e7bcc87788558230e32dab7",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Pages/Pipeline/Run.cshtml.cs": {
+    "mtime": 1787314841.5455678,
+    "ast_hash": "9219ef0b877c1632fd1f41cff1878130",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Pages/Pipeline/Runs/Detail.cshtml": {
+    "mtime": 1787316287.512815,
+    "ast_hash": "e90984ad75cd2fd600ee7fef997766d5",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Pages/Pipeline/Runs/Detail.cshtml.cs": {
+    "mtime": 1787314841.545824,
+    "ast_hash": "1cb9e4085085d5bc2c821e6786bb37a6",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Pages/Pipeline/Runs/Index.cshtml": {
+    "mtime": 1787312158.600925,
+    "ast_hash": "7222b788ed395562bd3cd0f1aefe02b1",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Pages/Pipeline/Runs/Index.cshtml.cs": {
+    "mtime": 1787314841.5457501,
+    "ast_hash": "decb36025f94712cbad11d3f69bf17c0",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Pages/Privacy.cshtml": {
+    "mtime": 1787311870.7528133,
+    "ast_hash": "b4b61a68aa14d5cd3534d6923ed304d5",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Pages/Privacy.cshtml.cs": {
+    "mtime": 1787314841.5441518,
+    "ast_hash": "e40fb8c6605c262e7493e85ded623cdf",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Pages/Shared/_Layout.cshtml": {
+    "mtime": 1787314859.1794555,
+    "ast_hash": "d08b2f8849f0385312e8e0022970660e",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Pages/Shared/_ValidationScriptsPartial.cshtml": {
+    "mtime": 1787311870.7421286,
+    "ast_hash": "e44d1ba7aa6fc476b40834e79a00fd81",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Pages/_ViewImports.cshtml": {
+    "mtime": 1787314841.5463,
+    "ast_hash": "988c849d591473c3bd7d279704b2fb32",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Pages/_ViewStart.cshtml": {
+    "mtime": 1787311870.7612119,
+    "ast_hash": "e4cd881cf745e1e88cf2c5f6eceae943",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Program.cs": {
+    "mtime": 1787375059.0833945,
+    "ast_hash": "c0ad149e19beedb0f3f648388c1b0ab7",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Properties/launchSettings.json": {
+    "mtime": 1787311870.7677388,
+    "ast_hash": "9830e4ec52a1ab2f8f716c9ef5afdeb1",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Services/AgentRegistry.cs": {
+    "mtime": 1787394063.328761,
+    "ast_hash": "29827115a4be603ed0ffcb1aee711236",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Services/PipelineRunner.cs": {
+    "mtime": 1787379625.1032753,
+    "ast_hash": "b6751cd88ceb660d4f2674fe6faa84ee",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Services/PipelineScheduler.cs": {
+    "mtime": 1787316011.3648248,
+    "ast_hash": "1ffb62424a254432ebe0ae321d32c36f",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Services/PipelineWorker.cs": {
+    "mtime": 1787316974.6967936,
+    "ast_hash": "4bd3c0b89d2cae3ec92dd08fb401915b",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/wwwroot/js/site.js": {
+    "mtime": 1787311870.7429683,
+    "ast_hash": "53e309eeca51b3b6de20c4d24e1b2b63",
+    "semantic_hash": ""
+  },
+  "native/scripts/build-occt.ps1": {
+    "mtime": 1787225901.526273,
+    "ast_hash": "2d716a842bd1f194735e6cb6fb8e8eb6",
+    "semantic_hash": ""
+  },
+  "native/scripts/generate-wrapper.ps1": {
+    "mtime": 1787225903.8582737,
+    "ast_hash": "b0d1355589dafb510c3e6ea6e57b703c",
+    "semantic_hash": ""
+  },
+  "native/scripts/validate-deployment.ps1": {
+    "mtime": 1787225906.186274,
+    "ast_hash": "e262f7b3ec93c58241bde5d5805ed492",
+    "semantic_hash": ""
+  },
+  "src/DrawVerify.App/App.xaml": {
     "mtime": 1787225793.7622838,
     "ast_hash": "aef40ddfd875be3a46fa6b29261f601e",
-    "semantic_hash": "aef40ddfd875be3a46fa6b29261f601e"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/App.xaml.cs": {
-    "mtime": 1787225794.0742838,
-    "ast_hash": "1e0f7ba7d36c388d5ef31c209a9b4fc5",
-    "semantic_hash": "1e0f7ba7d36c388d5ef31c209a9b4fc5"
+  "src/DrawVerify.App/App.xaml.cs": {
+    "mtime": 1787228016.1587493,
+    "ast_hash": "63f1b935707b5a9ebdc9f8227ee21df9",
+    "semantic_hash": ""
   },
-  "DrawVerify.App/Controls/SignatureStampControl.xaml": {
+  "src/DrawVerify.App/Controls/SignatureStampControl.xaml": {
     "mtime": 1787225809.498285,
     "ast_hash": "52a1a01e8f5ab989a818f4d5bbbfab4f",
-    "semantic_hash": "52a1a01e8f5ab989a818f4d5bbbfab4f"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/Controls/SignatureStampControl.xaml.cs": {
+  "src/DrawVerify.App/Controls/SignatureStampControl.xaml.cs": {
     "mtime": 1787225809.894285,
     "ast_hash": "d9405cd42fffca6d1a7f6f6e36afa5f3",
-    "semantic_hash": "d9405cd42fffca6d1a7f6f6e36afa5f3"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/DrawVerify.App.csproj": {
-    "mtime": 1787225793.2222838,
-    "ast_hash": "fe64b599a07d1632e3f88671e106715a",
-    "semantic_hash": "fe64b599a07d1632e3f88671e106715a"
+  "src/DrawVerify.App/DrawVerify.App.csproj": {
+    "mtime": 1787227956.0622203,
+    "ast_hash": "bf583a226704bdcd6aa9835a907a5e84",
+    "semantic_hash": ""
   },
-  "DrawVerify.App/MainWindow.xaml": {
+  "src/DrawVerify.App/MainWindow.xaml": {
     "mtime": 1787225794.7022839,
     "ast_hash": "ee73edde37150c417d1568e79f94bb21",
-    "semantic_hash": "ee73edde37150c417d1568e79f94bb21"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/MainWindow.xaml.cs": {
+  "src/DrawVerify.App/MainWindow.xaml.cs": {
     "mtime": 1787225795.102284,
     "ast_hash": "1939cb926aa607f1a6f89eec90abd6c9",
-    "semantic_hash": "1939cb926aa607f1a6f89eec90abd6c9"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/Services/CompositionRoot.cs": {
+  "src/DrawVerify.App/Services/CompositionRoot.cs": {
     "mtime": 1787225810.758285,
     "ast_hash": "ffca8cbcdc5c1dc8b6c95cfa83f0c863",
-    "semantic_hash": "ffca8cbcdc5c1dc8b6c95cfa83f0c863"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/ViewModels/DashboardViewModel.cs": {
+  "src/DrawVerify.App/ViewModels/DashboardViewModel.cs": {
     "mtime": 1787225807.3862848,
     "ast_hash": "ebea0029d79c88de8221b2c5e1f0d1b3",
-    "semantic_hash": "ebea0029d79c88de8221b2c5e1f0d1b3"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/ViewModels/DocumentDetailViewModel.cs": {
+  "src/DrawVerify.App/ViewModels/DocumentDetailViewModel.cs": {
     "mtime": 1787225808.030285,
     "ast_hash": "a17f03c157bbd2fc177c1bad9cc607d2",
-    "semantic_hash": "a17f03c157bbd2fc177c1bad9cc607d2"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/ViewModels/DocumentListViewModel.cs": {
+  "src/DrawVerify.App/ViewModels/DocumentListViewModel.cs": {
     "mtime": 1787225807.7062848,
     "ast_hash": "3ebc1a5e6d843cf74bde905f6c733715",
-    "semantic_hash": "3ebc1a5e6d843cf74bde905f6c733715"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/ViewModels/LoginViewModel.cs": {
+  "src/DrawVerify.App/ViewModels/LoginViewModel.cs": {
     "mtime": 1787225807.062285,
     "ast_hash": "3480b570e1621d8dc3dba3cfc411673e",
-    "semantic_hash": "3480b570e1621d8dc3dba3cfc411673e"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/ViewModels/ReportViewModel.cs": {
+  "src/DrawVerify.App/ViewModels/ReportViewModel.cs": {
     "mtime": 1787225808.974285,
     "ast_hash": "e95f7de39d154880092ac4aad82f2512",
-    "semantic_hash": "e95f7de39d154880092ac4aad82f2512"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/ViewModels/VerificationViewModel.cs": {
+  "src/DrawVerify.App/ViewModels/VerificationViewModel.cs": {
     "mtime": 1787225808.338285,
     "ast_hash": "b46e8d2720257ce2b82f088afd5b7809",
-    "semantic_hash": "b46e8d2720257ce2b82f088afd5b7809"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/ViewModels/WorkflowViewModel.cs": {
+  "src/DrawVerify.App/ViewModels/WorkflowViewModel.cs": {
     "mtime": 1787225808.650285,
     "ast_hash": "e97568cca21be0334b0ca4410be6de5b",
-    "semantic_hash": "e97568cca21be0334b0ca4410be6de5b"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/Views/DashboardView.xaml": {
+  "src/DrawVerify.App/Views/DashboardView.xaml": {
     "mtime": 1787225799.3422842,
     "ast_hash": "73935d69a475c661ec0ff748a88c1d92",
-    "semantic_hash": "73935d69a475c661ec0ff748a88c1d92"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/Views/DashboardView.xaml.cs": {
+  "src/DrawVerify.App/Views/DashboardView.xaml.cs": {
     "mtime": 1787225799.7382843,
     "ast_hash": "955f9521feccacf98471c72ca41c94ae",
-    "semantic_hash": "955f9521feccacf98471c72ca41c94ae"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/Views/DocumentDetailView.xaml": {
+  "src/DrawVerify.App/Views/DocumentDetailView.xaml": {
     "mtime": 1787225801.2342844,
     "ast_hash": "01059e197ea3a697423fc4a7dd1bf081",
-    "semantic_hash": "01059e197ea3a697423fc4a7dd1bf081"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/Views/DocumentDetailView.xaml.cs": {
+  "src/DrawVerify.App/Views/DocumentDetailView.xaml.cs": {
     "mtime": 1787225801.6382844,
     "ast_hash": "ca0d33045d6de9abde9538f42d274cc7",
-    "semantic_hash": "ca0d33045d6de9abde9538f42d274cc7"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/Views/DocumentListView.xaml": {
+  "src/DrawVerify.App/Views/DocumentListView.xaml": {
     "mtime": 1787225800.2742844,
     "ast_hash": "ae1b80b9c504e6a46177a591417500ed",
-    "semantic_hash": "ae1b80b9c504e6a46177a591417500ed"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/Views/DocumentListView.xaml.cs": {
+  "src/DrawVerify.App/Views/DocumentListView.xaml.cs": {
     "mtime": 1787225800.6702843,
     "ast_hash": "f50165e6770de92c056ff437c7369d5b",
-    "semantic_hash": "f50165e6770de92c056ff437c7369d5b"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/Views/LoginView.xaml": {
+  "src/DrawVerify.App/Views/LoginView.xaml": {
     "mtime": 1787225798.4182842,
     "ast_hash": "f90249a1fe4260eb12b16462075c27ea",
-    "semantic_hash": "f90249a1fe4260eb12b16462075c27ea"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/Views/LoginView.xaml.cs": {
+  "src/DrawVerify.App/Views/LoginView.xaml.cs": {
     "mtime": 1787225798.8142843,
     "ast_hash": "afbfd7f3c6a2f3b03d7a3f6c370a8c94",
-    "semantic_hash": "afbfd7f3c6a2f3b03d7a3f6c370a8c94"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/Views/ReportView.xaml": {
+  "src/DrawVerify.App/Views/ReportView.xaml": {
     "mtime": 1787225804.0502846,
     "ast_hash": "1bb58ef3458ff41ea409e412dc5301e5",
-    "semantic_hash": "1bb58ef3458ff41ea409e412dc5301e5"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/Views/ReportView.xaml.cs": {
+  "src/DrawVerify.App/Views/ReportView.xaml.cs": {
     "mtime": 1787225804.4702847,
     "ast_hash": "c5bb6408a8ad89eacf33dfc09029e45e",
-    "semantic_hash": "c5bb6408a8ad89eacf33dfc09029e45e"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/Views/VerificationView.xaml": {
+  "src/DrawVerify.App/Views/VerificationView.xaml": {
     "mtime": 1787225802.1782844,
     "ast_hash": "78bd62c231e70fc39e77d58614d58ed9",
-    "semantic_hash": "78bd62c231e70fc39e77d58614d58ed9"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/Views/VerificationView.xaml.cs": {
+  "src/DrawVerify.App/Views/VerificationView.xaml.cs": {
     "mtime": 1787225802.5782845,
     "ast_hash": "2b4080cff66125eea659da9bd05429a4",
-    "semantic_hash": "2b4080cff66125eea659da9bd05429a4"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/Views/WorkflowView.xaml": {
+  "src/DrawVerify.App/Views/WorkflowView.xaml": {
     "mtime": 1787225803.1222847,
     "ast_hash": "ef10d3779ea5068e6319d54e6cf72081",
-    "semantic_hash": "ef10d3779ea5068e6319d54e6cf72081"
+    "semantic_hash": ""
   },
-  "DrawVerify.App/Views/WorkflowView.xaml.cs": {
+  "src/DrawVerify.App/Views/WorkflowView.xaml.cs": {
     "mtime": 1787225803.9382846,
     "ast_hash": "bd7b947b3d896dc3930a8c3bb7e89c5c",
-    "semantic_hash": "bd7b947b3d896dc3930a8c3bb7e89c5c"
+    "semantic_hash": ""
   },
-  "DrawVerify.Application/DrawVerify.Application.csproj": {
+  "src/DrawVerify.Application/DrawVerify.Application.csproj": {
     "mtime": 1787225840.2062871,
     "ast_hash": "35b7c46a2a841c220284607713f6df2b",
-    "semantic_hash": "35b7c46a2a841c220284607713f6df2b"
+    "semantic_hash": ""
   },
-  "DrawVerify.Application/Fingerprinting/DocumentFingerprintService.cs": {
+  "src/DrawVerify.Application/Fingerprinting/DocumentFingerprintService.cs": {
     "mtime": 1787225851.3022878,
     "ast_hash": "ecf6949e94a426cb75abd1b846b90237",
-    "semantic_hash": "ecf6949e94a426cb75abd1b846b90237"
+    "semantic_hash": ""
   },
-  "DrawVerify.Application/Fingerprinting/FingerprintPolicy.cs": {
+  "src/DrawVerify.Application/Fingerprinting/FingerprintPolicy.cs": {
     "mtime": 1787225851.958288,
     "ast_hash": "6ccff592e889999738e45f73ebffef8b",
-    "semantic_hash": "6ccff592e889999738e45f73ebffef8b"
+    "semantic_hash": ""
   },
-  "DrawVerify.Application/Services/AuthenticationService.cs": {
+  "src/DrawVerify.Application/Services/AuthenticationService.cs": {
     "mtime": 1787225842.9462874,
     "ast_hash": "05b1cf8de8b0ea0de396f1044b8ad6c4",
-    "semantic_hash": "05b1cf8de8b0ea0de396f1044b8ad6c4"
+    "semantic_hash": ""
   },
-  "DrawVerify.Application/Services/DocumentService.cs": {
+  "src/DrawVerify.Application/Services/DocumentService.cs": {
     "mtime": 1787225844.1062875,
     "ast_hash": "e92e310d30a6354e1a02223a9f7a17fc",
-    "semantic_hash": "e92e310d30a6354e1a02223a9f7a17fc"
+    "semantic_hash": ""
   },
-  "DrawVerify.Application/Services/NotificationService.cs": {
+  "src/DrawVerify.Application/Services/NotificationService.cs": {
     "mtime": 1787225843.4462874,
     "ast_hash": "3ba0d47491e254f55eb030a89996daaa",
-    "semantic_hash": "3ba0d47491e254f55eb030a89996daaa"
+    "semantic_hash": ""
   },
-  "DrawVerify.Application/Services/ReportService.cs": {
+  "src/DrawVerify.Application/Services/ReportService.cs": {
     "mtime": 1787225841.9182873,
     "ast_hash": "9208fcc62e99d2067fe6ac8126b368c0",
-    "semantic_hash": "9208fcc62e99d2067fe6ac8126b368c0"
+    "semantic_hash": ""
   },
-  "DrawVerify.Application/Services/SignatureService.cs": {
+  "src/DrawVerify.Application/Services/SignatureService.cs": {
     "mtime": 1787225842.4102874,
     "ast_hash": "c080e9250df41ffdaf4f75497b02956e",
-    "semantic_hash": "c080e9250df41ffdaf4f75497b02956e"
+    "semantic_hash": ""
   },
-  "DrawVerify.Application/Services/VerificationService.cs": {
+  "src/DrawVerify.Application/Services/VerificationService.cs": {
     "mtime": 1787225841.2342873,
     "ast_hash": "ab477c882e4a1dce13c5a2ff60438135",
-    "semantic_hash": "ab477c882e4a1dce13c5a2ff60438135"
+    "semantic_hash": ""
   },
-  "DrawVerify.Application/Services/WorkflowService.cs": {
+  "src/DrawVerify.Application/Services/WorkflowService.cs": {
     "mtime": 1787225841.6022873,
     "ast_hash": "982911623e508bc024b8ebc2141cb3a8",
-    "semantic_hash": "982911623e508bc024b8ebc2141cb3a8"
+    "semantic_hash": ""
   },
-  "DrawVerify.Application/Verification/DimensionComparer.cs": {
+  "src/DrawVerify.Application/Verification/DimensionComparer.cs": {
     "mtime": 1787225844.6062875,
     "ast_hash": "8538c544e0e920f345566890fce65698",
-    "semantic_hash": "8538c544e0e920f345566890fce65698"
+    "semantic_hash": ""
   },
-  "DrawVerify.Application/Verification/GdtRules/FlatnessRule.cs": {
+  "src/DrawVerify.Application/Verification/GdtRules/FlatnessRule.cs": {
     "mtime": 1787225847.9542875,
     "ast_hash": "fed6edd506f4ce75c7aaca2c487b98c2",
-    "semantic_hash": "fed6edd506f4ce75c7aaca2c487b98c2"
+    "semantic_hash": ""
   },
-  "DrawVerify.Application/Verification/GdtRules/ParallelismRule.cs": {
+  "src/DrawVerify.Application/Verification/GdtRules/ParallelismRule.cs": {
     "mtime": 1787225848.5262876,
     "ast_hash": "b80f6109b5692466bc327f63c9c9a629",
-    "semantic_hash": "b80f6109b5692466bc327f63c9c9a629"
+    "semantic_hash": ""
   },
-  "DrawVerify.Application/Verification/GdtRules/PerpendicularityRule.cs": {
+  "src/DrawVerify.Application/Verification/GdtRules/PerpendicularityRule.cs": {
     "mtime": 1787225849.0702877,
     "ast_hash": "db491b1c161b63a2df38852f3305ab0e",
-    "semantic_hash": "db491b1c161b63a2df38852f3305ab0e"
+    "semantic_hash": ""
   },
-  "DrawVerify.Application/Verification/GdtRules/PositionRule.cs": {
+  "src/DrawVerify.Application/Verification/GdtRules/PositionRule.cs": {
     "mtime": 1787225847.4102876,
     "ast_hash": "393226ddb3253be1c669a2c6b9faa9a2",
-    "semantic_hash": "393226ddb3253be1c669a2c6b9faa9a2"
+    "semantic_hash": ""
   },
-  "DrawVerify.Application/Verification/GdtValidator.cs": {
+  "src/DrawVerify.Application/Verification/GdtValidator.cs": {
     "mtime": 1787225846.2262876,
     "ast_hash": "7edab6d3725332087a17efe1b17d6fee",
-    "semantic_hash": "7edab6d3725332087a17efe1b17d6fee"
+    "semantic_hash": ""
   },
-  "DrawVerify.Application/Verification/MissingDimensionDetector.cs": {
+  "src/DrawVerify.Application/Verification/MissingDimensionDetector.cs": {
     "mtime": 1787225845.6862874,
     "ast_hash": "edb05a502bbbee9682d1444f8c0a9523",
-    "semantic_hash": "edb05a502bbbee9682d1444f8c0a9523"
+    "semantic_hash": ""
   },
-  "DrawVerify.Application/Verification/ToleranceComparer.cs": {
+  "src/DrawVerify.Application/Verification/ToleranceComparer.cs": {
     "mtime": 1787225845.1342874,
     "ast_hash": "032f855d5310de3b044eebbc703d7f14",
-    "semantic_hash": "032f855d5310de3b044eebbc703d7f14"
+    "semantic_hash": ""
   },
-  "DrawVerify.Application/Verification/VerificationEngine.cs": {
+  "src/DrawVerify.Application/Verification/VerificationEngine.cs": {
     "mtime": 1787225846.7702875,
     "ast_hash": "c3d5dab23af169d8a6b527a030c395b2",
-    "semantic_hash": "c3d5dab23af169d8a6b527a030c395b2"
+    "semantic_hash": ""
   },
-  "DrawVerify.Application/Workflow/WorkflowEngine.cs": {
+  "src/DrawVerify.Application/Workflow/WorkflowEngine.cs": {
     "mtime": 1787225849.6502876,
     "ast_hash": "e7a5258f65c7fd83f69a2c71ea1bfb1b",
-    "semantic_hash": "e7a5258f65c7fd83f69a2c71ea1bfb1b"
+    "semantic_hash": ""
   },
-  "DrawVerify.Application/Workflow/WorkflowStateMachine.cs": {
+  "src/DrawVerify.Application/Workflow/WorkflowStateMachine.cs": {
     "mtime": 1787225850.2102878,
     "ast_hash": "f16054c837a9aadc4289c7cce31d2c0b",
-    "semantic_hash": "f16054c837a9aadc4289c7cce31d2c0b"
+    "semantic_hash": ""
   },
-  "DrawVerify.Application/Workflow/WorkflowTransition.cs": {
+  "src/DrawVerify.Application/Workflow/WorkflowTransition.cs": {
     "mtime": 1787225851.034288,
     "ast_hash": "1183d15bd06c1597852a892023bd2f8c",
-    "semantic_hash": "1183d15bd06c1597852a892023bd2f8c"
+    "semantic_hash": ""
   },
-  "DrawVerify.Application/obj/Debug/net8.0/.NETCoreApp,Version=v8.0.AssemblyAttributes.cs": {
-    "mtime": 1787226469.5057073,
-    "ast_hash": "bdad2027e716340f0ce100f8bf692fbc",
-    "semantic_hash": "bdad2027e716340f0ce100f8bf692fbc"
-  },
-  "DrawVerify.Application/obj/Debug/net8.0/DrawVerify.Application.AssemblyInfo.cs": {
-    "mtime": 1787226469.5188582,
-    "ast_hash": "2974598a66bc01a8e4c9150947e657d7",
-    "semantic_hash": "2974598a66bc01a8e4c9150947e657d7"
-  },
-  "DrawVerify.Application/obj/Debug/net8.0/DrawVerify.Application.GlobalUsings.g.cs": {
-    "mtime": 1787226469.3622558,
-    "ast_hash": "70500239e348e01027b65982f5792ea0",
-    "semantic_hash": "70500239e348e01027b65982f5792ea0"
-  },
-  "DrawVerify.Application/obj/Debug/net9.0/.NETCoreApp,Version=v9.0.AssemblyAttributes.cs": {
-    "mtime": 1787226982.2467856,
-    "ast_hash": "fd801a357dfe19eecb7abbc33dccc147",
-    "semantic_hash": "fd801a357dfe19eecb7abbc33dccc147"
-  },
-  "DrawVerify.Application/obj/Debug/net9.0/DrawVerify.Application.AssemblyInfo.cs": {
-    "mtime": 1787226982.285545,
-    "ast_hash": "2974598a66bc01a8e4c9150947e657d7",
-    "semantic_hash": "2974598a66bc01a8e4c9150947e657d7"
-  },
-  "DrawVerify.Application/obj/Debug/net9.0/DrawVerify.Application.GlobalUsings.g.cs": {
-    "mtime": 1787226981.9925911,
-    "ast_hash": "70500239e348e01027b65982f5792ea0",
-    "semantic_hash": "70500239e348e01027b65982f5792ea0"
-  },
-  "DrawVerify.Core/Configuration/DocumentTemplateConfiguration.cs": {
+  "src/DrawVerify.Core/Configuration/DocumentTemplateConfiguration.cs": {
     "mtime": 1787225832.1542866,
     "ast_hash": "d026ae3cfe4c50e98311ec51b6fd5904",
-    "semantic_hash": "d026ae3cfe4c50e98311ec51b6fd5904"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Configuration/WorkflowConfiguration.cs": {
+  "src/DrawVerify.Core/Configuration/WorkflowConfiguration.cs": {
     "mtime": 1787225831.8262866,
     "ast_hash": "b419b74421e3387b0edd9abaa11c7b93",
-    "semantic_hash": "b419b74421e3387b0edd9abaa11c7b93"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/DrawVerify.Core.csproj": {
+  "src/DrawVerify.Core/DrawVerify.Core.csproj": {
     "mtime": 1787225813.4142852,
     "ast_hash": "ffd6711ff6a6476c2b13fcd8862730ce",
-    "semantic_hash": "ffd6711ff6a6476c2b13fcd8862730ce"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Enums/DocumentStatus.cs": {
+  "src/DrawVerify.Core/Enums/DocumentStatus.cs": {
     "mtime": 1787225819.3262856,
     "ast_hash": "bc0439d6564c1a8f49a3bd2a8ad2b707",
-    "semantic_hash": "bc0439d6564c1a8f49a3bd2a8ad2b707"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Enums/GdtControlType.cs": {
+  "src/DrawVerify.Core/Enums/GdtControlType.cs": {
     "mtime": 1787225820.3422859,
     "ast_hash": "6b98e89d12b29a982b8a5df1da5a38cd",
-    "semantic_hash": "6b98e89d12b29a982b8a5df1da5a38cd"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Enums/VerificationStatus.cs": {
+  "src/DrawVerify.Core/Enums/VerificationStatus.cs": {
     "mtime": 1787225819.6582856,
     "ast_hash": "5a246558c70d8d065f82b11cb198aa51",
-    "semantic_hash": "5a246558c70d8d065f82b11cb198aa51"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Enums/WorkflowStep.cs": {
+  "src/DrawVerify.Core/Enums/WorkflowStep.cs": {
     "mtime": 1787225820.0022857,
     "ast_hash": "907861221be2a64fffc1d3c7b0390e0d",
-    "semantic_hash": "907861221be2a64fffc1d3c7b0390e0d"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Exceptions/DocumentNotFoundException.cs": {
+  "src/DrawVerify.Core/Exceptions/DocumentNotFoundException.cs": {
     "mtime": 1787225834.3022866,
     "ast_hash": "b84a68be3d3b6d3b1f29b62f47db5e0f",
-    "semantic_hash": "b84a68be3d3b6d3b1f29b62f47db5e0f"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Exceptions/VerificationException.cs": {
+  "src/DrawVerify.Core/Exceptions/VerificationException.cs": {
     "mtime": 1787225833.3302867,
     "ast_hash": "394c67b0ae0edcee0854bd2aa8564eba",
-    "semantic_hash": "394c67b0ae0edcee0854bd2aa8564eba"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Exceptions/WorkflowException.cs": {
+  "src/DrawVerify.Core/Exceptions/WorkflowException.cs": {
     "mtime": 1787225833.6302867,
     "ast_hash": "55aef5db6a9bcf5782d077874af2ede3",
-    "semantic_hash": "55aef5db6a9bcf5782d077874af2ede3"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Interfaces/IAuditLogger.cs": {
+  "src/DrawVerify.Core/Interfaces/IAuditLogger.cs": {
     "mtime": 1787225824.794286,
     "ast_hash": "a982a316ba26c00ba493a40fe18f9105",
-    "semantic_hash": "a982a316ba26c00ba493a40fe18f9105"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Interfaces/IAuthenticationService.cs": {
+  "src/DrawVerify.Core/Interfaces/IAuthenticationService.cs": {
     "mtime": 1787225823.202286,
     "ast_hash": "cf6d04eb9f183aa0dbade5ecce9c620c",
-    "semantic_hash": "cf6d04eb9f183aa0dbade5ecce9c620c"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Interfaces/IDataProtectionService.cs": {
+  "src/DrawVerify.Core/Interfaces/IDataProtectionService.cs": {
     "mtime": 1787225824.326286,
     "ast_hash": "ac7c52288fb55aaaec73a5c6aa6c6468",
-    "semantic_hash": "ac7c52288fb55aaaec73a5c6aa6c6468"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Interfaces/IDocumentRepository.cs": {
+  "src/DrawVerify.Core/Interfaces/IDocumentRepository.cs": {
     "mtime": 1787225820.8262858,
     "ast_hash": "2714579b451038b89cded085675566ea",
-    "semantic_hash": "2714579b451038b89cded085675566ea"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Interfaces/IGeometryService.cs": {
+  "src/DrawVerify.Core/Interfaces/IGeometryService.cs": {
     "mtime": 1787225825.5622861,
     "ast_hash": "e4876a561e259a1e8728b81c0adc2568",
-    "semantic_hash": "e4876a561e259a1e8728b81c0adc2568"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Interfaces/INotificationService.cs": {
+  "src/DrawVerify.Core/Interfaces/INotificationService.cs": {
     "mtime": 1787225823.666286,
     "ast_hash": "5a870212b0816ce82f2452d1ce2fcdc2",
-    "semantic_hash": "5a870212b0816ce82f2452d1ce2fcdc2"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Interfaces/IReportGenerator.cs": {
+  "src/DrawVerify.Core/Interfaces/IReportGenerator.cs": {
     "mtime": 1787225822.318286,
     "ast_hash": "84dccfcfb5574d0ec44c6f371fd600bb",
-    "semantic_hash": "84dccfcfb5574d0ec44c6f371fd600bb"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Interfaces/ISignatureService.cs": {
+  "src/DrawVerify.Core/Interfaces/ISignatureService.cs": {
     "mtime": 1787225822.778286,
     "ast_hash": "c17683801086537153705449b85f3655",
-    "semantic_hash": "c17683801086537153705449b85f3655"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Interfaces/IVerificationService.cs": {
+  "src/DrawVerify.Core/Interfaces/IVerificationService.cs": {
     "mtime": 1787225821.8662858,
     "ast_hash": "e869fedbf3dafc2ff5302c50041cb333",
-    "semantic_hash": "e869fedbf3dafc2ff5302c50041cb333"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Interfaces/IWorkflowService.cs": {
+  "src/DrawVerify.Core/Interfaces/IWorkflowService.cs": {
     "mtime": 1787225821.3302858,
     "ast_hash": "8863c554ed240fd6a022b6868e6920b8",
-    "semantic_hash": "8863c554ed240fd6a022b6868e6920b8"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Models/AuditEntry.cs": {
+  "src/DrawVerify.Core/Models/AuditEntry.cs": {
     "mtime": 1787225817.0622854,
     "ast_hash": "9a265ae28ace0b3ed1a6c23b9d8753d6",
-    "semantic_hash": "9a265ae28ace0b3ed1a6c23b9d8753d6"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Models/DimensionResult.cs": {
+  "src/DrawVerify.Core/Models/DimensionResult.cs": {
     "mtime": 1787225815.2342854,
     "ast_hash": "f6752e93ae6ee067a4b3fc430a4f02e0",
-    "semantic_hash": "f6752e93ae6ee067a4b3fc430a4f02e0"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Models/Document.cs": {
+  "src/DrawVerify.Core/Models/Document.cs": {
     "mtime": 1787225813.6942854,
     "ast_hash": "9104fca3c8f1312bcf57f0968ea983df",
-    "semantic_hash": "9104fca3c8f1312bcf57f0968ea983df"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Models/DocumentVersion.cs": {
+  "src/DrawVerify.Core/Models/DocumentVersion.cs": {
     "mtime": 1787225814.0022852,
     "ast_hash": "2b54d64730f656e4160790d55aa87f8a",
-    "semantic_hash": "2b54d64730f656e4160790d55aa87f8a"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Models/DrawingDocument.cs": {
+  "src/DrawVerify.Core/Models/DrawingDocument.cs": {
     "mtime": 1787225814.3062854,
     "ast_hash": "80c28ac5dcc3440a529ee98bbb117f48",
-    "semantic_hash": "80c28ac5dcc3440a529ee98bbb117f48"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Models/GdtResult.cs": {
+  "src/DrawVerify.Core/Models/GdtResult.cs": {
     "mtime": 1787225815.5382855,
     "ast_hash": "8a6809c9b9254a6ac4d87a8c4eac79cf",
-    "semantic_hash": "8a6809c9b9254a6ac4d87a8c4eac79cf"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Models/Role.cs": {
+  "src/DrawVerify.Core/Models/Role.cs": {
     "mtime": 1787225816.7822855,
     "ast_hash": "9516b5ef4945a40825f4212f9c800790",
-    "semantic_hash": "9516b5ef4945a40825f4212f9c800790"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Models/User.cs": {
+  "src/DrawVerify.Core/Models/User.cs": {
     "mtime": 1787225816.4582856,
     "ast_hash": "91af2cb641ef5c3362b966242a927714",
-    "semantic_hash": "91af2cb641ef5c3362b966242a927714"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Models/VerificationReport.cs": {
+  "src/DrawVerify.Core/Models/VerificationReport.cs": {
     "mtime": 1787225814.6262853,
     "ast_hash": "bcd6834c1644c1b1c8afe4e2f6047036",
-    "semantic_hash": "bcd6834c1644c1b1c8afe4e2f6047036"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Models/VerificationResult.cs": {
+  "src/DrawVerify.Core/Models/VerificationResult.cs": {
     "mtime": 1787225814.9302855,
     "ast_hash": "9fd2eda4cd8ceb431089c1e73b7fb060",
-    "semantic_hash": "9fd2eda4cd8ceb431089c1e73b7fb060"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Models/WorkflowAction.cs": {
+  "src/DrawVerify.Core/Models/WorkflowAction.cs": {
     "mtime": 1787225816.1662855,
     "ast_hash": "9caad91240bc19b4080219c010eeea11",
-    "semantic_hash": "9caad91240bc19b4080219c010eeea11"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/Models/WorkflowState.cs": {
+  "src/DrawVerify.Core/Models/WorkflowState.cs": {
     "mtime": 1787225815.8502855,
     "ast_hash": "a91052f89a80c89d773fef6b33ae7893",
-    "semantic_hash": "a91052f89a80c89d773fef6b33ae7893"
+    "semantic_hash": ""
   },
-  "DrawVerify.Core/obj/Debug/net8.0/.NETCoreApp,Version=v8.0.AssemblyAttributes.cs": {
-    "mtime": 1787226446.4104974,
-    "ast_hash": "bdad2027e716340f0ce100f8bf692fbc",
-    "semantic_hash": "bdad2027e716340f0ce100f8bf692fbc"
-  },
-  "DrawVerify.Core/obj/Debug/net8.0/DrawVerify.Core.AssemblyInfo.cs": {
-    "mtime": 1787226446.4422555,
-    "ast_hash": "433c40fa5095b5394c71627f396c7db8",
-    "semantic_hash": "433c40fa5095b5394c71627f396c7db8"
-  },
-  "DrawVerify.Core/obj/Debug/net8.0/DrawVerify.Core.GlobalUsings.g.cs": {
-    "mtime": 1787226446.2542555,
-    "ast_hash": "70500239e348e01027b65982f5792ea0",
-    "semantic_hash": "70500239e348e01027b65982f5792ea0"
-  },
-  "DrawVerify.Core/obj/Debug/net9.0/.NETCoreApp,Version=v9.0.AssemblyAttributes.cs": {
-    "mtime": 1787226981.8246996,
-    "ast_hash": "fd801a357dfe19eecb7abbc33dccc147",
-    "semantic_hash": "fd801a357dfe19eecb7abbc33dccc147"
-  },
-  "DrawVerify.Core/obj/Debug/net9.0/DrawVerify.Core.AssemblyInfo.cs": {
-    "mtime": 1787226981.8327854,
-    "ast_hash": "433c40fa5095b5394c71627f396c7db8",
-    "semantic_hash": "433c40fa5095b5394c71627f396c7db8"
-  },
-  "DrawVerify.Core/obj/Debug/net9.0/DrawVerify.Core.GlobalUsings.g.cs": {
-    "mtime": 1787226981.7737956,
-    "ast_hash": "70500239e348e01027b65982f5792ea0",
-    "semantic_hash": "70500239e348e01027b65982f5792ea0"
-  },
-  "DrawVerify.Geometry/DrawVerify.Geometry.csproj": {
+  "src/DrawVerify.Geometry/DrawVerify.Geometry.csproj": {
     "mtime": 1787225874.862273,
     "ast_hash": "bd1dde51a560cb1abe060e4bc43a6817",
-    "semantic_hash": "bd1dde51a560cb1abe060e4bc43a6817"
+    "semantic_hash": ""
   },
-  "DrawVerify.Geometry/Enums/GeometryType.cs": {
+  "src/DrawVerify.Geometry/Enums/GeometryType.cs": {
     "mtime": 1787225878.6702704,
     "ast_hash": "10836893448af8ffef86f1ba8f482ffc",
-    "semantic_hash": "10836893448af8ffef86f1ba8f482ffc"
+    "semantic_hash": ""
   },
-  "DrawVerify.Geometry/IGeometryService.cs": {
+  "src/DrawVerify.Geometry/IGeometryService.cs": {
     "mtime": 1787225875.8382723,
     "ast_hash": "65cec5a613ce6191c97c553b1faa17c9",
-    "semantic_hash": "65cec5a613ce6191c97c553b1faa17c9"
+    "semantic_hash": ""
   },
-  "DrawVerify.Geometry/Models/BoundingBox.cs": {
+  "src/DrawVerify.Geometry/Models/BoundingBox.cs": {
     "mtime": 1787225877.6142712,
     "ast_hash": "34d6f96d3d49c2bd8f34ece63600e8f6",
-    "semantic_hash": "34d6f96d3d49c2bd8f34ece63600e8f6"
+    "semantic_hash": ""
   },
-  "DrawVerify.Geometry/Models/DimensionData.cs": {
+  "src/DrawVerify.Geometry/Models/DimensionData.cs": {
     "mtime": 1787225877.1182714,
     "ast_hash": "d5f4f82ea6db90ae5c2754fa84bed09b",
-    "semantic_hash": "d5f4f82ea6db90ae5c2754fa84bed09b"
+    "semantic_hash": ""
   },
-  "DrawVerify.Geometry/Models/FeatureData.cs": {
+  "src/DrawVerify.Geometry/Models/FeatureData.cs": {
     "mtime": 1787225878.4942706,
     "ast_hash": "a3e4888f369efae5a3ae3473a05d4a8a",
-    "semantic_hash": "a3e4888f369efae5a3ae3473a05d4a8a"
+    "semantic_hash": ""
   },
-  "DrawVerify.Geometry/Models/GeometryData.cs": {
+  "src/DrawVerify.Geometry/Models/GeometryData.cs": {
     "mtime": 1787225876.502272,
     "ast_hash": "b3a515bd26f642d94b5273024fe54133",
-    "semantic_hash": "b3a515bd26f642d94b5273024fe54133"
+    "semantic_hash": ""
   },
-  "DrawVerify.Geometry/obj/Debug/net8.0/.NETCoreApp,Version=v8.0.AssemblyAttributes.cs": {
-    "mtime": 1787226449.4541416,
-    "ast_hash": "bdad2027e716340f0ce100f8bf692fbc",
-    "semantic_hash": "bdad2027e716340f0ce100f8bf692fbc"
-  },
-  "DrawVerify.Geometry/obj/Debug/net8.0/DrawVerify.Geometry.AssemblyInfo.cs": {
-    "mtime": 1787226449.4982555,
-    "ast_hash": "e287da378e3c6c1471bff9eff587c343",
-    "semantic_hash": "e287da378e3c6c1471bff9eff587c343"
-  },
-  "DrawVerify.Geometry/obj/Debug/net8.0/DrawVerify.Geometry.GlobalUsings.g.cs": {
-    "mtime": 1787226446.2302554,
-    "ast_hash": "70500239e348e01027b65982f5792ea0",
-    "semantic_hash": "70500239e348e01027b65982f5792ea0"
-  },
-  "DrawVerify.Geometry/obj/Debug/net9.0/.NETCoreApp,Version=v9.0.AssemblyAttributes.cs": {
-    "mtime": 1787226981.9095907,
-    "ast_hash": "fd801a357dfe19eecb7abbc33dccc147",
-    "semantic_hash": "fd801a357dfe19eecb7abbc33dccc147"
-  },
-  "DrawVerify.Geometry/obj/Debug/net9.0/DrawVerify.Geometry.AssemblyInfo.cs": {
-    "mtime": 1787226981.914184,
-    "ast_hash": "e287da378e3c6c1471bff9eff587c343",
-    "semantic_hash": "e287da378e3c6c1471bff9eff587c343"
-  },
-  "DrawVerify.Geometry/obj/Debug/net9.0/DrawVerify.Geometry.GlobalUsings.g.cs": {
-    "mtime": 1787226981.7684522,
-    "ast_hash": "70500239e348e01027b65982f5792ea0",
-    "semantic_hash": "70500239e348e01027b65982f5792ea0"
-  },
-  "DrawVerify.Infrastructure/DataProtection/AesDataProtectionService.cs": {
+  "src/DrawVerify.Infrastructure/DataProtection/AesDataProtectionService.cs": {
     "mtime": 1787225857.9822881,
     "ast_hash": "f31258697bd50f1305fc5bbf78b41efd",
-    "semantic_hash": "f31258697bd50f1305fc5bbf78b41efd"
+    "semantic_hash": ""
   },
-  "DrawVerify.Infrastructure/DataProtection/KeyProvider.cs": {
+  "src/DrawVerify.Infrastructure/DataProtection/KeyProvider.cs": {
     "mtime": 1787225858.6822882,
     "ast_hash": "7e6a506fd562f18934ba64a691b5c857",
-    "semantic_hash": "7e6a506fd562f18934ba64a691b5c857"
+    "semantic_hash": ""
   },
-  "DrawVerify.Infrastructure/DrawVerify.Infrastructure.csproj": {
+  "src/DrawVerify.Infrastructure/DrawVerify.Infrastructure.csproj": {
     "mtime": 1787225855.162288,
     "ast_hash": "37f07bac4d6f46bd7bb98b0e7afefca3",
-    "semantic_hash": "37f07bac4d6f46bd7bb98b0e7afefca3"
+    "semantic_hash": ""
   },
-  "DrawVerify.Infrastructure/FileStorage/DocumentFileStore.cs": {
+  "src/DrawVerify.Infrastructure/FileStorage/DocumentFileStore.cs": {
     "mtime": 1787225859.7742858,
     "ast_hash": "ab1c715af2550c2e9839468cfdefaecc",
-    "semantic_hash": "ab1c715af2550c2e9839468cfdefaecc"
+    "semantic_hash": ""
   },
-  "DrawVerify.Infrastructure/FileStorage/LocalFileStorageService.cs": {
+  "src/DrawVerify.Infrastructure/FileStorage/LocalFileStorageService.cs": {
     "mtime": 1787225859.2502868,
     "ast_hash": "6a260dbc9285407d3d4cd75d0101808a",
-    "semantic_hash": "6a260dbc9285407d3d4cd75d0101808a"
+    "semantic_hash": ""
   },
-  "DrawVerify.Infrastructure/Logging/CentralizedLogger.cs": {
+  "src/DrawVerify.Infrastructure/Logging/CentralizedLogger.cs": {
     "mtime": 1787225862.9902785,
     "ast_hash": "2510420d241197672234b658c9f4e71e",
-    "semantic_hash": "2510420d241197672234b658c9f4e71e"
+    "semantic_hash": ""
   },
-  "DrawVerify.Infrastructure/Logging/LogEntry.cs": {
+  "src/DrawVerify.Infrastructure/Logging/LogEntry.cs": {
     "mtime": 1787225863.4702783,
     "ast_hash": "1801f9c844945b61f6ccb5b9882f2437",
-    "semantic_hash": "1801f9c844945b61f6ccb5b9882f2437"
+    "semantic_hash": ""
   },
-  "DrawVerify.Infrastructure/Notifications/InAppNotificationService.cs": {
+  "src/DrawVerify.Infrastructure/Notifications/InAppNotificationService.cs": {
     "mtime": 1787225862.4462798,
     "ast_hash": "92a34bebd5b1cd5599e95c71d0456b0b",
-    "semantic_hash": "92a34bebd5b1cd5599e95c71d0456b0b"
+    "semantic_hash": ""
   },
-  "DrawVerify.Infrastructure/Pdf/PdfDocumentBuilder.cs": {
+  "src/DrawVerify.Infrastructure/Pdf/PdfDocumentBuilder.cs": {
     "mtime": 1787225860.7742834,
     "ast_hash": "c5663620ed7bc2896b371553366bc1e9",
-    "semantic_hash": "c5663620ed7bc2896b371553366bc1e9"
+    "semantic_hash": ""
   },
-  "DrawVerify.Infrastructure/Pdf/PdfReportGenerator.cs": {
+  "src/DrawVerify.Infrastructure/Pdf/PdfReportGenerator.cs": {
     "mtime": 1787225860.2982845,
     "ast_hash": "af78a0519c64f1b9143b1bdb08842c57",
-    "semantic_hash": "af78a0519c64f1b9143b1bdb08842c57"
+    "semantic_hash": ""
   },
-  "DrawVerify.Infrastructure/Persistence/SqliteAuditRepository.cs": {
+  "src/DrawVerify.Infrastructure/Persistence/SqliteAuditRepository.cs": {
     "mtime": 1787225857.3222883,
     "ast_hash": "b1226d8ae0558fdca5390686c0fbc6ea",
-    "semantic_hash": "b1226d8ae0558fdca5390686c0fbc6ea"
+    "semantic_hash": ""
   },
-  "DrawVerify.Infrastructure/Persistence/SqliteDocumentRepository.cs": {
+  "src/DrawVerify.Infrastructure/Persistence/SqliteDocumentRepository.cs": {
     "mtime": 1787225855.7742882,
     "ast_hash": "4686f447054e6e82d0523edc0debf011",
-    "semantic_hash": "4686f447054e6e82d0523edc0debf011"
+    "semantic_hash": ""
   },
-  "DrawVerify.Infrastructure/Persistence/SqliteUserRepository.cs": {
+  "src/DrawVerify.Infrastructure/Persistence/SqliteUserRepository.cs": {
     "mtime": 1787225856.9782882,
     "ast_hash": "fd385063714f1c8ee1bc33e5e4bd9897",
-    "semantic_hash": "fd385063714f1c8ee1bc33e5e4bd9897"
+    "semantic_hash": ""
   },
-  "DrawVerify.Infrastructure/Persistence/SqliteWorkflowRepository.cs": {
+  "src/DrawVerify.Infrastructure/Persistence/SqliteWorkflowRepository.cs": {
     "mtime": 1787225856.282288,
     "ast_hash": "fcc3d821bea8d014f09a39d7c7c687f6",
-    "semantic_hash": "fcc3d821bea8d014f09a39d7c7c687f6"
+    "semantic_hash": ""
   },
-  "DrawVerify.Infrastructure/Signatures/SignatureStampService.cs": {
+  "src/DrawVerify.Infrastructure/Signatures/SignatureStampService.cs": {
     "mtime": 1787225861.9582808,
     "ast_hash": "198acbb948ef83168471bf69b35b6b22",
-    "semantic_hash": "198acbb948ef83168471bf69b35b6b22"
+    "semantic_hash": ""
   },
-  "DrawVerify.Infrastructure/Signatures/X509SignatureService.cs": {
+  "src/DrawVerify.Infrastructure/Signatures/X509SignatureService.cs": {
     "mtime": 1787225861.3302822,
     "ast_hash": "d9beea2380afa145ce99adc48d6f59c1",
-    "semantic_hash": "d9beea2380afa145ce99adc48d6f59c1"
+    "semantic_hash": ""
   },
-  "DrawVerify.Infrastructure/obj/Debug/net8.0/.NETCoreApp,Version=v8.0.AssemblyAttributes.cs": {
-    "mtime": 1787226813.2838385,
-    "ast_hash": "b35d66657a259714f6d50974a720b5fa",
-    "semantic_hash": "b35d66657a259714f6d50974a720b5fa"
-  },
-  "DrawVerify.Infrastructure/obj/Debug/net8.0/DrawVerify.Infrastructure.AssemblyInfo.cs": {
-    "mtime": 1787226813.3022444,
-    "ast_hash": "5ed0d175fd1eeb972ffb1449d9a0e842",
-    "semantic_hash": "5ed0d175fd1eeb972ffb1449d9a0e842"
-  },
-  "DrawVerify.Infrastructure/obj/Debug/net8.0/DrawVerify.Infrastructure.GlobalUsings.g.cs": {
-    "mtime": 1787226813.2608123,
-    "ast_hash": "70500239e348e01027b65982f5792ea0",
-    "semantic_hash": "70500239e348e01027b65982f5792ea0"
-  },
-  "DrawVerify.Infrastructure/obj/Debug/net9.0/.NETCoreApp,Version=v9.0.AssemblyAttributes.cs": {
-    "mtime": 1787226981.6316197,
-    "ast_hash": "fd801a357dfe19eecb7abbc33dccc147",
-    "semantic_hash": "fd801a357dfe19eecb7abbc33dccc147"
-  },
-  "DrawVerify.Infrastructure/obj/Debug/net9.0/DrawVerify.Infrastructure.AssemblyInfo.cs": {
-    "mtime": 1787226981.641094,
-    "ast_hash": "5ed0d175fd1eeb972ffb1449d9a0e842",
-    "semantic_hash": "5ed0d175fd1eeb972ffb1449d9a0e842"
-  },
-  "DrawVerify.Infrastructure/obj/Debug/net9.0/DrawVerify.Infrastructure.GlobalUsings.g.cs": {
-    "mtime": 1787226981.5265076,
-    "ast_hash": "70500239e348e01027b65982f5792ea0",
-    "semantic_hash": "70500239e348e01027b65982f5792ea0"
-  },
-  "DrawVerify.OcctService/DrawVerify.OcctService.csproj": {
+  "src/DrawVerify.OcctService/DrawVerify.OcctService.csproj": {
     "mtime": 1787225879.76227,
     "ast_hash": "dc9fd7341b58e718a5987bc10fbba5d3",
-    "semantic_hash": "dc9fd7341b58e718a5987bc10fbba5d3"
+    "semantic_hash": ""
   },
-  "DrawVerify.OcctService/Mapping/OcctToGeometryMapper.cs": {
+  "src/DrawVerify.OcctService/Mapping/OcctToGeometryMapper.cs": {
     "mtime": 1787225881.4062698,
     "ast_hash": "0f4fa9dab2678bb526d7ff7c620c9a14",
-    "semantic_hash": "0f4fa9dab2678bb526d7ff7c620c9a14"
+    "semantic_hash": ""
   },
-  "DrawVerify.OcctService/NativeResourceTracker.cs": {
+  "src/DrawVerify.OcctService/NativeResourceTracker.cs": {
     "mtime": 1787225881.9502697,
     "ast_hash": "8d22909f36cc00eab2fbcfbca62c61ee",
-    "semantic_hash": "8d22909f36cc00eab2fbcfbca62c61ee"
+    "semantic_hash": ""
   },
-  "DrawVerify.OcctService/OcctGeometryService.cs": {
+  "src/DrawVerify.OcctService/OcctGeometryService.cs": {
     "mtime": 1787225880.43027,
     "ast_hash": "5c36647a431ff17f2ca05d31523a9893",
-    "semantic_hash": "5c36647a431ff17f2ca05d31523a9893"
+    "semantic_hash": ""
   },
-  "DrawVerify.OcctService/SafeHandles/OcctShapeSafeHandle.cs": {
+  "src/DrawVerify.OcctService/SafeHandles/OcctShapeSafeHandle.cs": {
     "mtime": 1787225882.93027,
     "ast_hash": "7662224ee89b0dc8508c9306fee75d24",
-    "semantic_hash": "7662224ee89b0dc8508c9306fee75d24"
+    "semantic_hash": ""
   },
-  "DrawVerify.OcctService/SafeHandles/OcctStepReaderSafeHandle.cs": {
+  "src/DrawVerify.OcctService/SafeHandles/OcctStepReaderSafeHandle.cs": {
     "mtime": 1787225883.8702705,
     "ast_hash": "7e1ebe4dae6050cd6e1edccf156c32fe",
-    "semantic_hash": "7e1ebe4dae6050cd6e1edccf156c32fe"
+    "semantic_hash": ""
   },
-  "DrawVerify.OcctService/obj/Debug/net8.0/.NETCoreApp,Version=v8.0.AssemblyAttributes.cs": {
-    "mtime": 1787226449.805461,
-    "ast_hash": "bdad2027e716340f0ce100f8bf692fbc",
-    "semantic_hash": "bdad2027e716340f0ce100f8bf692fbc"
-  },
-  "DrawVerify.OcctService/obj/Debug/net8.0/DrawVerify.OcctService.AssemblyInfo.cs": {
-    "mtime": 1787226449.8182554,
-    "ast_hash": "79d38616997492f87549755ea7cd929a",
-    "semantic_hash": "79d38616997492f87549755ea7cd929a"
-  },
-  "DrawVerify.OcctService/obj/Debug/net8.0/DrawVerify.OcctService.GlobalUsings.g.cs": {
-    "mtime": 1787226445.0022554,
-    "ast_hash": "70500239e348e01027b65982f5792ea0",
-    "semantic_hash": "70500239e348e01027b65982f5792ea0"
-  },
-  "DrawVerify.OcctService/obj/Debug/net9.0/.NETCoreApp,Version=v9.0.AssemblyAttributes.cs": {
-    "mtime": 1787226981.970522,
-    "ast_hash": "fd801a357dfe19eecb7abbc33dccc147",
-    "semantic_hash": "fd801a357dfe19eecb7abbc33dccc147"
-  },
-  "DrawVerify.OcctService/obj/Debug/net9.0/DrawVerify.OcctService.AssemblyInfo.cs": {
-    "mtime": 1787226981.9904768,
-    "ast_hash": "79d38616997492f87549755ea7cd929a",
-    "semantic_hash": "79d38616997492f87549755ea7cd929a"
-  },
-  "DrawVerify.OcctService/obj/Debug/net9.0/DrawVerify.OcctService.GlobalUsings.g.cs": {
-    "mtime": 1787226981.7900507,
-    "ast_hash": "70500239e348e01027b65982f5792ea0",
-    "semantic_hash": "70500239e348e01027b65982f5792ea0"
-  },
-  "DrawVerify.OcctWrapper/DrawVerify.OcctWrapper.csproj": {
+  "src/DrawVerify.OcctWrapper/DrawVerify.OcctWrapper.csproj": {
     "mtime": 1787225884.650271,
     "ast_hash": "9b4de40a33834c0f2854b906b56cabbc",
-    "semantic_hash": "9b4de40a33834c0f2854b906b56cabbc"
+    "semantic_hash": ""
   },
-  "DrawVerify.OcctWrapper/obj/Debug/net8.0/.NETCoreApp,Version=v8.0.AssemblyAttributes.cs": {
-    "mtime": 1787226446.3688495,
-    "ast_hash": "bdad2027e716340f0ce100f8bf692fbc",
-    "semantic_hash": "bdad2027e716340f0ce100f8bf692fbc"
+  "tests/DrawVerify.Application.Tests/DimensionComparerTests.cs": {
+    "mtime": 1787225922.326275,
+    "ast_hash": "485bcfce63213af93df9e36fd8f3cdf2",
+    "semantic_hash": ""
   },
-  "DrawVerify.OcctWrapper/obj/Debug/net8.0/DrawVerify.OcctWrapper.AssemblyInfo.cs": {
-    "mtime": 1787226446.4062555,
-    "ast_hash": "5d47112a255e59f7d3c7021cb3150773",
-    "semantic_hash": "5d47112a255e59f7d3c7021cb3150773"
+  "tests/DrawVerify.Application.Tests/DrawVerify.Application.Tests.csproj": {
+    "mtime": 1787225914.5982752,
+    "ast_hash": "d71b84e44d67372b9f8fbb8dc6057e47",
+    "semantic_hash": ""
   },
-  "DrawVerify.OcctWrapper/obj/Debug/net8.0/DrawVerify.OcctWrapper.GlobalUsings.g.cs": {
-    "mtime": 1787226446.2022555,
-    "ast_hash": "70500239e348e01027b65982f5792ea0",
-    "semantic_hash": "70500239e348e01027b65982f5792ea0"
+  "tests/DrawVerify.Application.Tests/FingerprintServiceTests.cs": {
+    "mtime": 1787225924.978274,
+    "ast_hash": "b540af7681c477f4ed715663cc8688da",
+    "semantic_hash": ""
   },
-  "DrawVerify.OcctWrapper/obj/Debug/net9.0/.NETCoreApp,Version=v9.0.AssemblyAttributes.cs": {
-    "mtime": 1787226981.8389423,
-    "ast_hash": "fd801a357dfe19eecb7abbc33dccc147",
-    "semantic_hash": "fd801a357dfe19eecb7abbc33dccc147"
+  "tests/DrawVerify.Application.Tests/GdtValidatorTests.cs": {
+    "mtime": 1787225923.9782746,
+    "ast_hash": "ab7f2239a4d42496ee05fb62825e592e",
+    "semantic_hash": ""
   },
-  "DrawVerify.OcctWrapper/obj/Debug/net9.0/DrawVerify.OcctWrapper.AssemblyInfo.cs": {
-    "mtime": 1787226981.842873,
-    "ast_hash": "5d47112a255e59f7d3c7021cb3150773",
-    "semantic_hash": "5d47112a255e59f7d3c7021cb3150773"
+  "tests/DrawVerify.Application.Tests/MissingDimensionDetectorTests.cs": {
+    "mtime": 1787225923.7182746,
+    "ast_hash": "b877aa819b19e40691b9c1500c5ac635",
+    "semantic_hash": ""
   },
-  "DrawVerify.OcctWrapper/obj/Debug/net9.0/DrawVerify.OcctWrapper.GlobalUsings.g.cs": {
-    "mtime": 1787226981.799968,
-    "ast_hash": "70500239e348e01027b65982f5792ea0",
-    "semantic_hash": "70500239e348e01027b65982f5792ea0"
+  "tests/DrawVerify.Application.Tests/ToleranceComparerTests.cs": {
+    "mtime": 1787225923.5902748,
+    "ast_hash": "305fedd48fae2f44515d52a77c429d7a",
+    "semantic_hash": ""
+  },
+  "tests/DrawVerify.Application.Tests/VerificationServiceTests.cs": {
+    "mtime": 1787225921.8022752,
+    "ast_hash": "4be2ec2c8a79823485eaa0c62a1dbbbc",
+    "semantic_hash": ""
+  },
+  "tests/DrawVerify.Application.Tests/WorkflowServiceTests.cs": {
+    "mtime": 1787225924.4902744,
+    "ast_hash": "841224f554c6e6fd2b24b32248bfab2d",
+    "semantic_hash": ""
+  },
+  "tests/DrawVerify.Core.Tests/DrawVerify.Core.Tests.csproj": {
+    "mtime": 1787225912.8342748,
+    "ast_hash": "622088f2ff215d2e7fd0246daf961a98",
+    "semantic_hash": ""
+  },
+  "tests/DrawVerify.Geometry.Tests/DrawVerify.Geometry.Tests.csproj": {
+    "mtime": 1787225917.482275,
+    "ast_hash": "6c92458005897fce3e5e49706859acbc",
+    "semantic_hash": ""
+  },
+  "tests/DrawVerify.Geometry.Tests/MockGeometryServiceTests.cs": {
+    "mtime": 1787225927.4782732,
+    "ast_hash": "67fe727aecab870efc59fe47fce186a6",
+    "semantic_hash": ""
+  },
+  "tests/DrawVerify.Infrastructure.Tests/DataProtectionTests.cs": {
+    "mtime": 1787225926.2582736,
+    "ast_hash": "a39998585e56a7679a504df802a597f5",
+    "semantic_hash": ""
+  },
+  "tests/DrawVerify.Infrastructure.Tests/DrawVerify.Infrastructure.Tests.csproj": {
+    "mtime": 1787225915.774275,
+    "ast_hash": "a108cb23193e69c7f3219c65bc216f0b",
+    "semantic_hash": ""
+  },
+  "tests/DrawVerify.Infrastructure.Tests/PdfReportTests.cs": {
+    "mtime": 1787225927.0062733,
+    "ast_hash": "0cc39e75f563187a568e1322ed96afc0",
+    "semantic_hash": ""
+  },
+  "tests/DrawVerify.Infrastructure.Tests/SqliteRepositoryTests.cs": {
+    "mtime": 1787225925.5542738,
+    "ast_hash": "9cdc3987b633e870d45da06ffb57a738",
+    "semantic_hash": ""
+  },
+  "tests/DrawVerify.OcctService.Tests/DrawVerify.OcctService.Tests.csproj": {
+    "mtime": 1787225918.6902752,
+    "ast_hash": "bedd5f3fb86309fcbefd40bb02e9ded1",
+    "semantic_hash": ""
+  },
+  "tests/DrawVerify.OcctService.Tests/OcctGeometryServiceTests.cs": {
+    "mtime": 1787225928.366273,
+    "ast_hash": "333fe03cfd2e8fbc970aecadb43136da",
+    "semantic_hash": ""
+  },
+  ".opencode/README.md": {
+    "mtime": 1787312972.7809043,
+    "ast_hash": "c43e32ff0f41d44ed8eb9f0e39d8afb8",
+    "semantic_hash": ""
+  },
+  ".opencode/skills/senior-engineer/SKILL.md": {
+    "mtime": 1786085512.527609,
+    "ast_hash": "109c0257058a6211e530f2cc5ecbd6ce",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Orchestrator/README.md": {
+    "mtime": 1787373749.7994268,
+    "ast_hash": "c5c45d1d5105dc0646e14b29078de5c4",
+    "semantic_hash": ""
+  },
+  ".pipeline/MIGRATION_TO_PIPELINE_ONLY.md": {
+    "mtime": 1787315031.069454,
+    "ast_hash": "64695d58337d5774205b843381910679",
+    "semantic_hash": ""
+  },
+  ".pipeline/README.md": {
+    "mtime": 1787392104.9728136,
+    "ast_hash": "9c4aec492bfcf7bd83d88a34d4e6b073",
+    "semantic_hash": ""
+  },
+  ".pipeline/agents/implementer.md": {
+    "mtime": 1787312878.7165685,
+    "ast_hash": "5de875802f83e1cd36e0b6b8601624cb",
+    "semantic_hash": ""
+  },
+  ".pipeline/agents/reviewer.md": {
+    "mtime": 1787312878.7165985,
+    "ast_hash": "08a8cf462c0ab0f76f9419c260e794fa",
+    "semantic_hash": ""
+  },
+  ".pipeline/agents/technical-designer.md": {
+    "mtime": 1787393320.8179433,
+    "ast_hash": "11d997de5fe63cd73dd1685a4d015b00",
+    "semantic_hash": ""
+  },
+  ".pipeline/agents/test-designer.md": {
+    "mtime": 1787312878.7166247,
+    "ast_hash": "7e2f6016af6ead664c381b9cb34ec122",
+    "semantic_hash": ""
+  },
+  ".pipeline/agents/verifier.md": {
+    "mtime": 1787312878.7166357,
+    "ast_hash": "756e8f00a1cce3361a73dd6edd40c1dc",
+    "semantic_hash": ""
+  },
+  ".pipeline/prompts/implementation.md": {
+    "mtime": 1787304881.135225,
+    "ast_hash": "0491321eb87dec8e338cfe0870d30b0a",
+    "semantic_hash": ""
+  },
+  ".pipeline/prompts/review.md": {
+    "mtime": 1787304881.1393802,
+    "ast_hash": "c8832095f7114281905df01d650e9f88",
+    "semantic_hash": ""
+  },
+  ".pipeline/prompts/system.md": {
+    "mtime": 1787383672.2596965,
+    "ast_hash": "a2508ad04e1de7cf6793216b08baeca4",
+    "semantic_hash": ""
+  },
+  ".pipeline/prompts/technical-design.md": {
+    "mtime": 1787384914.310037,
+    "ast_hash": "2a22a98a4b9829067573af9661e08e38",
+    "semantic_hash": ""
+  },
+  ".pipeline/prompts/test-design.md": {
+    "mtime": 1787379648.107273,
+    "ast_hash": "f2afb190bc6f16615f0c9291bf99b8b9",
+    "semantic_hash": ""
+  },
+  ".pipeline/prompts/verification.md": {
+    "mtime": 1787304881.1373076,
+    "ast_hash": "86274db6a57861435ff942a1011d20cd",
+    "semantic_hash": ""
+  },
+  "AGENTS.md": {
+    "mtime": 1787374179.9034176,
+    "ast_hash": "8f546da86fdff03f39671c866dd4c1bb",
+    "semantic_hash": ""
+  },
+  "LICENSE.txt": {
+    "mtime": 1787225789.6422837,
+    "ast_hash": "898335c75c5e3a39fd16ef4c42e63cb3",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1787225788.3982835,
+    "ast_hash": "55430b7aa02de432778870057f76c6a1",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/README.md": {
+    "mtime": 1787393929.144759,
+    "ast_hash": "705581ce08767dd681e6176c0bbf64e3",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/wwwroot/lib/jquery-validation-unobtrusive/LICENSE.txt": {
+    "mtime": 1787311870.7278972,
+    "ast_hash": "ba2bed45d99b13d4c31485d0631ae675",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/wwwroot/lib/jquery-validation/LICENSE.md": {
+    "mtime": 1787311870.727604,
+    "ast_hash": "41ef1b919db5e3aeaf47308518e7bcee",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/wwwroot/lib/jquery/LICENSE.txt": {
+    "mtime": 1787311870.7272353,
+    "ast_hash": "f661402a551136dbe74282edc5bea28d",
+    "semantic_hash": ""
+  },
+  "docs/architecture.md": {
+    "mtime": 1787228699.889033,
+    "ast_hash": "77ade16974043f8758d6ae9a26094dbb",
+    "semantic_hash": ""
+  },
+  "docs/deployment.md": {
+    "mtime": 1787226426.2102537,
+    "ast_hash": "3e89b5fb91d89b124a93a646e9ff4a28",
+    "semantic_hash": ""
+  },
+  "docs/engineering-rules.md": {
+    "mtime": 1787226426.2102537,
+    "ast_hash": "003d3d1056b7038957e341101f49a98a",
+    "semantic_hash": ""
+  },
+  "docs/fingerprint-policy.md": {
+    "mtime": 1787226426.2102537,
+    "ast_hash": "dada76a39c00b267508286e06d8bdd6a",
+    "semantic_hash": ""
+  },
+  "docs/gdt-subset.md": {
+    "mtime": 1787226426.2102537,
+    "ast_hash": "65affe81468234c33419294f02321668",
+    "semantic_hash": ""
+  },
+  "docs/lgpl-compliance.md": {
+    "mtime": 1787226426.2102537,
+    "ast_hash": "f0b7e1a906bce91102473bb8b11936f0",
+    "semantic_hash": ""
+  },
+  "native/CMakeLists.txt": {
+    "mtime": 1787225899.3942726,
+    "ast_hash": "697f6ddcf52e5ca946644d21f9d18c76",
+    "semantic_hash": ""
+  },
+  "src/DrawVerify.OcctWrapper/README.md": {
+    "mtime": 1787225886.586272,
+    "ast_hash": "4a216c1655d3f1c47719dfc1a52c6ec3",
+    "semantic_hash": ""
+  },
+  "control-plane/run.sh": {
+    "mtime": 1787317743.0480034,
+    "ast_hash": "f5f4600afbd917e8fc8dcf1d43802f33",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Migrations/20260821171539_InitialCreate.Designer.cs": {
+    "mtime": 1787332539.4430447,
+    "ast_hash": "3cc1b3f07925184a2c38bd68387b9570",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Migrations/20260821171539_InitialCreate.cs": {
+    "mtime": 1787332539.4367938,
+    "ast_hash": "8d3a3adae8e1149a79b840d91f86b8a0",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Migrations/20260821171629_FixScheduledAtFormat.Designer.cs": {
+    "mtime": 1787332589.0747228,
+    "ast_hash": "5458d54e4aa99c07c8b19d1536c57996",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Migrations/20260821171629_FixScheduledAtFormat.cs": {
+    "mtime": 1787332589.0742655,
+    "ast_hash": "8c114beaefa8312519658fac7e453167",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/Migrations/PipelineDbContextModelSnapshot.cs": {
+    "mtime": 1787332589.0754695,
+    "ast_hash": "a6e16514b519442971524a833553fbb9",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/.pipeline/schemas/implementation-result.schema.json": {
+    "mtime": 1787373687.7157114,
+    "ast_hash": "870499362330e9572b4ee36eff300ab3",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/.pipeline/schemas/review-result.schema.json": {
+    "mtime": 1787373687.7158186,
+    "ast_hash": "ae4d2c4b6f77b71a3ad85441e54ff0a0",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/.pipeline/schemas/technical-design.schema.json": {
+    "mtime": 1787373687.71584,
+    "ast_hash": "e72c6b0d909e299e6c4613f7afb0ea91",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/.pipeline/schemas/test-design.schema.json": {
+    "mtime": 1787373687.715918,
+    "ast_hash": "3f843d29cc8a4457f41d314d7fc4adea",
+    "semantic_hash": ""
+  },
+  ".opencode/agents/implementer.md": {
+    "mtime": 1787373882.6598973,
+    "ast_hash": "5de875802f83e1cd36e0b6b8601624cb",
+    "semantic_hash": ""
+  },
+  ".opencode/agents/reviewer.md": {
+    "mtime": 1787373882.6599672,
+    "ast_hash": "08a8cf462c0ab0f76f9419c260e794fa",
+    "semantic_hash": ""
+  },
+  ".opencode/agents/technical-designer.md": {
+    "mtime": 1787384902.6083508,
+    "ast_hash": "eb1c117ed676a1575d8620a57913c07f",
+    "semantic_hash": ""
+  },
+  ".opencode/agents/test-designer.md": {
+    "mtime": 1787373882.6600263,
+    "ast_hash": "7e2f6016af6ead664c381b9cb34ec122",
+    "semantic_hash": ""
+  },
+  ".opencode/agents/verifier.md": {
+    "mtime": 1787373882.6600564,
+    "ast_hash": "756e8f00a1cce3361a73dd6edd40c1dc",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/.opencode/agents/implementer.md": {
+    "mtime": 1787373882.6664789,
+    "ast_hash": "5de875802f83e1cd36e0b6b8601624cb",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/.opencode/agents/reviewer.md": {
+    "mtime": 1787373882.6665545,
+    "ast_hash": "08a8cf462c0ab0f76f9419c260e794fa",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/.opencode/agents/technical-designer.md": {
+    "mtime": 1787384920.8515542,
+    "ast_hash": "eb1c117ed676a1575d8620a57913c07f",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/.opencode/agents/test-designer.md": {
+    "mtime": 1787373882.6666143,
+    "ast_hash": "7e2f6016af6ead664c381b9cb34ec122",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/.opencode/agents/verifier.md": {
+    "mtime": 1787373882.6666257,
+    "ast_hash": "756e8f00a1cce3361a73dd6edd40c1dc",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/.pipeline/agents/implementer.md": {
+    "mtime": 1787373687.7186878,
+    "ast_hash": "5de875802f83e1cd36e0b6b8601624cb",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/.pipeline/agents/reviewer.md": {
+    "mtime": 1787373687.7187831,
+    "ast_hash": "08a8cf462c0ab0f76f9419c260e794fa",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/.pipeline/agents/technical-designer.md": {
+    "mtime": 1787373687.7188466,
+    "ast_hash": "354dc7f5ebc9c078f57122e7f1e9c4b9",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/.pipeline/agents/test-designer.md": {
+    "mtime": 1787373687.7189138,
+    "ast_hash": "7e2f6016af6ead664c381b9cb34ec122",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/.pipeline/agents/verifier.md": {
+    "mtime": 1787373687.7190068,
+    "ast_hash": "756e8f00a1cce3361a73dd6edd40c1dc",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/.pipeline/prompts/implementation.md": {
+    "mtime": 1787373687.7097704,
+    "ast_hash": "0491321eb87dec8e338cfe0870d30b0a",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/.pipeline/prompts/review.md": {
+    "mtime": 1787373687.7098885,
+    "ast_hash": "c8832095f7114281905df01d650e9f88",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/.pipeline/prompts/system.md": {
+    "mtime": 1787381085.4424117,
+    "ast_hash": "a2508ad04e1de7cf6793216b08baeca4",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/.pipeline/prompts/technical-design.md": {
+    "mtime": 1787384920.8540409,
+    "ast_hash": "2a22a98a4b9829067573af9661e08e38",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/.pipeline/prompts/test-design.md": {
+    "mtime": 1787379651.311273,
+    "ast_hash": "f2afb190bc6f16615f0c9291bf99b8b9",
+    "semantic_hash": ""
+  },
+  "control-plane/LEMUAgenticPipeline.Web/.pipeline/prompts/verification.md": {
+    "mtime": 1787373687.7099965,
+    "ast_hash": "86274db6a57861435ff942a1011d20cd",
+    "semantic_hash": ""
+  },
+  "docs/agentic-pipeline.md": {
+    "mtime": 1787379728.0072696,
+    "ast_hash": "8b0a459cfc879fb8c5f81b72e102d995",
+    "semantic_hash": ""
+  },
+  ".pipeline/state/KAN-19/technical-designer-prompt.md": {
+    "mtime": 1787400476.8777196,
+    "ast_hash": "7e0e86ebfcb69e1fe793eff554f61569",
+    "semantic_hash": ""
+  },
+  ".pipeline/state/KAN-20/technical-designer-prompt.md": {
+    "mtime": 1787400570.7617316,
+    "ast_hash": "38e8d3c8c65857f43ea0f5d1ad8f3e86",
+    "semantic_hash": ""
   }
 }

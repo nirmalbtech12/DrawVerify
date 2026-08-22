@@ -144,7 +144,7 @@
       "drawverify_infrastructure_drawverify_infrastructure",
       "drawverify_occtservice_drawverify_occtservice",
       "drawverify_occtwrapper_drawverify_occtwrapper",
-      "framework_net8_0_windows"
+      "framework_net9_0_windows"
     ],
     "10": [
       "csharp_namespace:00639b25b11dab3e",
@@ -167,6 +167,13 @@
       "drawverify_occtservice_occtgeometryservice_drawverify_occtservice_occtgeometryservice"
     ],
     "12": [
+      "drawverify_app_viewmodels_documentlistviewmodel_drawverify_app_viewmodels_documentlistviewmodel",
+      "drawverify_app_views_documentlistview",
+      "drawverify_app_views_documentlistview_usercontrol",
+      "drawverify_app_views_documentlistview_xaml",
+      "drawverify_app_views_documentlistview_xaml_drawverify_app_views_documentlistview"
+    ],
+    "13": [
       "csharp_namespace:facc6938984dd878",
       "drawverify_occtservice_safehandles_occtshapesafehandle",
       "drawverify_occtservice_safehandles_occtshapesafehandle_drawverify_occtservice_safehandles_occtshapesafehandle",
@@ -175,13 +182,6 @@
       "drawverify_occtservice_safehandles_occtstepreadersafehandle_drawverify_occtservice_safehandles_occtstepreadersafehandle",
       "drawverify_occtservice_safehandles_occtstepreadersafehandle_drawverify_occtservice_safehandles_occtstepreadersafehandle_releasehandle",
       "safehandlezeroorminusoneisinvalid"
-    ],
-    "13": [
-      "drawverify_app_viewmodels_documentdetailviewmodel_drawverify_app_viewmodels_documentdetailviewmodel",
-      "drawverify_app_views_documentdetailview",
-      "drawverify_app_views_documentdetailview_usercontrol",
-      "drawverify_app_views_documentdetailview_xaml",
-      "drawverify_app_views_documentdetailview_xaml_drawverify_app_views_documentdetailview"
     ],
     "14": [
       "csharp_namespace:82f5b7a31e97d159",
@@ -192,31 +192,7 @@
       "drawverify_application_workflow_workflowtransition",
       "drawverify_application_workflow_workflowtransition_drawverify_application_workflow_workflowtransition"
     ],
-    "15": [
-      "csharp_namespace:84d4457af56f5ed8",
-      "drawverify_app_controls_signaturestampcontrol",
-      "drawverify_app_controls_signaturestampcontrol_usercontrol",
-      "drawverify_app_controls_signaturestampcontrol_xaml",
-      "drawverify_app_controls_signaturestampcontrol_xaml_drawverify_app_controls_signaturestampcontrol",
-      "usercontrol"
-    ],
     "16": [
-      "csharp_namespace:6d51c0823afc53e1",
-      "drawverify_app_views_dashboardview_xaml",
-      "drawverify_app_views_documentlistview",
-      "drawverify_app_views_documentlistview_usercontrol",
-      "drawverify_app_views_documentlistview_xaml",
-      "drawverify_app_views_documentlistview_xaml_drawverify_app_views_documentlistview"
-    ],
-    "17": [
-      "drawverify_app_viewmodels_verificationviewmodel",
-      "drawverify_app_viewmodels_verificationviewmodel_drawverify_app_viewmodels_verificationviewmodel",
-      "drawverify_app_views_verificationview",
-      "drawverify_app_views_verificationview_usercontrol",
-      "drawverify_app_views_verificationview_xaml",
-      "drawverify_app_views_verificationview_xaml_drawverify_app_views_verificationview"
-    ],
-    "18": [
       "drawverify_app_viewmodels_workflowviewmodel",
       "drawverify_app_viewmodels_workflowviewmodel_drawverify_app_viewmodels_workflowviewmodel",
       "drawverify_app_views_workflowview",
@@ -224,61 +200,81 @@
       "drawverify_app_views_workflowview_xaml",
       "drawverify_app_views_workflowview_xaml_drawverify_app_views_workflowview"
     ],
-    "19": [
+    "17": [
       "csharp_namespace:397778b58a5a6d69",
       "drawverify_infrastructure_signatures_signaturestampservice",
       "drawverify_infrastructure_signatures_signaturestampservice_drawverify_infrastructure_signatures_signaturestampservice",
       "drawverify_infrastructure_signatures_x509signatureservice",
       "drawverify_infrastructure_signatures_x509signatureservice_drawverify_infrastructure_signatures_x509signatureservice"
     ],
-    "20": [
+    "18": [
       "csharp_namespace:71a55d83d4d50b15",
       "drawverify_infrastructure_logging_centralizedlogger",
       "drawverify_infrastructure_logging_centralizedlogger_drawverify_infrastructure_logging_centralizedlogger",
       "drawverify_infrastructure_logging_logentry",
       "drawverify_infrastructure_logging_logentry_drawverify_infrastructure_logging_logentry"
     ],
-    "21": [
+    "19": [
+      "csharp_namespace:84d4457af56f5ed8",
+      "drawverify_app_controls_signaturestampcontrol",
+      "drawverify_app_controls_signaturestampcontrol_usercontrol",
+      "drawverify_app_controls_signaturestampcontrol_xaml",
+      "drawverify_app_controls_signaturestampcontrol_xaml_drawverify_app_controls_signaturestampcontrol",
+      "usercontrol"
+    ],
+    "20": [
       "csharp_namespace:a0eaa0cd2131ec29",
       "drawverify_core_configuration_documenttemplateconfiguration",
       "drawverify_core_configuration_documenttemplateconfiguration_drawverify_core_configuration_documenttemplateconfiguration",
       "drawverify_core_configuration_workflowconfiguration",
       "drawverify_core_configuration_workflowconfiguration_drawverify_core_configuration_workflowconfiguration"
     ],
-    "22": [
+    "21": [
       "csharp_namespace:aa300ac05d7fd1b0",
       "drawverify_infrastructure_filestorage_documentfilestore",
       "drawverify_infrastructure_filestorage_documentfilestore_drawverify_infrastructure_filestorage_documentfilestore",
       "drawverify_infrastructure_filestorage_localfilestorageservice",
       "drawverify_infrastructure_filestorage_localfilestorageservice_drawverify_infrastructure_filestorage_localfilestorageservice"
     ],
-    "23": [
+    "22": [
       "csharp_namespace:aa3fcad87b305b6f",
       "drawverify_application_fingerprinting_documentfingerprintservice",
       "drawverify_application_fingerprinting_documentfingerprintservice_drawverify_application_fingerprinting_documentfingerprintservice",
       "drawverify_application_fingerprinting_fingerprintpolicy",
       "drawverify_application_fingerprinting_fingerprintpolicy_drawverify_application_fingerprinting_fingerprintpolicy"
     ],
-    "24": [
+    "23": [
       "csharp_namespace:cdc177062cbe89b9",
       "drawverify_infrastructure_dataprotection_aesdataprotectionservice",
       "drawverify_infrastructure_dataprotection_aesdataprotectionservice_drawverify_infrastructure_dataprotection_aesdataprotectionservice",
       "drawverify_infrastructure_dataprotection_keyprovider",
       "drawverify_infrastructure_dataprotection_keyprovider_drawverify_infrastructure_dataprotection_keyprovider"
     ],
-    "25": [
+    "24": [
       "csharp_namespace:f00a98e462b33e18",
       "drawverify_infrastructure_pdf_pdfdocumentbuilder",
       "drawverify_infrastructure_pdf_pdfdocumentbuilder_drawverify_infrastructure_pdf_pdfdocumentbuilder",
       "drawverify_infrastructure_pdf_pdfreportgenerator",
       "drawverify_infrastructure_pdf_pdfreportgenerator_drawverify_infrastructure_pdf_pdfreportgenerator"
     ],
-    "26": [
+    "25": [
+      "csharp_namespace:d1e4387b30af4f15",
       "drawverify_app_viewmodels_dashboardviewmodel",
       "drawverify_app_viewmodels_dashboardviewmodel_drawverify_app_viewmodels_dashboardviewmodel",
+      "drawverify_app_viewmodels_documentlistviewmodel",
       "drawverify_app_views_dashboardview",
       "drawverify_app_views_dashboardview_usercontrol",
       "drawverify_app_views_dashboardview_xaml_drawverify_app_views_dashboardview"
+    ],
+    "26": [
+      "csharp_namespace:6d51c0823afc53e1",
+      "drawverify_app_viewmodels_documentdetailviewmodel",
+      "drawverify_app_viewmodels_documentdetailviewmodel_drawverify_app_viewmodels_documentdetailviewmodel",
+      "drawverify_app_views_dashboardview_xaml",
+      "drawverify_app_views_documentdetailview",
+      "drawverify_app_views_documentdetailview_usercontrol",
+      "drawverify_app_views_documentdetailview_xaml",
+      "drawverify_app_views_documentdetailview_xaml_drawverify_app_views_documentdetailview"
     ],
     "27": [
       "drawverify_app_viewmodels_loginviewmodel",
@@ -297,10 +293,12 @@
       "drawverify_app_views_reportview_xaml_drawverify_app_views_reportview"
     ],
     "29": [
-      "csharp_namespace:d1e4387b30af4f15",
-      "drawverify_app_viewmodels_documentdetailviewmodel",
-      "drawverify_app_viewmodels_documentlistviewmodel",
-      "drawverify_app_viewmodels_documentlistviewmodel_drawverify_app_viewmodels_documentlistviewmodel"
+      "drawverify_app_viewmodels_verificationviewmodel",
+      "drawverify_app_viewmodels_verificationviewmodel_drawverify_app_viewmodels_verificationviewmodel",
+      "drawverify_app_views_verificationview",
+      "drawverify_app_views_verificationview_usercontrol",
+      "drawverify_app_views_verificationview_xaml",
+      "drawverify_app_views_verificationview_xaml_drawverify_app_views_verificationview"
     ],
     "30": [
       "csharp_namespace:073069c79e5bed99",
@@ -321,114 +319,6 @@
       "csharp_namespace:ff2152d2209c39cc",
       "drawverify_geometry_enums_geometrytype",
       "drawverify_geometry_enums_geometrytype_drawverify_geometry_enums_geometrytype"
-    ],
-    "34": [
-      "drawverify_application_obj_debug_net8_0_drawverify_application_assemblyinfo"
-    ],
-    "35": [
-      "drawverify_application_obj_debug_net8_0_drawverify_application_globalusings_g"
-    ],
-    "36": [
-      "drawverify_application_obj_debug_net8_0_netcoreapp_version_v8_0_assemblyattributes"
-    ],
-    "37": [
-      "drawverify_application_obj_debug_net9_0_drawverify_application_assemblyinfo"
-    ],
-    "38": [
-      "drawverify_application_obj_debug_net9_0_drawverify_application_globalusings_g"
-    ],
-    "39": [
-      "drawverify_application_obj_debug_net9_0_netcoreapp_version_v9_0_assemblyattributes"
-    ],
-    "40": [
-      "drawverify_core_obj_debug_net8_0_drawverify_core_assemblyinfo"
-    ],
-    "41": [
-      "drawverify_core_obj_debug_net8_0_drawverify_core_globalusings_g"
-    ],
-    "42": [
-      "drawverify_core_obj_debug_net8_0_netcoreapp_version_v8_0_assemblyattributes"
-    ],
-    "43": [
-      "drawverify_core_obj_debug_net9_0_drawverify_core_assemblyinfo"
-    ],
-    "44": [
-      "drawverify_core_obj_debug_net9_0_drawverify_core_globalusings_g"
-    ],
-    "45": [
-      "drawverify_core_obj_debug_net9_0_netcoreapp_version_v9_0_assemblyattributes"
-    ],
-    "46": [
-      "drawverify_geometry_obj_debug_net8_0_drawverify_geometry_assemblyinfo"
-    ],
-    "47": [
-      "drawverify_geometry_obj_debug_net8_0_drawverify_geometry_globalusings_g"
-    ],
-    "48": [
-      "drawverify_geometry_obj_debug_net8_0_netcoreapp_version_v8_0_assemblyattributes"
-    ],
-    "49": [
-      "drawverify_geometry_obj_debug_net9_0_drawverify_geometry_assemblyinfo"
-    ],
-    "50": [
-      "drawverify_geometry_obj_debug_net9_0_drawverify_geometry_globalusings_g"
-    ],
-    "51": [
-      "drawverify_geometry_obj_debug_net9_0_netcoreapp_version_v9_0_assemblyattributes"
-    ],
-    "52": [
-      "drawverify_infrastructure_obj_debug_net8_0_drawverify_infrastructure_assemblyinfo"
-    ],
-    "53": [
-      "drawverify_infrastructure_obj_debug_net8_0_drawverify_infrastructure_globalusings_g"
-    ],
-    "54": [
-      "drawverify_infrastructure_obj_debug_net8_0_netcoreapp_version_v8_0_assemblyattributes"
-    ],
-    "55": [
-      "drawverify_infrastructure_obj_debug_net9_0_drawverify_infrastructure_assemblyinfo"
-    ],
-    "56": [
-      "drawverify_infrastructure_obj_debug_net9_0_drawverify_infrastructure_globalusings_g"
-    ],
-    "57": [
-      "drawverify_infrastructure_obj_debug_net9_0_netcoreapp_version_v9_0_assemblyattributes"
-    ],
-    "58": [
-      "drawverify_occtservice_obj_debug_net8_0_drawverify_occtservice_assemblyinfo"
-    ],
-    "59": [
-      "drawverify_occtservice_obj_debug_net8_0_drawverify_occtservice_globalusings_g"
-    ],
-    "60": [
-      "drawverify_occtservice_obj_debug_net8_0_netcoreapp_version_v8_0_assemblyattributes"
-    ],
-    "61": [
-      "drawverify_occtservice_obj_debug_net9_0_drawverify_occtservice_assemblyinfo"
-    ],
-    "62": [
-      "drawverify_occtservice_obj_debug_net9_0_drawverify_occtservice_globalusings_g"
-    ],
-    "63": [
-      "drawverify_occtservice_obj_debug_net9_0_netcoreapp_version_v9_0_assemblyattributes"
-    ],
-    "64": [
-      "drawverify_occtwrapper_obj_debug_net8_0_drawverify_occtwrapper_assemblyinfo"
-    ],
-    "65": [
-      "drawverify_occtwrapper_obj_debug_net8_0_drawverify_occtwrapper_globalusings_g"
-    ],
-    "66": [
-      "drawverify_occtwrapper_obj_debug_net8_0_netcoreapp_version_v8_0_assemblyattributes"
-    ],
-    "67": [
-      "drawverify_occtwrapper_obj_debug_net9_0_drawverify_occtwrapper_assemblyinfo"
-    ],
-    "68": [
-      "drawverify_occtwrapper_obj_debug_net9_0_drawverify_occtwrapper_globalusings_g"
-    ],
-    "69": [
-      "drawverify_occtwrapper_obj_debug_net9_0_netcoreapp_version_v9_0_assemblyattributes"
     ]
   },
   "cohesion": {
@@ -444,64 +334,27 @@
     "9": 0.4722222222222222,
     "10": 0.32142857142857145,
     "11": 0.2857142857142857,
-    "12": 0.2857142857142857,
-    "13": 0.4,
+    "12": 0.4,
+    "13": 0.2857142857142857,
     "14": 0.2857142857142857,
-    "15": 0.3333333333333333,
     "16": 0.3333333333333333,
-    "17": 0.3333333333333333,
-    "18": 0.3333333333333333,
-    "19": 0.4,
+    "17": 0.4,
+    "18": 0.4,
+    "19": 0.3333333333333333,
     "20": 0.4,
     "21": 0.4,
     "22": 0.4,
     "23": 0.4,
     "24": 0.4,
-    "25": 0.4,
-    "26": 0.4,
+    "25": 0.2857142857142857,
+    "26": 0.25,
     "27": 0.3333333333333333,
     "28": 0.3333333333333333,
-    "29": 0.5,
+    "29": 0.3333333333333333,
     "30": 0.6666666666666666,
     "31": 0.6666666666666666,
     "32": 0.6666666666666666,
-    "33": 0.6666666666666666,
-    "34": 1.0,
-    "35": 1.0,
-    "36": 1.0,
-    "37": 1.0,
-    "38": 1.0,
-    "39": 1.0,
-    "40": 1.0,
-    "41": 1.0,
-    "42": 1.0,
-    "43": 1.0,
-    "44": 1.0,
-    "45": 1.0,
-    "46": 1.0,
-    "47": 1.0,
-    "48": 1.0,
-    "49": 1.0,
-    "50": 1.0,
-    "51": 1.0,
-    "52": 1.0,
-    "53": 1.0,
-    "54": 1.0,
-    "55": 1.0,
-    "56": 1.0,
-    "57": 1.0,
-    "58": 1.0,
-    "59": 1.0,
-    "60": 1.0,
-    "61": 1.0,
-    "62": 1.0,
-    "63": 1.0,
-    "64": 1.0,
-    "65": 1.0,
-    "66": 1.0,
-    "67": 1.0,
-    "68": 1.0,
-    "69": 1.0
+    "33": 0.6666666666666666
   },
   "gods": [
     {
@@ -520,13 +373,13 @@
       "degree": 7
     },
     {
-      "id": "csharp_namespace:ad7eaa1c8837cc72",
-      "label": "DrawVerify.Application.Services",
+      "id": "csharp_namespace:d1e4387b30af4f15",
+      "label": "DrawVerify.App.ViewModels",
       "degree": 7
     },
     {
-      "id": "csharp_namespace:d1e4387b30af4f15",
-      "label": "DrawVerify.App.ViewModels",
+      "id": "csharp_namespace:ad7eaa1c8837cc72",
+      "label": "DrawVerify.Application.Services",
       "degree": 7
     },
     {
@@ -576,7 +429,7 @@
       ],
       "confidence": "INFERRED",
       "relation": "references",
-      "why": "inferred connection - not explicitly stated in source; bridges separate communities"
+      "why": "inferred connection - not explicitly stated in source"
     },
     {
       "source": "UserControl",
@@ -615,8 +468,8 @@
   "questions": [
     {
       "type": "bridge_node",
-      "question": "Why does `DrawVerify.App.ViewModels` connect `DrawVerify.App.ViewModels` to `UserControl`, `UserControl`, `UserControl`, `UserControl`, `UserControl`?",
-      "why": "High betweenness centrality (0.006) - this node is a cross-community bridge."
+      "question": "Why does `DrawVerify.App.ViewModels` connect `DrawVerify.App.ViewModels` to `UserControl`, `DrawVerify.App.Views`, `UserControl`, `UserControl`, `UserControl`?",
+      "why": "High betweenness centrality (0.008) - this node is a cross-community bridge."
     },
     {
       "type": "isolated_nodes",

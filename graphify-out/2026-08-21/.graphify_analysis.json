@@ -1,0 +1,495 @@
+{
+  "communities": {
+    "0": [
+      "csharp_namespace:b56cbda36f97b4e1",
+      "drawverify_core_models_auditentry",
+      "drawverify_core_models_auditentry_drawverify_core_models_auditentry",
+      "drawverify_core_models_dimensionresult",
+      "drawverify_core_models_dimensionresult_drawverify_core_models_dimensionresult",
+      "drawverify_core_models_document",
+      "drawverify_core_models_document_drawverify_core_models_document",
+      "drawverify_core_models_documentversion",
+      "drawverify_core_models_documentversion_drawverify_core_models_documentversion",
+      "drawverify_core_models_drawingdocument",
+      "drawverify_core_models_drawingdocument_drawverify_core_models_drawingdocument",
+      "drawverify_core_models_gdtresult",
+      "drawverify_core_models_gdtresult_drawverify_core_models_gdtresult",
+      "drawverify_core_models_role",
+      "drawverify_core_models_role_drawverify_core_models_role",
+      "drawverify_core_models_user",
+      "drawverify_core_models_user_drawverify_core_models_user",
+      "drawverify_core_models_verificationreport",
+      "drawverify_core_models_verificationreport_drawverify_core_models_verificationreport",
+      "drawverify_core_models_verificationresult",
+      "drawverify_core_models_verificationresult_drawverify_core_models_verificationresult",
+      "drawverify_core_models_workflowaction",
+      "drawverify_core_models_workflowaction_drawverify_core_models_workflowaction",
+      "drawverify_core_models_workflowstate",
+      "drawverify_core_models_workflowstate_drawverify_core_models_workflowstate"
+    ],
+    "1": [
+      "csharp_namespace:0cecbb28ab17f627",
+      "drawverify_core_interfaces_iauditlogger",
+      "drawverify_core_interfaces_iauditlogger_drawverify_core_interfaces_iauditlogger",
+      "drawverify_core_interfaces_iauthenticationservice",
+      "drawverify_core_interfaces_iauthenticationservice_drawverify_core_interfaces_iauthenticationservice",
+      "drawverify_core_interfaces_idataprotectionservice",
+      "drawverify_core_interfaces_idataprotectionservice_drawverify_core_interfaces_idataprotectionservice",
+      "drawverify_core_interfaces_idocumentrepository",
+      "drawverify_core_interfaces_idocumentrepository_drawverify_core_interfaces_idocumentrepository",
+      "drawverify_core_interfaces_igeometryservice",
+      "drawverify_core_interfaces_igeometryservice_drawverify_core_interfaces_igeometryservice",
+      "drawverify_core_interfaces_inotificationservice",
+      "drawverify_core_interfaces_inotificationservice_drawverify_core_interfaces_inotificationservice",
+      "drawverify_core_interfaces_ireportgenerator",
+      "drawverify_core_interfaces_ireportgenerator_drawverify_core_interfaces_ireportgenerator",
+      "drawverify_core_interfaces_isignatureservice",
+      "drawverify_core_interfaces_isignatureservice_drawverify_core_interfaces_isignatureservice",
+      "drawverify_core_interfaces_iverificationservice",
+      "drawverify_core_interfaces_iverificationservice_drawverify_core_interfaces_iverificationservice",
+      "drawverify_core_interfaces_iworkflowservice",
+      "drawverify_core_interfaces_iworkflowservice_drawverify_core_interfaces_iworkflowservice"
+    ],
+    "2": [
+      "csharp_namespace:ad7eaa1c8837cc72",
+      "drawverify_application_services_authenticationservice",
+      "drawverify_application_services_authenticationservice_drawverify_application_services_authenticationservice",
+      "drawverify_application_services_documentservice",
+      "drawverify_application_services_documentservice_drawverify_application_services_documentservice",
+      "drawverify_application_services_notificationservice",
+      "drawverify_application_services_notificationservice_drawverify_application_services_notificationservice",
+      "drawverify_application_services_reportservice",
+      "drawverify_application_services_reportservice_drawverify_application_services_reportservice",
+      "drawverify_application_services_signatureservice",
+      "drawverify_application_services_signatureservice_drawverify_application_services_signatureservice",
+      "drawverify_application_services_verificationservice",
+      "drawverify_application_services_verificationservice_drawverify_application_services_verificationservice",
+      "drawverify_application_services_workflowservice",
+      "drawverify_application_services_workflowservice_drawverify_application_services_workflowservice"
+    ],
+    "3": [
+      "csharp_namespace:26e8fd8389f424c9",
+      "drawverify_application_verification_dimensioncomparer",
+      "drawverify_application_verification_dimensioncomparer_drawverify_application_verification_dimensioncomparer",
+      "drawverify_application_verification_gdtvalidator",
+      "drawverify_application_verification_gdtvalidator_drawverify_application_verification_gdtvalidator",
+      "drawverify_application_verification_missingdimensiondetector",
+      "drawverify_application_verification_missingdimensiondetector_drawverify_application_verification_missingdimensiondetector",
+      "drawverify_application_verification_tolerancecomparer",
+      "drawverify_application_verification_tolerancecomparer_drawverify_application_verification_tolerancecomparer",
+      "drawverify_application_verification_verificationengine",
+      "drawverify_application_verification_verificationengine_drawverify_application_verification_verificationengine"
+    ],
+    "4": [
+      "csharp_namespace:01c1863313c60503",
+      "drawverify_app_app",
+      "drawverify_app_app_application",
+      "drawverify_app_app_xaml",
+      "drawverify_app_app_xaml_drawverify_app_app",
+      "drawverify_app_mainwindow",
+      "drawverify_app_mainwindow_window",
+      "drawverify_app_mainwindow_xaml",
+      "drawverify_app_mainwindow_xaml_drawverify_app_mainwindow"
+    ],
+    "5": [
+      "csharp_namespace:0384dde3a6b970ed",
+      "drawverify_infrastructure_persistence_sqliteauditrepository",
+      "drawverify_infrastructure_persistence_sqliteauditrepository_drawverify_infrastructure_persistence_sqliteauditrepository",
+      "drawverify_infrastructure_persistence_sqlitedocumentrepository",
+      "drawverify_infrastructure_persistence_sqlitedocumentrepository_drawverify_infrastructure_persistence_sqlitedocumentrepository",
+      "drawverify_infrastructure_persistence_sqliteuserrepository",
+      "drawverify_infrastructure_persistence_sqliteuserrepository_drawverify_infrastructure_persistence_sqliteuserrepository",
+      "drawverify_infrastructure_persistence_sqliteworkflowrepository",
+      "drawverify_infrastructure_persistence_sqliteworkflowrepository_drawverify_infrastructure_persistence_sqliteworkflowrepository"
+    ],
+    "6": [
+      "csharp_namespace:83a636140f105ab2",
+      "drawverify_geometry_models_boundingbox",
+      "drawverify_geometry_models_boundingbox_drawverify_geometry_models_boundingbox",
+      "drawverify_geometry_models_dimensiondata",
+      "drawverify_geometry_models_dimensiondata_drawverify_geometry_models_dimensiondata",
+      "drawverify_geometry_models_featuredata",
+      "drawverify_geometry_models_featuredata_drawverify_geometry_models_featuredata",
+      "drawverify_geometry_models_geometrydata",
+      "drawverify_geometry_models_geometrydata_drawverify_geometry_models_geometrydata"
+    ],
+    "7": [
+      "csharp_namespace:9c3e4e2bbdd9bd8f",
+      "drawverify_application_verification_gdtrules_flatnessrule",
+      "drawverify_application_verification_gdtrules_flatnessrule_drawverify_application_verification_gdtrules_flatnessrule",
+      "drawverify_application_verification_gdtrules_parallelismrule",
+      "drawverify_application_verification_gdtrules_parallelismrule_drawverify_application_verification_gdtrules_parallelismrule",
+      "drawverify_application_verification_gdtrules_perpendicularityrule",
+      "drawverify_application_verification_gdtrules_perpendicularityrule_drawverify_application_verification_gdtrules_perpendicularityrule",
+      "drawverify_application_verification_gdtrules_positionrule",
+      "drawverify_application_verification_gdtrules_positionrule_drawverify_application_verification_gdtrules_positionrule"
+    ],
+    "8": [
+      "csharp_namespace:d32ceb6c5386bb49",
+      "drawverify_core_enums_documentstatus",
+      "drawverify_core_enums_documentstatus_drawverify_core_enums_documentstatus",
+      "drawverify_core_enums_gdtcontroltype",
+      "drawverify_core_enums_gdtcontroltype_drawverify_core_enums_gdtcontroltype",
+      "drawverify_core_enums_verificationstatus",
+      "drawverify_core_enums_verificationstatus_drawverify_core_enums_verificationstatus",
+      "drawverify_core_enums_workflowstep",
+      "drawverify_core_enums_workflowstep_drawverify_core_enums_workflowstep"
+    ],
+    "9": [
+      "drawverify_app_drawverify_app",
+      "drawverify_app_drawverify_app_csproj_sdk_microsoft_net_sdk",
+      "drawverify_application_drawverify_application",
+      "drawverify_core_drawverify_core",
+      "drawverify_geometry_drawverify_geometry",
+      "drawverify_infrastructure_drawverify_infrastructure",
+      "drawverify_occtservice_drawverify_occtservice",
+      "drawverify_occtwrapper_drawverify_occtwrapper",
+      "framework_net9_0_windows"
+    ],
+    "10": [
+      "csharp_namespace:00639b25b11dab3e",
+      "drawverify_core_exceptions_documentnotfoundexception",
+      "drawverify_core_exceptions_documentnotfoundexception_drawverify_core_exceptions_documentnotfoundexception",
+      "drawverify_core_exceptions_verificationexception",
+      "drawverify_core_exceptions_verificationexception_drawverify_core_exceptions_verificationexception",
+      "drawverify_core_exceptions_workflowexception",
+      "drawverify_core_exceptions_workflowexception_drawverify_core_exceptions_workflowexception",
+      "exception"
+    ],
+    "11": [
+      "csharp_namespace:36b86c016ae34dad",
+      "csharp_namespace:d14a0ccb9512da76",
+      "drawverify_geometry_igeometryservice",
+      "drawverify_geometry_igeometryservice_drawverify_geometry_igeometryservice",
+      "drawverify_occtservice_nativeresourcetracker",
+      "drawverify_occtservice_nativeresourcetracker_drawverify_occtservice_nativeresourcetracker",
+      "drawverify_occtservice_occtgeometryservice",
+      "drawverify_occtservice_occtgeometryservice_drawverify_occtservice_occtgeometryservice"
+    ],
+    "12": [
+      "drawverify_app_viewmodels_documentlistviewmodel_drawverify_app_viewmodels_documentlistviewmodel",
+      "drawverify_app_views_documentlistview",
+      "drawverify_app_views_documentlistview_usercontrol",
+      "drawverify_app_views_documentlistview_xaml",
+      "drawverify_app_views_documentlistview_xaml_drawverify_app_views_documentlistview"
+    ],
+    "13": [
+      "csharp_namespace:facc6938984dd878",
+      "drawverify_occtservice_safehandles_occtshapesafehandle",
+      "drawverify_occtservice_safehandles_occtshapesafehandle_drawverify_occtservice_safehandles_occtshapesafehandle",
+      "drawverify_occtservice_safehandles_occtshapesafehandle_drawverify_occtservice_safehandles_occtshapesafehandle_releasehandle",
+      "drawverify_occtservice_safehandles_occtstepreadersafehandle",
+      "drawverify_occtservice_safehandles_occtstepreadersafehandle_drawverify_occtservice_safehandles_occtstepreadersafehandle",
+      "drawverify_occtservice_safehandles_occtstepreadersafehandle_drawverify_occtservice_safehandles_occtstepreadersafehandle_releasehandle",
+      "safehandlezeroorminusoneisinvalid"
+    ],
+    "14": [
+      "csharp_namespace:82f5b7a31e97d159",
+      "drawverify_application_workflow_workflowengine",
+      "drawverify_application_workflow_workflowengine_drawverify_application_workflow_workflowengine",
+      "drawverify_application_workflow_workflowstatemachine",
+      "drawverify_application_workflow_workflowstatemachine_drawverify_application_workflow_workflowstatemachine",
+      "drawverify_application_workflow_workflowtransition",
+      "drawverify_application_workflow_workflowtransition_drawverify_application_workflow_workflowtransition"
+    ],
+    "16": [
+      "drawverify_app_viewmodels_workflowviewmodel",
+      "drawverify_app_viewmodels_workflowviewmodel_drawverify_app_viewmodels_workflowviewmodel",
+      "drawverify_app_views_workflowview",
+      "drawverify_app_views_workflowview_usercontrol",
+      "drawverify_app_views_workflowview_xaml",
+      "drawverify_app_views_workflowview_xaml_drawverify_app_views_workflowview"
+    ],
+    "17": [
+      "csharp_namespace:397778b58a5a6d69",
+      "drawverify_infrastructure_signatures_signaturestampservice",
+      "drawverify_infrastructure_signatures_signaturestampservice_drawverify_infrastructure_signatures_signaturestampservice",
+      "drawverify_infrastructure_signatures_x509signatureservice",
+      "drawverify_infrastructure_signatures_x509signatureservice_drawverify_infrastructure_signatures_x509signatureservice"
+    ],
+    "18": [
+      "csharp_namespace:71a55d83d4d50b15",
+      "drawverify_infrastructure_logging_centralizedlogger",
+      "drawverify_infrastructure_logging_centralizedlogger_drawverify_infrastructure_logging_centralizedlogger",
+      "drawverify_infrastructure_logging_logentry",
+      "drawverify_infrastructure_logging_logentry_drawverify_infrastructure_logging_logentry"
+    ],
+    "19": [
+      "csharp_namespace:84d4457af56f5ed8",
+      "drawverify_app_controls_signaturestampcontrol",
+      "drawverify_app_controls_signaturestampcontrol_usercontrol",
+      "drawverify_app_controls_signaturestampcontrol_xaml",
+      "drawverify_app_controls_signaturestampcontrol_xaml_drawverify_app_controls_signaturestampcontrol",
+      "usercontrol"
+    ],
+    "20": [
+      "csharp_namespace:a0eaa0cd2131ec29",
+      "drawverify_core_configuration_documenttemplateconfiguration",
+      "drawverify_core_configuration_documenttemplateconfiguration_drawverify_core_configuration_documenttemplateconfiguration",
+      "drawverify_core_configuration_workflowconfiguration",
+      "drawverify_core_configuration_workflowconfiguration_drawverify_core_configuration_workflowconfiguration"
+    ],
+    "21": [
+      "csharp_namespace:aa300ac05d7fd1b0",
+      "drawverify_infrastructure_filestorage_documentfilestore",
+      "drawverify_infrastructure_filestorage_documentfilestore_drawverify_infrastructure_filestorage_documentfilestore",
+      "drawverify_infrastructure_filestorage_localfilestorageservice",
+      "drawverify_infrastructure_filestorage_localfilestorageservice_drawverify_infrastructure_filestorage_localfilestorageservice"
+    ],
+    "22": [
+      "csharp_namespace:aa3fcad87b305b6f",
+      "drawverify_application_fingerprinting_documentfingerprintservice",
+      "drawverify_application_fingerprinting_documentfingerprintservice_drawverify_application_fingerprinting_documentfingerprintservice",
+      "drawverify_application_fingerprinting_fingerprintpolicy",
+      "drawverify_application_fingerprinting_fingerprintpolicy_drawverify_application_fingerprinting_fingerprintpolicy"
+    ],
+    "23": [
+      "csharp_namespace:cdc177062cbe89b9",
+      "drawverify_infrastructure_dataprotection_aesdataprotectionservice",
+      "drawverify_infrastructure_dataprotection_aesdataprotectionservice_drawverify_infrastructure_dataprotection_aesdataprotectionservice",
+      "drawverify_infrastructure_dataprotection_keyprovider",
+      "drawverify_infrastructure_dataprotection_keyprovider_drawverify_infrastructure_dataprotection_keyprovider"
+    ],
+    "24": [
+      "csharp_namespace:f00a98e462b33e18",
+      "drawverify_infrastructure_pdf_pdfdocumentbuilder",
+      "drawverify_infrastructure_pdf_pdfdocumentbuilder_drawverify_infrastructure_pdf_pdfdocumentbuilder",
+      "drawverify_infrastructure_pdf_pdfreportgenerator",
+      "drawverify_infrastructure_pdf_pdfreportgenerator_drawverify_infrastructure_pdf_pdfreportgenerator"
+    ],
+    "25": [
+      "csharp_namespace:d1e4387b30af4f15",
+      "drawverify_app_viewmodels_dashboardviewmodel",
+      "drawverify_app_viewmodels_dashboardviewmodel_drawverify_app_viewmodels_dashboardviewmodel",
+      "drawverify_app_viewmodels_documentlistviewmodel",
+      "drawverify_app_views_dashboardview",
+      "drawverify_app_views_dashboardview_usercontrol",
+      "drawverify_app_views_dashboardview_xaml_drawverify_app_views_dashboardview"
+    ],
+    "26": [
+      "csharp_namespace:6d51c0823afc53e1",
+      "drawverify_app_viewmodels_documentdetailviewmodel",
+      "drawverify_app_viewmodels_documentdetailviewmodel_drawverify_app_viewmodels_documentdetailviewmodel",
+      "drawverify_app_views_dashboardview_xaml",
+      "drawverify_app_views_documentdetailview",
+      "drawverify_app_views_documentdetailview_usercontrol",
+      "drawverify_app_views_documentdetailview_xaml",
+      "drawverify_app_views_documentdetailview_xaml_drawverify_app_views_documentdetailview"
+    ],
+    "27": [
+      "drawverify_app_viewmodels_loginviewmodel",
+      "drawverify_app_viewmodels_loginviewmodel_drawverify_app_viewmodels_loginviewmodel",
+      "drawverify_app_views_loginview",
+      "drawverify_app_views_loginview_usercontrol",
+      "drawverify_app_views_loginview_xaml",
+      "drawverify_app_views_loginview_xaml_drawverify_app_views_loginview"
+    ],
+    "28": [
+      "drawverify_app_viewmodels_reportviewmodel",
+      "drawverify_app_viewmodels_reportviewmodel_drawverify_app_viewmodels_reportviewmodel",
+      "drawverify_app_views_reportview",
+      "drawverify_app_views_reportview_usercontrol",
+      "drawverify_app_views_reportview_xaml",
+      "drawverify_app_views_reportview_xaml_drawverify_app_views_reportview"
+    ],
+    "29": [
+      "drawverify_app_viewmodels_verificationviewmodel",
+      "drawverify_app_viewmodels_verificationviewmodel_drawverify_app_viewmodels_verificationviewmodel",
+      "drawverify_app_views_verificationview",
+      "drawverify_app_views_verificationview_usercontrol",
+      "drawverify_app_views_verificationview_xaml",
+      "drawverify_app_views_verificationview_xaml_drawverify_app_views_verificationview"
+    ],
+    "30": [
+      "csharp_namespace:073069c79e5bed99",
+      "drawverify_infrastructure_notifications_inappnotificationservice",
+      "drawverify_infrastructure_notifications_inappnotificationservice_drawverify_infrastructure_notifications_inappnotificationservice"
+    ],
+    "31": [
+      "csharp_namespace:ba37641604c7a6f2",
+      "drawverify_occtservice_mapping_occttogeometrymapper",
+      "drawverify_occtservice_mapping_occttogeometrymapper_drawverify_occtservice_mapping_occttogeometrymapper"
+    ],
+    "32": [
+      "csharp_namespace:d50e87cc1a6a5946",
+      "drawverify_app_services_compositionroot",
+      "drawverify_app_services_compositionroot_drawverify_app_services_compositionroot"
+    ],
+    "33": [
+      "csharp_namespace:ff2152d2209c39cc",
+      "drawverify_geometry_enums_geometrytype",
+      "drawverify_geometry_enums_geometrytype_drawverify_geometry_enums_geometrytype"
+    ]
+  },
+  "cohesion": {
+    "0": 0.08,
+    "1": 0.09523809523809523,
+    "2": 0.13333333333333333,
+    "3": 0.18181818181818182,
+    "4": 0.2222222222222222,
+    "5": 0.2222222222222222,
+    "6": 0.2222222222222222,
+    "7": 0.2222222222222222,
+    "8": 0.2222222222222222,
+    "9": 0.4722222222222222,
+    "10": 0.32142857142857145,
+    "11": 0.2857142857142857,
+    "12": 0.4,
+    "13": 0.2857142857142857,
+    "14": 0.2857142857142857,
+    "16": 0.3333333333333333,
+    "17": 0.4,
+    "18": 0.4,
+    "19": 0.3333333333333333,
+    "20": 0.4,
+    "21": 0.4,
+    "22": 0.4,
+    "23": 0.4,
+    "24": 0.4,
+    "25": 0.2857142857142857,
+    "26": 0.25,
+    "27": 0.3333333333333333,
+    "28": 0.3333333333333333,
+    "29": 0.3333333333333333,
+    "30": 0.6666666666666666,
+    "31": 0.6666666666666666,
+    "32": 0.6666666666666666,
+    "33": 0.6666666666666666
+  },
+  "gods": [
+    {
+      "id": "csharp_namespace:b56cbda36f97b4e1",
+      "label": "DrawVerify.Core.Models",
+      "degree": 12
+    },
+    {
+      "id": "csharp_namespace:0cecbb28ab17f627",
+      "label": "DrawVerify.Core.Interfaces",
+      "degree": 10
+    },
+    {
+      "id": "csharp_namespace:6d51c0823afc53e1",
+      "label": "DrawVerify.App.Views",
+      "degree": 7
+    },
+    {
+      "id": "csharp_namespace:d1e4387b30af4f15",
+      "label": "DrawVerify.App.ViewModels",
+      "degree": 7
+    },
+    {
+      "id": "csharp_namespace:ad7eaa1c8837cc72",
+      "label": "DrawVerify.Application.Services",
+      "degree": 7
+    },
+    {
+      "id": "drawverify_app_drawverify_app_csproj_sdk_microsoft_net_sdk",
+      "label": "Microsoft.NET.Sdk",
+      "degree": 7
+    },
+    {
+      "id": "csharp_namespace:26e8fd8389f424c9",
+      "label": "DrawVerify.Application.Verification",
+      "degree": 5
+    },
+    {
+      "id": "csharp_namespace:0384dde3a6b970ed",
+      "label": "DrawVerify.Infrastructure.Persistence",
+      "degree": 4
+    },
+    {
+      "id": "csharp_namespace:83a636140f105ab2",
+      "label": "DrawVerify.Geometry.Models",
+      "degree": 4
+    },
+    {
+      "id": "csharp_namespace:9c3e4e2bbdd9bd8f",
+      "label": "DrawVerify.Application.Verification.GdtRules",
+      "degree": 4
+    }
+  ],
+  "surprises": [
+    {
+      "source": "OcctGeometryService",
+      "target": "IGeometryService",
+      "source_files": [
+        "DrawVerify.OcctService/OcctGeometryService.cs",
+        "DrawVerify.Geometry/IGeometryService.cs"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "implements",
+      "why": "connects across different repos/directories"
+    },
+    {
+      "source": "UserControl",
+      "target": "DocumentListViewModel",
+      "source_files": [
+        "DrawVerify.App/Views/DocumentListView.xaml",
+        "DrawVerify.App/ViewModels/DocumentListViewModel.cs"
+      ],
+      "confidence": "INFERRED",
+      "relation": "references",
+      "why": "inferred connection - not explicitly stated in source"
+    },
+    {
+      "source": "UserControl",
+      "target": "VerificationViewModel",
+      "source_files": [
+        "DrawVerify.App/Views/VerificationView.xaml",
+        "DrawVerify.App/ViewModels/VerificationViewModel.cs"
+      ],
+      "confidence": "INFERRED",
+      "relation": "references",
+      "why": "inferred connection - not explicitly stated in source"
+    },
+    {
+      "source": "UserControl",
+      "target": "WorkflowViewModel",
+      "source_files": [
+        "DrawVerify.App/Views/WorkflowView.xaml",
+        "DrawVerify.App/ViewModels/WorkflowViewModel.cs"
+      ],
+      "confidence": "INFERRED",
+      "relation": "references",
+      "why": "inferred connection - not explicitly stated in source"
+    },
+    {
+      "source": "UserControl",
+      "target": "DashboardViewModel",
+      "source_files": [
+        "DrawVerify.App/Views/DashboardView.xaml",
+        "DrawVerify.App/ViewModels/DashboardViewModel.cs"
+      ],
+      "confidence": "INFERRED",
+      "relation": "references",
+      "why": "inferred connection - not explicitly stated in source"
+    }
+  ],
+  "questions": [
+    {
+      "type": "bridge_node",
+      "question": "Why does `DrawVerify.App.ViewModels` connect `DrawVerify.App.ViewModels` to `UserControl`, `DrawVerify.App.Views`, `UserControl`, `UserControl`, `UserControl`?",
+      "why": "High betweenness centrality (0.008) - this node is a cross-community bridge."
+    },
+    {
+      "type": "isolated_nodes",
+      "question": "What connects `AuditEntry`, `DimensionResult`, `Document` to the rest of the system?",
+      "why": "78 weakly-connected nodes found - possible documentation gaps or missing edges."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `DrawVerify.Core.Models` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.08 - nodes in this community are weakly interconnected."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `DrawVerify.Core.Interfaces` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.09523809523809523 - nodes in this community are weakly interconnected."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `DrawVerify.Application.Services` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.13333333333333333 - nodes in this community are weakly interconnected."
+    }
+  ]
+}
