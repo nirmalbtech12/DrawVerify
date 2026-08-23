@@ -15,8 +15,8 @@
     "semantic_hash": ""
   },
   ".pipeline/LEMUAgenticPipeline.Orchestrator/Program.cs": {
-    "mtime": 1787375059.0193944,
-    "ast_hash": "874f8439af4364908d5708d8658f8a24",
+    "mtime": 1787465178.3391027,
+    "ast_hash": "e38989e7f80bd10462be0470bba57df2",
     "semantic_hash": ""
   },
   ".pipeline/LEMUAgenticPipeline/Claude/ClaudeAgentService.cs": {
@@ -25,13 +25,13 @@
     "semantic_hash": ""
   },
   ".pipeline/LEMUAgenticPipeline/Configuration/PipelineOptions.cs": {
-    "mtime": 1787403346.273795,
-    "ast_hash": "037585a48acd983f27b0bbbfbd1ff3b6",
+    "mtime": 1787465083.97911,
+    "ast_hash": "34211b9d7d8872c95f943263adb32c27",
     "semantic_hash": ""
   },
   ".pipeline/LEMUAgenticPipeline/Jira/JiraRestService.cs": {
-    "mtime": 1787319391.2087383,
-    "ast_hash": "f72e7f4ec2dbf93b849d12796507c15e",
+    "mtime": 1787464700.0231216,
+    "ast_hash": "fdf47157a2e90cfcee02fe28f33d86d6",
     "semantic_hash": ""
   },
   ".pipeline/LEMUAgenticPipeline/LEMUAgenticPipeline.csproj": {
@@ -45,18 +45,18 @@
     "semantic_hash": ""
   },
   ".pipeline/LEMUAgenticPipeline/OpenAI/OpenAIAgentService.cs": {
-    "mtime": 1787374527.243407,
-    "ast_hash": "36e86a9a50ff3bdbcdfb265b894bb71b",
+    "mtime": 1787461317.0592053,
+    "ast_hash": "32a9483efc236609df55c2731404a325",
     "semantic_hash": ""
   },
   ".pipeline/LEMUAgenticPipeline/OpenCode/OpenCodeAgentService.cs": {
-    "mtime": 1787403379.05585,
-    "ast_hash": "4bd493a116d80bc01cf53b477ca52793",
+    "mtime": 1787466068.0986915,
+    "ast_hash": "75423da00fb43c3fba7aaa22ec81bee2",
     "semantic_hash": ""
   },
   ".pipeline/LEMUAgenticPipeline/Orchestrator/PipelineOrchestrator.cs": {
-    "mtime": 1787314677.0389032,
-    "ast_hash": "00566780b29394fcd9c185ca69b6f13b",
+    "mtime": 1787465140.8671055,
+    "ast_hash": "c7e994a6d722cb731bdc34a34a96444b",
     "semantic_hash": ""
   },
   ".pipeline/LEMUAgenticPipeline/Orchestrator/StateMachine.cs": {
@@ -80,8 +80,8 @@
     "semantic_hash": ""
   },
   ".pipeline/LEMUAgenticPipeline/Services/IJiraService.cs": {
-    "mtime": 1787314677.0384612,
-    "ast_hash": "502753fb40ca9f7dbde8ea1b247e4c47",
+    "mtime": 1787464677.091119,
+    "ast_hash": "ec783a960bce25901614d49ae9dbc763",
     "semantic_hash": ""
   },
   ".pipeline/LEMUAgenticPipeline/Services/IOpenCodeAgentService.cs": {
@@ -95,8 +95,8 @@
     "semantic_hash": ""
   },
   ".pipeline/LEMUAgenticPipeline/State/FileStateStore.cs": {
-    "mtime": 1787318765.3687568,
-    "ast_hash": "703e21d986bd20b74be006bbd4abe245",
+    "mtime": 1787464756.8591263,
+    "ast_hash": "1093a02701c9141932211dd0e471de4d",
     "semantic_hash": ""
   },
   ".pipeline/schemas/implementation-result.schema.json": {
@@ -120,158 +120,8 @@
     "semantic_hash": ""
   },
   "DrawVerify.sln": {
-    "mtime": 1787314973.2145302,
-    "ast_hash": "2efbdc6080db42fffbf4035bdd9afa56",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Data/PipelineDbContext.cs": {
-    "mtime": 1787314841.5448136,
-    "ast_hash": "03283774fd2143a3711e55000ce2bdb7",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Hubs/PipelineHub.cs": {
-    "mtime": 1787314841.5448904,
-    "ast_hash": "c5d6969c85e34749240ee434a9fe2622",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/LEMUAgenticPipeline.Web.csproj": {
-    "mtime": 1787318129.4807699,
-    "ast_hash": "a0c5e07c83491df80ffc5bc122176472",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Models/AgentDefinition.cs": {
-    "mtime": 1787394055.1407616,
-    "ast_hash": "46d72234cb0d7ef0ada26daa03c0a5f7",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Models/PipelineModels.cs": {
-    "mtime": 1787314841.5437324,
-    "ast_hash": "a2ea9fe28709e64e837a92d2406abb2f",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Pages/Error.cshtml": {
-    "mtime": 1787311870.7427838,
-    "ast_hash": "34b4b090be52ec4885be6fa2afff5c8d",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Pages/Error.cshtml.cs": {
-    "mtime": 1787314841.5438685,
-    "ast_hash": "be6d4e3958cb0ff0c041c05f40ed95e1",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Pages/Index.cshtml": {
-    "mtime": 1787311870.745064,
-    "ast_hash": "818dc46c594ee83d1c54f2a28f1af859",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Pages/Index.cshtml.cs": {
-    "mtime": 1787314841.5439973,
-    "ast_hash": "5146ff0d5d4edfee5d7af29673dce260",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Pages/Pipeline/Index.cshtml": {
-    "mtime": 1787312050.6769354,
-    "ast_hash": "916402dc46151fd454e01e290916393a",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Pages/Pipeline/Index.cshtml.cs": {
-    "mtime": 1787314841.545634,
-    "ast_hash": "6d47eaf0845a9361c638e7aff1cccb0a",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Pages/Pipeline/Run.cshtml": {
-    "mtime": 1787312070.7768729,
-    "ast_hash": "67ed54e05e7bcc87788558230e32dab7",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Pages/Pipeline/Run.cshtml.cs": {
-    "mtime": 1787314841.5455678,
-    "ast_hash": "9219ef0b877c1632fd1f41cff1878130",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Pages/Pipeline/Runs/Detail.cshtml": {
-    "mtime": 1787316287.512815,
-    "ast_hash": "e90984ad75cd2fd600ee7fef997766d5",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Pages/Pipeline/Runs/Detail.cshtml.cs": {
-    "mtime": 1787314841.545824,
-    "ast_hash": "1cb9e4085085d5bc2c821e6786bb37a6",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Pages/Pipeline/Runs/Index.cshtml": {
-    "mtime": 1787312158.600925,
-    "ast_hash": "7222b788ed395562bd3cd0f1aefe02b1",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Pages/Pipeline/Runs/Index.cshtml.cs": {
-    "mtime": 1787314841.5457501,
-    "ast_hash": "decb36025f94712cbad11d3f69bf17c0",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Pages/Privacy.cshtml": {
-    "mtime": 1787311870.7528133,
-    "ast_hash": "b4b61a68aa14d5cd3534d6923ed304d5",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Pages/Privacy.cshtml.cs": {
-    "mtime": 1787314841.5441518,
-    "ast_hash": "e40fb8c6605c262e7493e85ded623cdf",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Pages/Shared/_Layout.cshtml": {
-    "mtime": 1787314859.1794555,
-    "ast_hash": "d08b2f8849f0385312e8e0022970660e",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Pages/Shared/_ValidationScriptsPartial.cshtml": {
-    "mtime": 1787311870.7421286,
-    "ast_hash": "e44d1ba7aa6fc476b40834e79a00fd81",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Pages/_ViewImports.cshtml": {
-    "mtime": 1787314841.5463,
-    "ast_hash": "988c849d591473c3bd7d279704b2fb32",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Pages/_ViewStart.cshtml": {
-    "mtime": 1787311870.7612119,
-    "ast_hash": "e4cd881cf745e1e88cf2c5f6eceae943",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Program.cs": {
-    "mtime": 1787375059.0833945,
-    "ast_hash": "c0ad149e19beedb0f3f648388c1b0ab7",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Properties/launchSettings.json": {
-    "mtime": 1787311870.7677388,
-    "ast_hash": "9830e4ec52a1ab2f8f716c9ef5afdeb1",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Services/AgentRegistry.cs": {
-    "mtime": 1787394063.328761,
-    "ast_hash": "29827115a4be603ed0ffcb1aee711236",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Services/PipelineRunner.cs": {
-    "mtime": 1787379625.1032753,
-    "ast_hash": "b6751cd88ceb660d4f2674fe6faa84ee",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Services/PipelineScheduler.cs": {
-    "mtime": 1787316011.3648248,
-    "ast_hash": "1ffb62424a254432ebe0ae321d32c36f",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Services/PipelineWorker.cs": {
-    "mtime": 1787316974.6967936,
-    "ast_hash": "4bd3c0b89d2cae3ec92dd08fb401915b",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/wwwroot/js/site.js": {
-    "mtime": 1787311870.7429683,
-    "ast_hash": "53e309eeca51b3b6de20c4d24e1b2b63",
+    "mtime": 1787459166.9872613,
+    "ast_hash": "80022095ee086f97a76eba227d8d4d59",
     "semantic_hash": ""
   },
   "native/scripts/build-occt.ps1": {
@@ -950,13 +800,8 @@
     "semantic_hash": ""
   },
   ".pipeline/LEMUAgenticPipeline.Orchestrator/README.md": {
-    "mtime": 1787373749.7994268,
-    "ast_hash": "c5c45d1d5105dc0646e14b29078de5c4",
-    "semantic_hash": ""
-  },
-  ".pipeline/MIGRATION_TO_PIPELINE_ONLY.md": {
-    "mtime": 1787315031.069454,
-    "ast_hash": "64695d58337d5774205b843381910679",
+    "mtime": 1787456041.0393424,
+    "ast_hash": "7015e0b5784c975d124f43d9b2fcd4ad",
     "semantic_hash": ""
   },
   ".pipeline/README.md": {
@@ -965,63 +810,63 @@
     "semantic_hash": ""
   },
   ".pipeline/agents/implementer.md": {
-    "mtime": 1787312878.7165685,
-    "ast_hash": "5de875802f83e1cd36e0b6b8601624cb",
+    "mtime": 1787461044.039212,
+    "ast_hash": "79c77755b3ddea4f75a9e557e36b8c86",
     "semantic_hash": ""
   },
   ".pipeline/agents/reviewer.md": {
-    "mtime": 1787312878.7165985,
-    "ast_hash": "08a8cf462c0ab0f76f9419c260e794fa",
+    "mtime": 1787461049.4832118,
+    "ast_hash": "af5ce5073e6f7da65aaf4342f0d3a767",
     "semantic_hash": ""
   },
   ".pipeline/agents/technical-designer.md": {
-    "mtime": 1787393320.8179433,
-    "ast_hash": "11d997de5fe63cd73dd1685a4d015b00",
+    "mtime": 1787461033.3032126,
+    "ast_hash": "7f8f494eb8e62906c3cbcb47da14f5a5",
     "semantic_hash": ""
   },
   ".pipeline/agents/test-designer.md": {
-    "mtime": 1787312878.7166247,
-    "ast_hash": "7e2f6016af6ead664c381b9cb34ec122",
+    "mtime": 1787461038.5072124,
+    "ast_hash": "31d028733fcbc950e2c107364257cf08",
     "semantic_hash": ""
   },
   ".pipeline/agents/verifier.md": {
-    "mtime": 1787312878.7166357,
-    "ast_hash": "756e8f00a1cce3361a73dd6edd40c1dc",
+    "mtime": 1787461054.3312118,
+    "ast_hash": "5146e2907ad6a871c66b0028dff9a0ed",
     "semantic_hash": ""
   },
   ".pipeline/prompts/implementation.md": {
-    "mtime": 1787304881.135225,
-    "ast_hash": "0491321eb87dec8e338cfe0870d30b0a",
+    "mtime": 1787461089.3912106,
+    "ast_hash": "ac1fd368bb6f9a9f21482a8b746b45e2",
     "semantic_hash": ""
   },
   ".pipeline/prompts/review.md": {
-    "mtime": 1787304881.1393802,
-    "ast_hash": "c8832095f7114281905df01d650e9f88",
+    "mtime": 1787461092.2592103,
+    "ast_hash": "4a3e4ad495037f3163770ce802cb57b9",
     "semantic_hash": ""
   },
   ".pipeline/prompts/system.md": {
-    "mtime": 1787383672.2596965,
-    "ast_hash": "a2508ad04e1de7cf6793216b08baeca4",
+    "mtime": 1787461107.7312098,
+    "ast_hash": "13836d720b269184e233f4d34fc48ddd",
     "semantic_hash": ""
   },
   ".pipeline/prompts/technical-design.md": {
-    "mtime": 1787384914.310037,
-    "ast_hash": "2a22a98a4b9829067573af9661e08e38",
+    "mtime": 1787461077.079211,
+    "ast_hash": "baf07fd9f30fc4cf02f6edf33de312ff",
     "semantic_hash": ""
   },
   ".pipeline/prompts/test-design.md": {
-    "mtime": 1787379648.107273,
-    "ast_hash": "f2afb190bc6f16615f0c9291bf99b8b9",
+    "mtime": 1787461084.8952105,
+    "ast_hash": "8a61a850a2e5fe64a2ab356888fdb58b",
     "semantic_hash": ""
   },
   ".pipeline/prompts/verification.md": {
-    "mtime": 1787304881.1373076,
-    "ast_hash": "86274db6a57861435ff942a1011d20cd",
+    "mtime": 1787461096.8992102,
+    "ast_hash": "3692ff58f36fd8bbcd1df7cc6316c31f",
     "semantic_hash": ""
   },
   "AGENTS.md": {
-    "mtime": 1787374179.9034176,
-    "ast_hash": "8f546da86fdff03f39671c866dd4c1bb",
+    "mtime": 1787459443.3432546,
+    "ast_hash": "98e2b1d904e8c9a7228540c3548b40c2",
     "semantic_hash": ""
   },
   "LICENSE.txt": {
@@ -1032,26 +877,6 @@
   "README.md": {
     "mtime": 1787225788.3982835,
     "ast_hash": "55430b7aa02de432778870057f76c6a1",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/README.md": {
-    "mtime": 1787393929.144759,
-    "ast_hash": "705581ce08767dd681e6176c0bbf64e3",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/wwwroot/lib/jquery-validation-unobtrusive/LICENSE.txt": {
-    "mtime": 1787311870.7278972,
-    "ast_hash": "ba2bed45d99b13d4c31485d0631ae675",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/wwwroot/lib/jquery-validation/LICENSE.md": {
-    "mtime": 1787311870.727604,
-    "ast_hash": "41ef1b919db5e3aeaf47308518e7bcee",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/wwwroot/lib/jquery/LICENSE.txt": {
-    "mtime": 1787311870.7272353,
-    "ast_hash": "f661402a551136dbe74282edc5bea28d",
     "semantic_hash": ""
   },
   "docs/architecture.md": {
@@ -1094,56 +919,6 @@
     "ast_hash": "4a216c1655d3f1c47719dfc1a52c6ec3",
     "semantic_hash": ""
   },
-  "control-plane/run.sh": {
-    "mtime": 1787317743.0480034,
-    "ast_hash": "f5f4600afbd917e8fc8dcf1d43802f33",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Migrations/20260821171539_InitialCreate.Designer.cs": {
-    "mtime": 1787332539.4430447,
-    "ast_hash": "3cc1b3f07925184a2c38bd68387b9570",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Migrations/20260821171539_InitialCreate.cs": {
-    "mtime": 1787332539.4367938,
-    "ast_hash": "8d3a3adae8e1149a79b840d91f86b8a0",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Migrations/20260821171629_FixScheduledAtFormat.Designer.cs": {
-    "mtime": 1787332589.0747228,
-    "ast_hash": "5458d54e4aa99c07c8b19d1536c57996",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Migrations/20260821171629_FixScheduledAtFormat.cs": {
-    "mtime": 1787332589.0742655,
-    "ast_hash": "8c114beaefa8312519658fac7e453167",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/Migrations/PipelineDbContextModelSnapshot.cs": {
-    "mtime": 1787332589.0754695,
-    "ast_hash": "a6e16514b519442971524a833553fbb9",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/.pipeline/schemas/implementation-result.schema.json": {
-    "mtime": 1787373687.7157114,
-    "ast_hash": "870499362330e9572b4ee36eff300ab3",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/.pipeline/schemas/review-result.schema.json": {
-    "mtime": 1787373687.7158186,
-    "ast_hash": "ae4d2c4b6f77b71a3ad85441e54ff0a0",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/.pipeline/schemas/technical-design.schema.json": {
-    "mtime": 1787373687.71584,
-    "ast_hash": "e72c6b0d909e299e6c4613f7afb0ea91",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/.pipeline/schemas/test-design.schema.json": {
-    "mtime": 1787373687.715918,
-    "ast_hash": "3f843d29cc8a4457f41d314d7fc4adea",
-    "semantic_hash": ""
-  },
   ".opencode/agents/implementer.md": {
     "mtime": 1787373882.6598973,
     "ast_hash": "5de875802f83e1cd36e0b6b8601624cb",
@@ -1169,99 +944,219 @@
     "ast_hash": "756e8f00a1cce3361a73dd6edd40c1dc",
     "semantic_hash": ""
   },
-  "control-plane/LEMUAgenticPipeline.Web/.opencode/agents/implementer.md": {
-    "mtime": 1787373882.6664789,
-    "ast_hash": "5de875802f83e1cd36e0b6b8601624cb",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/.opencode/agents/reviewer.md": {
-    "mtime": 1787373882.6665545,
-    "ast_hash": "08a8cf462c0ab0f76f9419c260e794fa",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/.opencode/agents/technical-designer.md": {
-    "mtime": 1787384920.8515542,
-    "ast_hash": "eb1c117ed676a1575d8620a57913c07f",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/.opencode/agents/test-designer.md": {
-    "mtime": 1787373882.6666143,
-    "ast_hash": "7e2f6016af6ead664c381b9cb34ec122",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/.opencode/agents/verifier.md": {
-    "mtime": 1787373882.6666257,
-    "ast_hash": "756e8f00a1cce3361a73dd6edd40c1dc",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/.pipeline/agents/implementer.md": {
-    "mtime": 1787373687.7186878,
-    "ast_hash": "5de875802f83e1cd36e0b6b8601624cb",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/.pipeline/agents/reviewer.md": {
-    "mtime": 1787373687.7187831,
-    "ast_hash": "08a8cf462c0ab0f76f9419c260e794fa",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/.pipeline/agents/technical-designer.md": {
-    "mtime": 1787373687.7188466,
-    "ast_hash": "354dc7f5ebc9c078f57122e7f1e9c4b9",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/.pipeline/agents/test-designer.md": {
-    "mtime": 1787373687.7189138,
-    "ast_hash": "7e2f6016af6ead664c381b9cb34ec122",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/.pipeline/agents/verifier.md": {
-    "mtime": 1787373687.7190068,
-    "ast_hash": "756e8f00a1cce3361a73dd6edd40c1dc",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/.pipeline/prompts/implementation.md": {
-    "mtime": 1787373687.7097704,
-    "ast_hash": "0491321eb87dec8e338cfe0870d30b0a",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/.pipeline/prompts/review.md": {
-    "mtime": 1787373687.7098885,
-    "ast_hash": "c8832095f7114281905df01d650e9f88",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/.pipeline/prompts/system.md": {
-    "mtime": 1787381085.4424117,
-    "ast_hash": "a2508ad04e1de7cf6793216b08baeca4",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/.pipeline/prompts/technical-design.md": {
-    "mtime": 1787384920.8540409,
-    "ast_hash": "2a22a98a4b9829067573af9661e08e38",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/.pipeline/prompts/test-design.md": {
-    "mtime": 1787379651.311273,
-    "ast_hash": "f2afb190bc6f16615f0c9291bf99b8b9",
-    "semantic_hash": ""
-  },
-  "control-plane/LEMUAgenticPipeline.Web/.pipeline/prompts/verification.md": {
-    "mtime": 1787373687.7099965,
-    "ast_hash": "86274db6a57861435ff942a1011d20cd",
-    "semantic_hash": ""
-  },
   "docs/agentic-pipeline.md": {
-    "mtime": 1787379728.0072696,
-    "ast_hash": "8b0a459cfc879fb8c5f81b72e102d995",
+    "mtime": 1787465259.9511034,
+    "ast_hash": "f437d8779dd643b538bc857db8ada2b7",
     "semantic_hash": ""
   },
-  ".pipeline/state/KAN-19/technical-designer-prompt.md": {
-    "mtime": 1787400476.8777196,
-    "ast_hash": "7e0e86ebfcb69e1fe793eff554f61569",
+  ".pipeline/LEMUAgenticPipeline.Web/Data/PipelineDbContext.cs": {
+    "mtime": 1787314841.5448136,
+    "ast_hash": "03283774fd2143a3711e55000ce2bdb7",
     "semantic_hash": ""
   },
-  ".pipeline/state/KAN-20/technical-designer-prompt.md": {
-    "mtime": 1787400570.7617316,
-    "ast_hash": "38e8d3c8c65857f43ea0f5d1ad8f3e86",
+  ".pipeline/LEMUAgenticPipeline.Web/Hubs/PipelineHub.cs": {
+    "mtime": 1787314841.5448904,
+    "ast_hash": "c5d6969c85e34749240ee434a9fe2622",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/LEMUAgenticPipeline.Web.csproj": {
+    "mtime": 1787459177.1352618,
+    "ast_hash": "d14dfda53a7f4640104c9583377071cd",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Migrations/20260821171539_InitialCreate.Designer.cs": {
+    "mtime": 1787332539.4430447,
+    "ast_hash": "3cc1b3f07925184a2c38bd68387b9570",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Migrations/20260821171539_InitialCreate.cs": {
+    "mtime": 1787332539.4367938,
+    "ast_hash": "8d3a3adae8e1149a79b840d91f86b8a0",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Migrations/20260821171629_FixScheduledAtFormat.Designer.cs": {
+    "mtime": 1787332589.0747228,
+    "ast_hash": "5458d54e4aa99c07c8b19d1536c57996",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Migrations/20260821171629_FixScheduledAtFormat.cs": {
+    "mtime": 1787332589.0742655,
+    "ast_hash": "8c114beaefa8312519658fac7e453167",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Migrations/PipelineDbContextModelSnapshot.cs": {
+    "mtime": 1787332589.0754695,
+    "ast_hash": "a6e16514b519442971524a833553fbb9",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Models/AgentDefinition.cs": {
+    "mtime": 1787394055.1407616,
+    "ast_hash": "46d72234cb0d7ef0ada26daa03c0a5f7",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Models/PipelineModels.cs": {
+    "mtime": 1787314841.5437324,
+    "ast_hash": "a2ea9fe28709e64e837a92d2406abb2f",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Pages/Error.cshtml": {
+    "mtime": 1787311870.7427838,
+    "ast_hash": "34b4b090be52ec4885be6fa2afff5c8d",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Pages/Error.cshtml.cs": {
+    "mtime": 1787314841.5438685,
+    "ast_hash": "be6d4e3958cb0ff0c041c05f40ed95e1",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Pages/Index.cshtml": {
+    "mtime": 1787311870.745064,
+    "ast_hash": "818dc46c594ee83d1c54f2a28f1af859",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Pages/Index.cshtml.cs": {
+    "mtime": 1787314841.5439973,
+    "ast_hash": "5146ff0d5d4edfee5d7af29673dce260",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Pages/Pipeline/Index.cshtml": {
+    "mtime": 1787312050.6769354,
+    "ast_hash": "916402dc46151fd454e01e290916393a",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Pages/Pipeline/Index.cshtml.cs": {
+    "mtime": 1787314841.545634,
+    "ast_hash": "6d47eaf0845a9361c638e7aff1cccb0a",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Pages/Pipeline/Run.cshtml": {
+    "mtime": 1787312070.7768729,
+    "ast_hash": "67ed54e05e7bcc87788558230e32dab7",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Pages/Pipeline/Run.cshtml.cs": {
+    "mtime": 1787314841.5455678,
+    "ast_hash": "9219ef0b877c1632fd1f41cff1878130",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Pages/Pipeline/Runs/Detail.cshtml": {
+    "mtime": 1787456215.2393353,
+    "ast_hash": "465d6b0e40ff76fbb7e759b248e36d53",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Pages/Pipeline/Runs/Detail.cshtml.cs": {
+    "mtime": 1787465126.3751054,
+    "ast_hash": "bbe056bf9a841badd8ed6bb5b1a6b64d",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Pages/Pipeline/Runs/Index.cshtml": {
+    "mtime": 1787466939.8190584,
+    "ast_hash": "5ea4252186a77ccce69fca68cd63c10c",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Pages/Pipeline/Runs/Index.cshtml.cs": {
+    "mtime": 1787466377.9550722,
+    "ast_hash": "d55746e8f5a053e75a0e9415d7f7e81f",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Pages/Privacy.cshtml": {
+    "mtime": 1787311870.7528133,
+    "ast_hash": "b4b61a68aa14d5cd3534d6923ed304d5",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Pages/Privacy.cshtml.cs": {
+    "mtime": 1787314841.5441518,
+    "ast_hash": "e40fb8c6605c262e7493e85ded623cdf",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Pages/Shared/_Layout.cshtml": {
+    "mtime": 1787314859.1794555,
+    "ast_hash": "d08b2f8849f0385312e8e0022970660e",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Pages/Shared/_ValidationScriptsPartial.cshtml": {
+    "mtime": 1787311870.7421286,
+    "ast_hash": "e44d1ba7aa6fc476b40834e79a00fd81",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Pages/_ViewImports.cshtml": {
+    "mtime": 1787314841.5463,
+    "ast_hash": "988c849d591473c3bd7d279704b2fb32",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Pages/_ViewStart.cshtml": {
+    "mtime": 1787311870.7612119,
+    "ast_hash": "e4cd881cf745e1e88cf2c5f6eceae943",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Program.cs": {
+    "mtime": 1787459221.6472611,
+    "ast_hash": "d828500e3b38c76fec587c2e1cd6ea6a",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Properties/launchSettings.json": {
+    "mtime": 1787311870.7677388,
+    "ast_hash": "9830e4ec52a1ab2f8f716c9ef5afdeb1",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Services/AgentRegistry.cs": {
+    "mtime": 1787394063.328761,
+    "ast_hash": "29827115a4be603ed0ffcb1aee711236",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Services/PipelineRunner.cs": {
+    "mtime": 1787465136.1071055,
+    "ast_hash": "151c6a2b1fd9293575492845dc7b5260",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Services/PipelineScheduler.cs": {
+    "mtime": 1787316011.3648248,
+    "ast_hash": "1ffb62424a254432ebe0ae321d32c36f",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/Services/PipelineWorker.cs": {
+    "mtime": 1787316974.6967936,
+    "ast_hash": "4bd3c0b89d2cae3ec92dd08fb401915b",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/run.sh": {
+    "mtime": 1787459240.5021973,
+    "ast_hash": "e9a6937028a6f45a4bcfed45b7bb8670",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/wwwroot/js/site.js": {
+    "mtime": 1787311870.7429683,
+    "ast_hash": "53e309eeca51b3b6de20c4d24e1b2b63",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/README.md": {
+    "mtime": 1787459297.2752554,
+    "ast_hash": "d18bd837e92e61cce8a2b861505f5046",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/wwwroot/lib/jquery-validation-unobtrusive/LICENSE.txt": {
+    "mtime": 1787311870.7278972,
+    "ast_hash": "ba2bed45d99b13d4c31485d0631ae675",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/wwwroot/lib/jquery-validation/LICENSE.md": {
+    "mtime": 1787311870.727604,
+    "ast_hash": "41ef1b919db5e3aeaf47308518e7bcee",
+    "semantic_hash": ""
+  },
+  ".pipeline/LEMUAgenticPipeline.Web/wwwroot/lib/jquery/LICENSE.txt": {
+    "mtime": 1787311870.7272353,
+    "ast_hash": "f661402a551136dbe74282edc5bea28d",
+    "semantic_hash": ""
+  },
+  ".pipeline/run.sh": {
+    "mtime": 1787459386.0344574,
+    "ast_hash": "61a5f10d947e602f61fb7ca423c86781",
+    "semantic_hash": ""
+  },
+  ".pipeline/clean-pipeline.sh": {
+    "mtime": 1787465287.4351025,
+    "ast_hash": "44c751c6fe5acc2a06770b879166f0a7",
     "semantic_hash": ""
   }
 }

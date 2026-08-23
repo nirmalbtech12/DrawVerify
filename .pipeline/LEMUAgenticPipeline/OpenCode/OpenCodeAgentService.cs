@@ -137,7 +137,7 @@ public sealed class OpenCodeAgentService : ICodeAgentService
 
             var repoRoot = ResolveRepoRoot();
             psi.ArgumentList.Add("run");
-            psi.ArgumentList.Add($"Execute the {agentType} task using the attached task input.");
+            psi.ArgumentList.Add($"Execute the {agentType} task using the attached task input.Complete task or throw an error if unable to complete. Do not make any assumptions about the task or its inputs.");
             
             // Attach the prompt file (contains system prompt + task prompt + metadata)
             var promptArtifactPath = Path.Combine(_store.StoryDir(storyContext.StoryKey), promptArtifact);
@@ -210,84 +210,131 @@ public sealed class OpenCodeAgentService : ICodeAgentService
             if (exitCode != 0)
                 throw new InvalidOperationException($"opencode failed (exit {exitCode}): {stderr}\n{stdout}");
 
-            // For file-producing agents, ONLY use the on-disk artifact. Stdout contains chat/progress, not the document.
-            // For non-file agents (Implementer, Reviewer, Verifier), extract final output from stdout.
-            string output;
-            var usedFileArtifact = false;
-
-            if (artifactPath != null)
+            // Deterministic response processing: read <response> block, parse JSON, validate, write via existing file mechanism.
+            // 1. Extract <response> JSON from stdout (agent output). Fallback to file artifact if stdout missing (for file agents).
+            string responseJson = string.Empty;
+            string extractError = string.Empty;
+            bool hasResponseBlock = TryExtractResponseBlock(stdout, out responseJson, out extractError);
+            if (!hasResponseBlock && artifactPath != null && File.Exists(artifactPath))
             {
-                // TechnicalDesigner, TestDesigner: require file artifact
-                if (!File.Exists(artifactPath))
-                    throw new InvalidOperationException($"Expected artifact not found at {artifactPath} for {agentType} {storyContext.StoryKey}. Agent must write output using file tool.");
-
-                var fileContent = await File.ReadAllTextAsync(artifactPath);
-                if (string.IsNullOrWhiteSpace(fileContent))
-                    throw new InvalidOperationException($"Artifact at {artifactPath} is empty for {agentType} {storyContext.StoryKey}.");
-
-                output = fileContent;
-                usedFileArtifact = true;
-                _log.LogInformation("Using on-disk artifact {Path} as output for {Agent} {Story} (file {FileLen} chars, stdout {StdoutLen} chars ignored)", artifactPath, agentType, storyContext.StoryKey, fileContent.Length, stdout.Length);
-            }
-            else
-            {
-                // Implementer, Reviewer, Verifier: extract final structured output from stdout
-                output = ExtractFinalOutput(agentType, stdout);
-                if (string.IsNullOrWhiteSpace(output))
-                    throw new InvalidOperationException($"opencode produced no extractable output for {agentType} {storyContext.StoryKey}");
-
-                _log.LogInformation("Extracted final output for {Agent} {Story} (stdout {StdoutLen} -> output {OutLen} chars)", agentType, storyContext.StoryKey, stdout.Length, output.Length);
+                // Fallback: check file artifact content for <response> (in case agent wrote JSON to file)
+                var fileContentFallback = await File.ReadAllTextAsync(artifactPath);
+                hasResponseBlock = TryExtractResponseBlock(fileContentFallback, out responseJson, out extractError);
+                if (hasResponseBlock)
+                    _log.LogInformation("Extracted <response> from file artifact fallback for {Agent} {Story}", agentType, storyContext.StoryKey);
             }
 
-            var valid = ValidateOutput(agentType, output);
-            IReadOnlyList<string> missing = Array.Empty<string>();
             string status;
+            string output;
+            string outputPath;
+            bool isValid;
+            string innerValidationError = string.Empty;
 
-            if (valid)
+            if (!hasResponseBlock)
             {
-                status = "PASS";
+                // Missing/invalid response block -> write error -> Run = FAILURE (deterministic, no LLM)
+                var errorMsg = $"Missing or invalid <response> block: {extractError}. Expected <response>{{\"status\":\"SUCCESS|FAILURE\", \"response\":\"...\", \"reason\":\"...\"}}</response>";
+                _log.LogError("Missing <response> for {Agent} {Story}: {Error}. Stdout snippet: {Snippet}", agentType, storyContext.StoryKey, extractError, stdout.Length > 500 ? stdout[..500] + "..." : stdout);
+                output = errorMsg;
+                status = "INVALID_RESPONSE";
+                isValid = false;
+                // Write error using existing file mechanism
+                if (artifactPath != null)
+                {
+                    await File.WriteAllTextAsync(artifactPath, errorMsg);
+                    outputPath = artifactPath;
+                }
+                else
+                {
+                    outputPath = await StoreOutputAsync(storyContext, agentType, errorMsg);
+                }
             }
-            else if (agentType is AgentType.TechnicalDesigner or AgentType.TestDesigner)
+            else if (!TryParseProjectResponse(responseJson, out var parsedStatus, out var parsedResponse, out var parsedReason, out var parseError))
             {
-                missing = GetMissingRequiredSections(agentType, output);
-                status = $"INVALID_SCHEMA: missing required sections: {string.Join(", ", missing)}";
-                var snippet = output.Length > 500 ? output[..500] + "..." : output;
-                _log.LogError("Schema validation failed for {Agent} {Story}: missing required sections: {Missing} (usedFileArtifact={UsedFile}, outputLen={Len}). Output snippet:\n{Snippet}",
-                    agentType, storyContext.StoryKey, string.Join(", ", missing), usedFileArtifact, output.Length, snippet);
+                var errorMsg = $"Invalid <response> JSON: {parseError}. Raw: {(responseJson.Length > 500 ? responseJson[..500] + "..." : responseJson)}";
+                _log.LogError("Invalid <response> JSON for {Agent} {Story}: {Error}", agentType, storyContext.StoryKey, parseError);
+                output = errorMsg;
+                status = "INVALID_RESPONSE";
+                isValid = false;
+                if (artifactPath != null)
+                {
+                    await File.WriteAllTextAsync(artifactPath, errorMsg);
+                    outputPath = artifactPath;
+                }
+                else
+                {
+                    outputPath = await StoreOutputAsync(storyContext, agentType, errorMsg);
+                }
             }
-            else if (agentType is AgentType.Implementer or AgentType.Reviewer)
+            else if (parsedStatus == "SUCCESS")
             {
-                status = "INVALID_SCHEMA: output is not valid JSON";
-                var snippet = output.Length > 500 ? output[..500] + "..." : output;
-                _log.LogError("Schema validation failed for {Agent} {Story}: output is not valid JSON (usedFileArtifact={UsedFile}, outputLen={Len}). Output snippet:\n{Snippet}",
-                    agentType, storyContext.StoryKey, usedFileArtifact, output.Length, snippet);
+                // Validate inner response against existing data contract (keep same contract, now wrapped)
+                if (!ValidateOutput(agentType, parsedResponse))
+                {
+                    var missing = agentType is AgentType.TechnicalDesigner or AgentType.TestDesigner
+                        ? GetMissingRequiredSections(agentType, parsedResponse)
+                        : Array.Empty<string>();
+                    innerValidationError = missing.Count > 0
+                        ? $"missing required sections: {string.Join(", ", missing)}"
+                        : "output is not valid JSON";
+                    var errorMsg = $"SUCCESS response failed data contract validation: {innerValidationError}";
+                    _log.LogError("Inner validation failed for {Agent} {Story}: {Error}. Response snippet: {Snippet}", agentType, storyContext.StoryKey, innerValidationError, parsedResponse.Length > 500 ? parsedResponse[..500] + "..." : parsedResponse);
+                    output = errorMsg;
+                    status = "INVALID_RESPONSE";
+                    isValid = false;
+                    if (artifactPath != null)
+                    {
+                        await File.WriteAllTextAsync(artifactPath, errorMsg);
+                        outputPath = artifactPath;
+                    }
+                    else
+                    {
+                        outputPath = await StoreOutputAsync(storyContext, agentType, errorMsg);
+                    }
+                }
+                else
+                {
+                    // SUCCESS → write response → deterministic file write via existing mechanism
+                    output = parsedResponse;
+                    status = "SUCCESS";
+                    isValid = true;
+                    if (artifactPath != null)
+                    {
+                        await File.WriteAllTextAsync(artifactPath, parsedResponse);
+                        outputPath = artifactPath;
+                        _log.LogInformation("Wrote SUCCESS response to {Path} for {Agent} {Story} ({Len} chars)", artifactPath, agentType, storyContext.StoryKey, parsedResponse.Length);
+                    }
+                    else
+                    {
+                        outputPath = await StoreOutputAsync(storyContext, agentType, parsedResponse);
+                        _log.LogInformation("Wrote SUCCESS response via StoreOutputAsync for {Agent} {Story} -> {Path}", agentType, storyContext.StoryKey, outputPath);
+                    }
+                }
             }
-            else
+            else // FAILURE
             {
-                status = "INVALID_SCHEMA";
-                var snippet = output.Length > 500 ? output[..500] + "..." : output;
-                _log.LogError("Schema validation failed for {Agent} {Story}: output failed validation (outputLen={Len}). Output snippet:\n{Snippet}",
-                    agentType, storyContext.StoryKey, output.Length, snippet);
-            }
-
-            // Code must NOT create the artifact file - agent CLI creates it via prompt file tool.
-            // For file-producing agents, use the existing artifact path directly.
-            string stored;
-            if (artifactPath != null)
-            {
-                stored = artifactPath;
-            }
-            else
-            {
-                stored = await StoreOutputAsync(storyContext, agentType, output);
+                // FAILURE → write reason → deterministic
+                output = parsedReason;
+                status = "FAILURE";
+                isValid = false; // treated as failure for run status, but JSON itself was valid
+                _log.LogWarning("Agent {Agent} returned FAILURE for {Story}: {Reason}", agentType, storyContext.StoryKey, parsedReason);
+                if (artifactPath != null)
+                {
+                    await File.WriteAllTextAsync(artifactPath, parsedReason);
+                    outputPath = artifactPath;
+                }
+                else
+                {
+                    outputPath = await StoreOutputAsync(storyContext, agentType, parsedReason);
+                }
             }
 
             return new AgentResult
             {
                 AgentType = agentType,
                 Output = output,
-                OutputPath = stored,
-                IsValid = valid,
+                OutputPath = outputPath,
+                IsValid = isValid,
                 Status = status
             };
         }
@@ -340,6 +387,91 @@ public sealed class OpenCodeAgentService : ICodeAgentService
 
         // technical/test design: markdown must contain required sections
         return GetMissingRequiredSections(agentType, output).Count == 0;
+    }
+
+    private static bool TryExtractResponseBlock(string output, out string json, out string error)
+    {
+        json = string.Empty;
+        error = string.Empty;
+        if (string.IsNullOrWhiteSpace(output))
+        {
+            error = "Empty output";
+            return false;
+        }
+        var startTag = "<response>";
+        var endTag = "</response>";
+        var startIdx = output.IndexOf(startTag, StringComparison.OrdinalIgnoreCase);
+        var endIdx = output.IndexOf(endTag, StringComparison.OrdinalIgnoreCase);
+        if (startIdx == -1 || endIdx == -1 || endIdx <= startIdx)
+        {
+            error = "Missing <response> block";
+            return false;
+        }
+        startIdx += startTag.Length;
+        json = output.Substring(startIdx, endIdx - startIdx).Trim();
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            error = "Empty <response> block";
+            return false;
+        }
+        return true;
+    }
+
+    private static bool TryParseProjectResponse(string json, out string status, out string response, out string reason, out string error)
+    {
+        status = response = reason = error = string.Empty;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("status", out var statusProp) || statusProp.ValueKind != JsonValueKind.String)
+            {
+                error = "Missing or invalid 'status'";
+                return false;
+            }
+            status = statusProp.GetString()?.Trim() ?? string.Empty;
+            if (status != "SUCCESS" && status != "FAILURE")
+            {
+                error = $"Invalid status '{status}', must be SUCCESS or FAILURE";
+                return false;
+            }
+            if (status == "SUCCESS")
+            {
+                if (!root.TryGetProperty("response", out var respProp))
+                {
+                    error = "SUCCESS requires 'response'";
+                    return false;
+                }
+                response = respProp.ValueKind == JsonValueKind.String
+                    ? respProp.GetString() ?? string.Empty
+                    : respProp.GetRawText();
+                if (string.IsNullOrWhiteSpace(response))
+                {
+                    error = "SUCCESS response is empty";
+                    return false;
+                }
+            }
+            else
+            {
+                if (!root.TryGetProperty("reason", out var reasonProp) || reasonProp.ValueKind != JsonValueKind.String)
+                {
+                    error = "FAILURE requires 'reason' string";
+                    return false;
+                }
+                reason = reasonProp.GetString() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(reason))
+                {
+                    error = "FAILURE reason is empty";
+                    return false;
+                }
+            }
+            return true;
+        }
+        catch (JsonException ex)
+        {
+            error = $"Invalid JSON: {ex.Message}";
+            return false;
+        }
     }
 
     private static IReadOnlyList<string> GetMissingRequiredSections(AgentType agentType, string output)

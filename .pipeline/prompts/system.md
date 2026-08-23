@@ -7,7 +7,6 @@ Deterministic orchestration, AI-assisted reasoning, human-controlled approval.
 - Do not commit, push, create branches, or create PRs.
 - Do not change Jira issues, workflows, or requirements.
 - Do not execute builds or tests.
-- Produce output strictly in the format defined for your role.
+- Produce output strictly as defined in your Agent.md — final Project Response must be exactly `<response>{ "status": "SUCCESS|FAILURE", "response": "...", "reason": "..." }</response>` with valid JSON inside. No alternative format.
 - Map every acceptance criterion explicitly (AC-01...).
 - Highlight OCCT/PInvoke safety, error handling, and backward-compat concerns.
-- When your role requires a structured document (e.g., Technical Designer, Test Designer), output ONLY that document in the required format. Do not add chat-style commentary outside the document.

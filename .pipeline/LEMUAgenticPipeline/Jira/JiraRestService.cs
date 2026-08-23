@@ -230,6 +230,84 @@ public sealed class JiraRestService : IJiraService
         _log.LogInformation("Transitioned {Issue} → {Status} (id {Id})", issueKey, targetStatus, transitionId);
     }
 
+    public async Task UpdateIssueFieldAsync(string issueKey, string fieldId, string value)
+    {
+        EnsureConfigured();
+        if (string.IsNullOrWhiteSpace(fieldId)) throw new ArgumentException("fieldId required", nameof(fieldId));
+        // Jira Cloud v3 expects ADF for rich text fields; plain string for text fields. Try ADF first, fallback to raw string on 400.
+        var adfValue = MarkdownToAdf(value);
+        var payloadAdf = JsonSerializer.Serialize(new { fields = new Dictionary<string, object> { [fieldId] = adfValue } });
+        var url = $"rest/api/3/issue/{Uri.EscapeDataString(issueKey)}";
+        var respAdf = await SendWithLoggingAsync(() => new HttpRequestMessage(HttpMethod.Put, url) { Content = new StringContent(payloadAdf, Encoding.UTF8, "application/json") }, issueKey, $"UpdateField {fieldId} (ADF)");
+        if (respAdf.IsSuccessStatusCode)
+        {
+            _log.LogInformation("Updated {Issue} field {Field} via ADF ({Len} chars)", issueKey, fieldId, value.Length);
+            return;
+        }
+        var bodyAdf = await respAdf.Content.ReadAsStringAsync();
+        _log.LogWarning("ADF update for {Issue} {Field} failed {Status}: {Body} — trying plain string fallback", issueKey, fieldId, (int)respAdf.StatusCode, bodyAdf.Length > 500 ? bodyAdf[..500] + "..." : bodyAdf);
+        // Fallback: plain string (for Text field types)
+        var payloadRaw = JsonSerializer.Serialize(new { fields = new Dictionary<string, string> { [fieldId] = value } });
+        var respRaw = await SendWithLoggingAsync(() => new HttpRequestMessage(HttpMethod.Put, url) { Content = new StringContent(payloadRaw, Encoding.UTF8, "application/json") }, issueKey, $"UpdateField {fieldId} (raw)");
+        if (!respRaw.IsSuccessStatusCode)
+            throw await ToJiraExceptionAsync(respRaw, issueKey, $"Update field {fieldId} failed (ADF and raw both failed)");
+        _log.LogInformation("Updated {Issue} field {Field} via raw string fallback ({Len} chars)", issueKey, fieldId, value.Length);
+    }
+
+    private static object MarkdownToAdf(string markdown)
+    {
+        // Convert markdown to minimal ADF: split into blocks, headings -> heading, others -> paragraph, code -> codeBlock
+        var lines = markdown.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+        var content = new List<object>();
+        var paragraphBuffer = new List<string>();
+        void FlushParagraph()
+        {
+            if (paragraphBuffer.Count == 0) return;
+            var text = string.Join("\n", paragraphBuffer).Trim();
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                content.Add(new
+                {
+                    type = "paragraph",
+                    content = new[] { new { type = "text", text } }
+                });
+            }
+            paragraphBuffer.Clear();
+        }
+        foreach (var rawLine in lines)
+        {
+            var line = rawLine.TrimEnd();
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                FlushParagraph();
+                continue;
+            }
+            if (line.StartsWith("# "))
+            {
+                FlushParagraph();
+                content.Add(new { type = "heading", attrs = new { level = 1 }, content = new[] { new { type = "text", text = line.Substring(2).Trim() } } });
+            }
+            else if (line.StartsWith("## "))
+            {
+                FlushParagraph();
+                content.Add(new { type = "heading", attrs = new { level = 2 }, content = new[] { new { type = "text", text = line.Substring(3).Trim() } } });
+            }
+            else if (line.StartsWith("### "))
+            {
+                FlushParagraph();
+                content.Add(new { type = "heading", attrs = new { level = 3 }, content = new[] { new { type = "text", text = line.Substring(4).Trim() } } });
+            }
+            else
+            {
+                paragraphBuffer.Add(line);
+            }
+        }
+        FlushParagraph();
+        if (content.Count == 0)
+            content.Add(new { type = "paragraph", content = new[] { new { type = "text", text = markdown } } });
+        return new { type = "doc", version = 1, content };
+    }
+
     // ---- helpers ----
 
     private async Task<StoryContext> GetIssueAsStoryContextAsync(string key, string expectedType)

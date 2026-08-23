@@ -167,8 +167,22 @@ public sealed class JiraOptions
     /// <summary>Custom field IDs for acceptance criteria (if used), e.g. ["customfield_10001"]</summary>
     public string[] AcceptanceCriteriaFields { get; set; } = ["customfield_10001", "customfield_10002"];
 
+    /// <summary>Jira custom field for Implementation (technical design markdown), e.g. customfield_10168.</summary>
+    public string ImplementationField { get; set; } = "customfield_10168";
+
+    /// <summary>Jira custom field for Test Design markdown, e.g. customfield_10201.</summary>
+    public string TestDesignField { get; set; } = "customfield_10201";
+
     /// <summary>Request timeout seconds.</summary>
     public int TimeoutSeconds { get; set; } = 30;
+
+    /// <summary>Resolve Jira custom field for an agent (technical-design/test-design).</summary>
+    public string? GetFieldForAgent(string agentId) => agentId.Trim().ToLowerInvariant() switch
+    {
+        "technical-design" => string.IsNullOrWhiteSpace(ImplementationField) ? null : ImplementationField,
+        "test-design" => string.IsNullOrWhiteSpace(TestDesignField) ? null : TestDesignField,
+        _ => null
+    };
 }
 
 public sealed class JiraServiceException : Exception

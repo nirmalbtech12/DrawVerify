@@ -3,9 +3,13 @@
 ## Scope
 
 The agentic pipeline is separate from the DrawVerify product code. Product
-projects remain under `src/`; pipeline code is under `.pipeline/` and the web
-control plane is under `control-plane/`. Both are included in
-`DrawVerify.sln`, but Graphify is intentionally scoped to `./src`.
+projects remain under `src/`; pipeline code is under `.pipeline/` including the
+web control plane at `.pipeline/LEMUAgenticPipeline.Web` (moved from
+`control-plane/LEMUAgenticPipeline.Web` to avoid duplicate
+`config/prompts/agents` copies; `control-plane/` is removed, use
+`.pipeline/run.sh`).
+Both are included in `DrawVerify.sln`, but Graphify is intentionally scoped to
+`./src`.
 
 This document describes the current code, including unfinished and simulated
 paths. It is not a claim that the repository provides end-to-end automated Git,
@@ -24,34 +28,42 @@ DrawVerify/
 │   │   ├── Services/                         # integration contracts
 │   │   └── State/                            # FileStateStore
 │   ├── LEMUAgenticPipeline.Orchestrator/     # net9.0 CLI host
-│   ├── agents/                               # checked-in agent definitions
-│   ├── prompts/                              # task and system prompts
-│   ├── schemas/                              # output-schema files
-│   └── state/<JIRA-ID>/                      # per-story artifacts at runtime
-├── control-plane/LEMUAgenticPipeline.Web/    # ASP.NET Core 9 Razor Pages app
+│   ├── LEMUAgenticPipeline.Web/              # ASP.NET Core 9 Razor Pages app (moved from control-plane)
+│   ├── agents/                               # checked-in agent definitions (single source; .opencode/agents is symlink)
+│   ├── prompts/                              # task and system prompts (single source)
+│   ├── schemas/                              # output-schema files (single source)
+│   ├── state/<JIRA-ID>/                      # per-story artifacts at runtime
+│   └── run.sh                                # run web: dotnet run --project LEMUAgenticPipeline.Web
 ├── src/                                      # DrawVerify product code
 └── docs/
 ```
 
-The checked-in agent definitions are in `.pipeline/agents`. However, the
-currently loaded orchestrator configuration sets `Pipeline:Paths:AgentDir` to
-`.opencode/agents`. `OpenCodeAgentService` therefore looks there at runtime;
-when the requested file is absent it substitutes `# Agent: <AgentType>` as the
-agent definition. The `PathOptions` code default is `.pipeline/agents`, so the
-effective path depends on configuration.
+The checked-in agent definitions are in `.pipeline/agents` — the single source
+of truth. `Pipeline:Paths:AgentDir` is `.pipeline/agents` in
+`.pipeline/LEMUAgenticPipeline.Orchestrator/appsettings.json` and
+`.pipeline/LEMUAgenticPipeline.Web/appsettings.json` (code default is also
+`.pipeline/agents`). `.opencode/agents` is a symlink
+(`.opencode/agents -> ../.pipeline/agents`) retained only so
+the `opencode --agent <name> --dir <repoRoot>` CLI can still resolve agents via
+its default `.opencode/agents` location. `OpenCodeAgentService` does not read
+`AgentDir` for the prompt (it passes `--agent`/`--file`), it only uses the alias.
+There is no longer a `control-plane/.../.pipeline` duplicate — web now lives at
+`.pipeline/LEMUAgenticPipeline.Web` and resolves all pipeline paths via repo root
+(`Program.cs: ResolveRepoRoot()` + `PostConfigure` absolute `Paths`). When the
+agent file is absent the service substitutes `# Agent: <AgentType>`.
 
 ## Components
 
 ```text
 Browser
   ↓
-LEMUAgenticPipeline.Web
+LEMUAgenticPipeline.Web (.pipeline/LEMUAgenticPipeline.Web)
   ├── Razor Pages and SignalR
   ├── SQLite run/schedule/log records
   ├── PipelineWorker (background queue consumer)
   └── PipelineRunner (web-stage execution)
   ↓ ProjectReference
-LEMUAgenticPipeline
+LEMUAgenticPipeline (.pipeline/LEMUAgenticPipeline)
   ├── JiraRestService and FileStateStore
   ├── StateMachine and PipelineOrchestrator API
   └── ICodeAgentService / OpenCodeAgentService
@@ -83,8 +95,13 @@ Testing  → TestFailed  → Verification → Blocked or Building
 ```
 
 `PipelineOrchestrator` provides operations to start a story, perform a
-validated transition, save state, request approval by polling `approval.json`,
-abort, and obtain diagnosis from the verifier agent. It writes `jira.json`,
+validated transition, save state, request approval by polling the
+agent-suffixed `<agent>-approval.json` (e.g., `technical-design-approval.json`)
+— each generated FROM its JIRA-specific source artifact (e.g.,
+`technical-design.md` → `technical-design-approval.json`, with `sourceHash`
+traceability). No separate `approval-request.md` is generated; the agent's
+own `<agent>.md` (e.g., `technical-design.md`) is the full content to be
+validated. It also supports abort and verifier diagnosis. It writes `jira.json`,
 `pipeline-state.json`, and `execution-log.json` through `FileStateStore` when
 those operations are called.
 
@@ -99,43 +116,69 @@ The state machine is not currently driven end-to-end by either host:
 ## Agents, prompts, and artifacts
 
 The shared `AgentType` values are TechnicalDesigner, TestDesigner,
-Implementer, Verifier, and Reviewer. `OpenCodeAgentService` creates a prompt
-from the system prompt, the configured agent-definition path, the selected
-task prompt, Jira context, configured model name, and optional custom input.
-It invokes `opencode run` as a child process. For file-producing agents
-(TechnicalDesigner → `technical-design.md`, TestDesigner → `test-design.md`),
-it removes any stale artifact before invocation, then prefers the on-disk
-artifact written by the agent over stdout chatter (stdout is kept for diagnostics).
-The resolved output is then validated and stored via `FileStateStore`.
+Implementer, Verifier, and Reviewer.
 
-| Agent type | Task prompt | Stored output | Output source |
+**Prompt.md vs Agent.md separation (no duplication):**
+- `Prompt.md` (`/.pipeline/prompts/*.md`) — task-specific prompt/context only (Jira key/summary/requirement/ACs with `{{placeholders}}`, approved designs). No coding commands, workflow, or tool instructions.
+- `Agent.md` (`/.pipeline/agents/*.md`) — agent behavior, execution rules, tools, and **standard JSON Project Response schema** (no task inputs). No duplicated task text.
+- `system.md` — deterministic orchestration, human-controlled approval, never bypass gates; does not duplicate Agent.md schema.
+
+**Standard JSON Project Response (mandatory, no alternative):**
+Every `Agent.md` defines the complete schema and requires the final Project
+Response in exactly this format (valid JSON inside `<response>`):
+
+```xml
+<response>
+{
+  "status": "SUCCESS | FAILURE",
+  "response": "...",
+  "reason": "..."
+}
+</response>
+```
+- `status` is mandatory, must be `SUCCESS` or `FAILURE`.
+- `SUCCESS` requires `response` (non-empty string) — must be the complete artifact content per existing data contract (e.g., technical-design markdown, implementation JSON string). Keep existing contracts same, only wrapped as JSON string.
+- `FAILURE` requires `reason` (non-empty string).
+- Content inside `<response>` must be valid JSON. No alternative or free-form Project Response is allowed.
+
+**Deterministic response processing (no LLM for status):**
+`OpenCodeAgentService` / `OpenAIAgentService` **do not** use free-form text or LLM to determine status:
+1. Read `<response>` block from agent output (`stdout`, fallback to file artifact).
+2. Parse and validate outer JSON (status/required fields) and inner data contract (existing headings/JSON).
+3. Write parsed result via existing response-file mechanism (`FileStateStore.SaveArtifactAsync` / `StoreOutputAsync` → `technical-design.md`, `test-design.md`, `implementation-result.json`, etc.).
+4. Update run status deterministically: `SUCCESS` → write `response` → `AgentResult.IsValid=true, Status=SUCCESS` → `Run` continues; `FAILURE` → write `reason` → `Status=FAILURE, IsValid=false` → `Run=FAILURE`; missing/invalid → write error → `Status=INVALID_RESPONSE, IsValid=false` → `Run=FAILURE`.
+
+**OpenCode execution (minimal, no hardcoded prompt duplication):**
+`OpenCodeAgentService.InvokeAgentAsync` reads `Prompt.md` via `promptFilePath` (`Pipeline:Paths:PromptDir` + `MapAgent`), renders `{{placeholders}}`, builds `fullPrompt = system + task prompt + metadata`, saves as `<agent>-prompt.md` for audit, and passes it as the OpenCode prompt via `--file <promptArtifactPath>` (`opencode run "..." --file <prompt> --model <model> --agent <kebab> --dir <repoRoot> --auto`). No prompt content is hardcoded in C#; Prompt.md is the single source.
+
+The shared `AgentType` values are TechnicalDesigner, TestDesigner,
+Implementer, Verifier, and Reviewer. For file-producing agents
+(TechnicalDesigner → `technical-design.md`, TestDesigner → `test-design.md`),
+the service still removes any stale artifact before invocation, but the authoritative
+output is the parsed `<response>` `response` string, written deterministically via `FileStateStore`.
+
+| Agent type | Task prompt (Prompt.md) | Stored output (via <response> `response`) | Output source |
 |---|---|---|---|
-| TechnicalDesigner | `technical-design.md` | `technical-design.md` | file artifact preferred, stdout fallback |
-| TestDesigner | `test-design.md` | `test-design.md` | file artifact preferred, stdout fallback |
-| Implementer | `implementation.md` | `implementation-result.json` | stdout (JSON) |
-| Verifier | `verification.md` | `verification-result.md` | stdout |
-| Reviewer | `review.md` | `review-result.json` | stdout (JSON) |
+| TechnicalDesigner | `technical-design.md` | `technical-design.md` | `<response>` `response` markdown, validated for required headings |
+| TestDesigner | `test-design.md` | `test-design.md` | `<response>` `response` markdown, validated for required headings |
+| Implementer | `implementation.md` | `implementation-result.json` | `<response>` `response` JSON string, validated as JSON |
+| Verifier | `verification.md` | `verification-result.md` | `<response>` `response` markdown, non-empty |
+| Reviewer | `review.md` | `review-result.json` | `<response>` `response` JSON string, validated as JSON |
 
 Prompts are stored before invocation as `<agent>-prompt.md`. The verifier
 recovery path additionally writes `verification-attempt-<n>.md`.
 
-Output validation is deliberately minimal:
+Output validation is deterministic and minimal (inner data contract):
 
 - Technical and test designs are checked for selected Markdown headings
   (`## Jira`, `## Requirement`, `## Proposed Changes`, `## Risks`,
   `## Acceptance Criteria Mapping` for technical-design; `## Jira`,
-  `## Test Strategy`, `## Unit Tests`, `## Acceptance Criteria` for test-design).
-  On failure, `OpenCodeAgentService` sets `AgentResult.Status` to
-  `INVALID_SCHEMA: missing required sections: ...` and logs the missing
-  headings; `PipelineRunner` surfaces that status in its
-  `Agent {id} output failed schema validation (...)` exception.
-- Implementer and reviewer output is only checked as JSON-parseable
-  (`INVALID_SCHEMA: output is not valid JSON` on failure).
-- Verifier output only needs to be non-empty.
-- If a configured schema file is missing, validation succeeds without a
-  schema-based check.
-- Empty output (and, for file agents, missing/empty on-disk artifact)
-  throws `opencode produced empty output and no artifact at ...`.
+  `## Test Strategy`, `## Unit Tests`, `## Acceptance Criteria` for test-design) — now on the inner `response` string, not outer JSON. On failure, `AgentResult.Status` is `INVALID_RESPONSE` and `PipelineRunner` throws `Agent {id} output failed schema validation (...)`, marking `Run=FAILURE`.
+- Implementer and reviewer inner `response` is checked as JSON-parseable
+  (`INVALID_RESPONSE: output is not valid JSON` on failure).
+- Verifier inner `response` only needs to be non-empty.
+- If a configured schema file is missing, inner validation succeeds without a schema-based check (outer `<response>` JSON validation still applies).
+- Empty output, missing `<response>` block, or invalid outer JSON throws `Missing or invalid <response> block` / `Invalid <response> JSON` and writes error via `StoreOutputAsync`, marking `Run=FAILURE`.
 
 `OpenCodeAgentService` and `OpenAIAgentService` are implemented
 model-provider adapters. Both hosts select their `ICodeAgentService` through
@@ -206,10 +249,29 @@ synthetic GitHub pull-request URL and number. It performs no Git branch,
 commit, push, PR, merge, or Jira-update operation.
 
 Technical-design and test-design stages require web approval when their agent
-definition has `RequiresHumanApproval=true`. The page writes
-`.pipeline/state/<JIRA-ID>/approval.json` and updates the waiting database
-record; the running worker polls both locations for up to 24 hours. The web
-runner does not expose a human-review/merge stage.
+definition has `RequiresHumanApproval=true`. No separate
+`<agent>-approval-request.md` is created; the agent's own JIRA-specific output
+(e.g., `technical-design` → `technical-design.md`, `test-design` →
+`test-design.md`) is the full content to be validated. For each gated agent the
+page writes the corresponding `.pipeline/state/<JIRA-ID>/<agent>-approval.json`
+(e.g., `technical-design-approval.json`, `test-design-approval.json`, with
+`sourceArtifact`/`sourceHash` traceability) and updates the waiting database record; the
+running worker polls the agent-suffixed file (only that file, no generic reuse) + DB
+for up to 24 hours. The worker also cleans per-agent `*-approval.json` at run
+start so a prior run's rejected decision cannot bleed into the next run. The
+**Pipeline Progress** section in `/Pipeline/Runs/{runId}` also shows a per-agent
+`View <artifact>` link (e.g., `View technical-design.md` /
+`View test-design.md`) when the file exists under
+`.pipeline/state/<JIRA>/`; it is served via
+`GET /Pipeline/Runs/{runId}?handler=Artifact&agentId=<agent>`
+(`FileStateStore.ArtifactFileForAgent()` + `LoadArtifactAsync()` with
+`SanitizeAgentId()`/path-traversal guard).
+
+**On human approval (`APPROVED`)**, the approved markdown is synced to Jira via
+`IJiraService.UpdateIssueFieldAsync` (per `JiraOptions.GetFieldForAgent` — configurable via `Pipeline:Jira:ImplementationField` / `TestDesignField`, similar to `AcceptanceCriteriaFields`; fallback to `FileStateStore.JiraFieldForAgent`):
+- `technical-design` → `Pipeline:Jira:ImplementationField` (default `customfield_10168`, label **Implementation**)
+- `test-design` → `Pipeline:Jira:TestDesignField` (default `customfield_10201`, label **Test Design**)
+Content is converted to ADF (`MarkdownToAdf`) for `rest/api/3/issue/{key}` `PUT {"fields":{field: adf}}` with fallback to raw string; failures are logged (`Warn`) but do not fail the approval (approval file + DB already recorded). This occurs in `Detail.OnPostApproveAsync` (web UI, via `IOptions<PipelineOptions>`), `PipelineRunner` after `WaitForApprovalAsync` (`_opts.Jira.GetFieldForAgent`), `PipelineOrchestrator.RequestHumanApprovalAsync` after `PollApprovalAsync` (`_opts.Jira`), and `Program.cs` `approve` CLI (`IOptions<PipelineOptions>`). The web runner does not expose a human-review/merge stage.
 
 Run-log messages are sanitized before they are stored and broadcast: the code
 redacts Basic/Bearer header values, `ATATT` token patterns, and values written
@@ -237,11 +299,12 @@ boundary around the spawned OpenCode command.
 ## Configuration and operation
 
 Both hosts load
-`.pipeline/LEMUAgenticPipeline.Orchestrator/appsettings.json`; the web host
-also loads its local `appsettings.json`. Each registers an environment-variable
-provider with the literal prefix `Pipeline_`. Because that provider strips its
-prefix before configuration binding, ensure an override still includes the
-`Pipeline` section after the prefix (for example,
+`.pipeline/LEMUAgenticPipeline.Orchestrator/appsettings.json` (single source; web
+resolves via repo root `Path.Combine(repoRoot, ".pipeline/...")`); the web host
+also loads its local `.pipeline/LEMUAgenticPipeline.Web/appsettings.json`. Each
+registers an environment-variable provider with the literal prefix `Pipeline_`.
+Because that provider strips its prefix before configuration binding, ensure an
+override still includes the `Pipeline` section after the prefix (for example,
 `Pipeline_Pipeline__Jira__BaseUrl`) or confirm the resulting configuration at
 startup. Jira uses the configured `TokenEnv`, which defaults to `JIRA_TOKEN`.
 Do not store credential values in checked-in settings.
@@ -255,7 +318,7 @@ Run from the repository root:
 
 ```bash
 dotnet build DrawVerify.sln
-dotnet run --project control-plane/LEMUAgenticPipeline.Web
+dotnet run --project .pipeline/LEMUAgenticPipeline.Web  # or .pipeline/run.sh
 ```
 
 The CLI commands are:

@@ -1,7 +1,9 @@
-# review prompt
-Story: {{jira_key}} — {{jira_summary}}
-Requirement: {{requirement}}
-ACs:
+Review story {{jira_key}} — {{jira_summary}}.
+
+Requirement:
+{{requirement}}
+
+Acceptance Criteria:
 {{acceptance_criteria}}
 
 Technical Design:
@@ -10,9 +12,12 @@ Technical Design:
 Test Design:
 {{test_design}}
 
-Additional:
+Additional Context:
+Diff:
 {{diff}}
+Build Output:
 {{build_output}}
+Test Output:
 {{test_output}}
 
-Produce output per .opencode/agents/review schema. Do not modify source, Jira, or Git.
+Task: Perform read-only code review per Agent.md data contract. Check correctness, architecture, unnecessary changes, security/error handling, OCCT safety, test coverage, regression risk.

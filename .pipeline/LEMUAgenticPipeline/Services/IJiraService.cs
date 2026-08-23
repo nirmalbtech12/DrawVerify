@@ -32,4 +32,10 @@ public interface IJiraService
     /// <param name="issueKey">Target issue key.</param>
     /// <param name="transitionName">Transition name (e.g., "In Progress", "Done").</param>
     Task TransitionIssueAsync(string issueKey, string transitionName);
+
+    /// <summary>Update a single Jira field (e.g., customfield_10168) with markdown/text. Used for approved design sync.</summary>
+    /// <param name="issueKey">Target issue key.</param>
+    /// <param name="fieldId">Field ID (e.g., customfield_10168).</param>
+    /// <param name="value">Markdown/text value to store.</param>
+    Task UpdateIssueFieldAsync(string issueKey, string fieldId, string value);
 }

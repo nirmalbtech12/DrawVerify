@@ -1,7 +1,9 @@
-# verification prompt
-Story: {{jira_key}} — {{jira_summary}}
-Requirement: {{requirement}}
-ACs:
+Diagnose build/test failure for story {{jira_key}} — {{jira_summary}}.
+
+Requirement:
+{{requirement}}
+
+Acceptance Criteria:
 {{acceptance_criteria}}
 
 Technical Design:
@@ -10,9 +12,12 @@ Technical Design:
 Test Design:
 {{test_design}}
 
-Additional:
+Additional Context:
+Diff:
 {{diff}}
+Build Output:
 {{build_output}}
+Test Output:
 {{test_output}}
 
-Produce output per .opencode/agents/verification schema. Do not modify source, Jira, or Git.
+Task: Diagnose the failure per Agent.md data contract. Provide root cause, whether it belongs to the story, recommended fix, files to modify, confidence, and uncertainties. No auto-fix in MVP.

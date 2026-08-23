@@ -93,8 +93,62 @@ approveCmd.AddOption(stateOpt);
 approveCmd.SetHandler(async (string story, string decision, string state) =>
 {
     var store = host.Services.GetRequiredService<FileStateStore>();
-    await store.SaveArtifactAsync(story, "approval.json", System.Text.Json.JsonSerializer.Serialize(new { decision, state, at = DateTime.UtcNow }));
-    Console.WriteLine($"Recorded {decision} for {story} at {state}");
+    // Map PipelineState -> agentId so approval is per-agent and bound to its JIRA-specific source artifact
+    string agentId;
+    string? sourceArtifact = null;
+    if (!string.IsNullOrWhiteSpace(state) && Enum.TryParse<LEMUAgenticPipeline.Models.PipelineState>(state, ignoreCase: true, out var parsed))
+    {
+        agentId = FileStateStore.AgentIdForState(parsed);
+        sourceArtifact = FileStateStore.SourceArtifactForState(parsed);
+    }
+    else if (!string.IsNullOrWhiteSpace(state))
+    {
+        agentId = FileStateStore.SanitizeAgentId(state);
+        sourceArtifact = FileStateStore.SourceArtifactForAgent(agentId);
+    }
+    else
+    {
+        agentId = "generic";
+    }
+    // Generate approval JSON FROM the specific JIRA file (include source hash for traceability)
+    string? sourceHash = null;
+    if (sourceArtifact != null)
+    {
+        var src = await store.LoadArtifactAsync(story, sourceArtifact);
+        if (src != null)
+        {
+            using var sha = System.Security.Cryptography.SHA256.Create();
+            sourceHash = Convert.ToHexString(sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(src))).ToLowerInvariant()[..16];
+        }
+    }
+    var payload = new { decision, state, agent = agentId, sourceArtifact, sourceHash, at = DateTime.UtcNow };
+    var json = System.Text.Json.JsonSerializer.Serialize(payload, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+    var fileName = Path.GetFileName(store.ApprovalFile(story, agentId));
+    await store.SaveArtifactAsync(story, fileName, json);
+    Console.WriteLine($"Recorded {decision} for {story} at {state} (agent: {agentId}, source: {sourceArtifact ?? "none"}) -> {fileName}");
+    // On APPROVED, sync approved design markdown to Jira custom field (per human review) — field IDs configurable via Pipeline:Jira:ImplementationField / TestDesignField
+    if (string.Equals(decision, "APPROVED", StringComparison.OrdinalIgnoreCase))
+    {
+        var jiraOpts = host.Services.GetRequiredService<IOptions<PipelineOptions>>().Value.Jira;
+        var jiraField = jiraOpts.GetFieldForAgent(agentId) ?? FileStateStore.JiraFieldForAgent(agentId);
+        if (jiraField != null && sourceArtifact != null)
+        {
+            var mdContent = await store.LoadArtifactAsync(story, sourceArtifact);
+            if (!string.IsNullOrWhiteSpace(mdContent))
+            {
+                try
+                {
+                    var jira = host.Services.GetRequiredService<IJiraService>();
+                    await jira.UpdateIssueFieldAsync(story, jiraField, mdContent);
+                    Console.WriteLine($"Updated Jira {story} field {jiraField} ({FileStateStore.JiraFieldLabelForAgent(agentId)}) for {agentId} approval");
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Warning: Failed to update Jira {story} field {jiraField} for {agentId}: {ex.Message}");
+                }
+            }
+        }
+    }
 }, approveStory, decisionOpt, stateOpt);
 
 root.AddCommand(runCmd);

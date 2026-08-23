@@ -36,16 +36,19 @@ dotnet run --project .pipeline/LEMUAgenticPipeline.Orchestrator -- approve DV-TE
 
 ## State & artifacts
 
-Per story: `.pipeline/state/<JIRA-ID>/`
+Per story: `.pipeline/state/<JIRA-ID>/` — approval decision is agent-suffixed and generated FROM the JIRA-specific source artifact (no separate request file; the `<agent>.md` itself is validated):
+
 ```
 jira.json
-technical-design.md
-test-design.md
+technical-design.md                  # JIRA-specific source for technical-design (content to validate)
+test-design.md                       # JIRA-specific source for test-design (content to validate)
 implementation-result.json
 build-result.json
 test-result.json
 review-result.json
 pipeline-state.json
 execution-log.json
-approval.json  (human writes)
+technical-design-approval.json       # human writes, generated FROM technical-design.md (includes sourceArtifact/sourceHash)
+test-design-approval.json            # human writes, generated FROM test-design.md (includes sourceArtifact/sourceHash)
+approval.json                        # legacy compat, also written
 ```

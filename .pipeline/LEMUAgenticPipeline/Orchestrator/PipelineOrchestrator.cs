@@ -75,11 +75,41 @@ public sealed class PipelineOrchestrator : IPipelineOrchestrator
     public async Task<string> RequestHumanApprovalAsync(string reason)
     {
         // Orchestrator blocks here. In CLI this prints and waits for key/file; in service it polls a queue/DB.
-        _log.LogWarning("Human approval required for {Story} at {State}: {Reason}", _ctx.StoryKey, _current, reason);
-        await _store.SaveArtifactAsync(_ctx.StoryKey, "approval-request.md",
-            $"# Approval Request\nState: {_current}\nReason: {reason}\nStory: {_ctx.StoryKey}\nTime: {DateTime.UtcNow:O}\n\nApprove by: pipeline approve {_ctx.StoryKey} --state {_current} --decision APPROVED");
-        // MVP: read from .pipeline/state/<key>/approval.json written by human/CLI
-        return await PollApprovalAsync();
+        // Approval is per-agent (e.g., technical-design-approval.json) and bound to its JIRA-specific source artifact (e.g., technical-design.md).
+        // The source artifact itself (technical-design.md / test-design.md) is the content to be validated — no separate approval-request.md is needed.
+        var agentId = FileStateStore.AgentIdForState(_current);
+        var sourceArtifact = FileStateStore.SourceArtifactForState(_current);
+        _log.LogWarning("Human approval required for {Story} at {State} (agent: {Agent}, source: {Source}): {Reason}", _ctx.StoryKey, _current, agentId, sourceArtifact ?? "none", reason);
+        // Create per-agent pending approval file so system has its own file per JIRA and per human-approved agent
+        var pendingPayload = new { decision = "PENDING", state = _current.ToString(), agent = agentId, sourceArtifact, at = DateTime.UtcNow };
+        var pendingJson = System.Text.Json.JsonSerializer.Serialize(pendingPayload, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        var pendingFile = System.IO.Path.GetFileName(_store.ApprovalFile(_ctx.StoryKey, agentId));
+        await _store.SaveArtifactAsync(_ctx.StoryKey, pendingFile, pendingJson);
+        _log.LogInformation("Awaiting {Agent}-approval.json for {Story} (source: {Source}) — created {File} with PENDING, approve via: pipeline approve {Story} --state {State} --decision APPROVED", agentId, _ctx.StoryKey, sourceArtifact ?? "none", pendingFile, _ctx.StoryKey, _current);
+        // MVP: read from .pipeline/state/<key>/<agent>-approval.json written by human/CLI (overwrites PENDING)
+        var decision = await PollApprovalAsync();
+        // On APPROVED, sync approved design markdown to Jira custom field (per human review) — configurable via Pipeline:Jira:ImplementationField / TestDesignField
+        if (string.Equals(decision, "APPROVED", StringComparison.OrdinalIgnoreCase))
+        {
+            var jiraField = _opts.Jira.GetFieldForAgent(agentId) ?? FileStateStore.JiraFieldForAgent(agentId);
+            if (jiraField != null && sourceArtifact != null)
+            {
+                var mdContent = await _store.LoadArtifactAsync(_ctx.StoryKey, sourceArtifact);
+                if (!string.IsNullOrWhiteSpace(mdContent))
+                {
+                    try
+                    {
+                        await _jira.UpdateIssueFieldAsync(_ctx.StoryKey, jiraField, mdContent);
+                        _log.LogInformation("Updated Jira {Jira} field {Field} ({Label}) for {Agent} approval via orchestrator", _ctx.StoryKey, jiraField, FileStateStore.JiraFieldLabelForAgent(agentId), agentId);
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.LogWarning(ex, "Failed to update Jira {Jira} field {Field} for {Agent} approval via orchestrator — approval still recorded", _ctx.StoryKey, jiraField, agentId);
+                    }
+                }
+            }
+        }
+        return decision;
     }
 
     public Task SkipStageAsync(string reason)
@@ -128,8 +158,10 @@ public sealed class PipelineOrchestrator : IPipelineOrchestrator
 
     private async Task<string> PollApprovalAsync()
     {
-        // Poll for .pipeline/state/<key>/approval.json  (written by: pipeline approve <key> --decision APPROVED)
-        var approvalFile = Path.Combine(_store.StoryDir(_ctx.StoryKey), "approval.json");
+        // Poll for .pipeline/state/<key>/<agent>-approval.json (e.g., technical-design-approval.json)
+        // Each human-approved agent per config Pipeline:Agents:RequiresHumanApproval has its own file per JIRA
+        var agentId = FileStateStore.AgentIdForState(_current);
+        var approvalFile = _store.ApprovalFile(_ctx.StoryKey, agentId);
         for (int i = 0; i < 600; i++) // 10 min poll, in prod use watcher/queue
         {
             if (File.Exists(approvalFile))
@@ -138,7 +170,9 @@ public sealed class PipelineOrchestrator : IPipelineOrchestrator
                 try
                 {
                     var doc = System.Text.Json.JsonDocument.Parse(json);
-                    return doc.RootElement.GetProperty("decision").GetString() ?? "UNKNOWN";
+                    var decision = doc.RootElement.TryGetProperty("decision", out var d) ? d.GetString() : null;
+                    if (!string.IsNullOrWhiteSpace(decision)) return decision!;
+                    return json.Trim();
                 }
                 catch { return json.Trim(); }
             }

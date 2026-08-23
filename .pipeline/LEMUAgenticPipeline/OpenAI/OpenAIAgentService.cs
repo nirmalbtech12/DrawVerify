@@ -142,16 +142,74 @@ public sealed class OpenAIAgentService : ICodeAgentService
                     $"OpenAI Responses API returned {(int)response.StatusCode} ({response.ReasonPhrase}). Request ID: {requestId ?? "unavailable"}.");
             }
 
-            var output = ExtractOutput(responseBody, requestId);
-            var isValid = ValidateOutput(agentType, output);
-            var outputPath = await StoreOutputAsync(storyContext, agentType, output);
+            var rawOutput = ExtractOutput(responseBody, requestId);
+            // Deterministic: read <response> block, parse JSON, validate, write via existing file mechanism
+            string responseJson = string.Empty;
+            string extractError = string.Empty;
+            bool hasResponseBlock = TryExtractResponseBlock(rawOutput, out responseJson, out extractError);
+
+            string status;
+            string output;
+            string outputPath;
+            bool isValid;
+
+            if (!hasResponseBlock)
+            {
+                var errorMsg = $"Missing or invalid <response> block: {extractError}. Expected <response>{{\"status\":\"SUCCESS|FAILURE\", \"response\":\"...\", \"reason\":\"...\"}}</response>";
+                _log.LogError("Missing <response> for {Agent} {Story}: {Error}. Raw snippet: {Snippet}", agentType, storyContext.StoryKey, extractError, rawOutput.Length > 500 ? rawOutput[..500] + "..." : rawOutput);
+                output = errorMsg;
+                status = "INVALID_RESPONSE";
+                isValid = false;
+                outputPath = await StoreOutputAsync(storyContext, agentType, errorMsg);
+            }
+            else if (!TryParseProjectResponse(responseJson, out var parsedStatus, out var parsedResponse, out var parsedReason, out var parseError))
+            {
+                var errorMsg = $"Invalid <response> JSON: {parseError}. Raw: {(responseJson.Length > 500 ? responseJson[..500] + "..." : responseJson)}";
+                _log.LogError("Invalid <response> JSON for {Agent} {Story}: {Error}", agentType, storyContext.StoryKey, parseError);
+                output = errorMsg;
+                status = "INVALID_RESPONSE";
+                isValid = false;
+                outputPath = await StoreOutputAsync(storyContext, agentType, errorMsg);
+            }
+            else if (parsedStatus == "SUCCESS")
+            {
+                if (!ValidateOutput(agentType, parsedResponse))
+                {
+                    var missing = agentType is AgentType.TechnicalDesigner or AgentType.TestDesigner
+                        ? string.Join(", ", GetMissingRequiredSections(agentType, parsedResponse))
+                        : "output is not valid JSON";
+                    var errorMsg = $"SUCCESS response failed data contract validation: {missing}";
+                    _log.LogError("Inner validation failed for {Agent} {Story}: {Error}. Response snippet: {Snippet}", agentType, storyContext.StoryKey, missing, parsedResponse.Length > 500 ? parsedResponse[..500] + "..." : parsedResponse);
+                    output = errorMsg;
+                    status = "INVALID_RESPONSE";
+                    isValid = false;
+                    outputPath = await StoreOutputAsync(storyContext, agentType, errorMsg);
+                }
+                else
+                {
+                    output = parsedResponse;
+                    status = "SUCCESS";
+                    isValid = true;
+                    outputPath = await StoreOutputAsync(storyContext, agentType, parsedResponse);
+                    _log.LogInformation("Wrote SUCCESS response for {Agent} {Story} -> {Path} ({Len} chars)", agentType, storyContext.StoryKey, outputPath, parsedResponse.Length);
+                }
+            }
+            else // FAILURE
+            {
+                output = parsedReason;
+                status = "FAILURE";
+                isValid = false;
+                _log.LogWarning("Agent {Agent} returned FAILURE for {Story}: {Reason}", agentType, storyContext.StoryKey, parsedReason);
+                outputPath = await StoreOutputAsync(storyContext, agentType, parsedReason);
+            }
+
             return new AgentResult
             {
                 AgentType = agentType,
                 Output = output,
                 OutputPath = outputPath,
                 IsValid = isValid,
-                Status = isValid ? "PASS" : "INVALID_SCHEMA",
+                Status = status
             };
         }
     }
@@ -190,6 +248,100 @@ public sealed class OpenAIAgentService : ICodeAgentService
             ? new[] { "## Jira", "## Requirement", "## Proposed Changes", "## Risks", "## Acceptance Criteria Mapping" }
             : new[] { "## Jira", "## Test Strategy", "## Unit Tests", "## Acceptance Criteria" };
         return requiredHeadings.All(heading => output.Contains(heading, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool TryExtractResponseBlock(string output, out string json, out string error)
+    {
+        json = string.Empty;
+        error = string.Empty;
+        if (string.IsNullOrWhiteSpace(output))
+        {
+            error = "Empty output";
+            return false;
+        }
+        var startTag = "<response>";
+        var endTag = "</response>";
+        var startIdx = output.IndexOf(startTag, StringComparison.OrdinalIgnoreCase);
+        var endIdx = output.IndexOf(endTag, StringComparison.OrdinalIgnoreCase);
+        if (startIdx == -1 || endIdx == -1 || endIdx <= startIdx)
+        {
+            error = "Missing <response> block";
+            return false;
+        }
+        startIdx += startTag.Length;
+        json = output.Substring(startIdx, endIdx - startIdx).Trim();
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            error = "Empty <response> block";
+            return false;
+        }
+        return true;
+    }
+
+    private static bool TryParseProjectResponse(string json, out string status, out string response, out string reason, out string error)
+    {
+        status = response = reason = error = string.Empty;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("status", out var statusProp) || statusProp.ValueKind != JsonValueKind.String)
+            {
+                error = "Missing or invalid 'status'";
+                return false;
+            }
+            status = statusProp.GetString()?.Trim() ?? string.Empty;
+            if (status != "SUCCESS" && status != "FAILURE")
+            {
+                error = $"Invalid status '{status}', must be SUCCESS or FAILURE";
+                return false;
+            }
+            if (status == "SUCCESS")
+            {
+                if (!root.TryGetProperty("response", out var respProp))
+                {
+                    error = "SUCCESS requires 'response'";
+                    return false;
+                }
+                if (respProp.ValueKind == JsonValueKind.String)
+                    response = respProp.GetString() ?? string.Empty;
+                else
+                    response = respProp.GetRawText();
+                if (string.IsNullOrWhiteSpace(response))
+                {
+                    error = "SUCCESS response is empty";
+                    return false;
+                }
+            }
+            else
+            {
+                if (!root.TryGetProperty("reason", out var reasonProp) || reasonProp.ValueKind != JsonValueKind.String)
+                {
+                    error = "FAILURE requires 'reason' string";
+                    return false;
+                }
+                reason = reasonProp.GetString() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(reason))
+                {
+                    error = "FAILURE reason is empty";
+                    return false;
+                }
+            }
+            return true;
+        }
+        catch (JsonException ex)
+        {
+            error = $"Invalid JSON: {ex.Message}";
+            return false;
+        }
+    }
+
+    private static IReadOnlyList<string> GetMissingRequiredSections(AgentType agentType, string output)
+    {
+        var required = agentType == AgentType.TechnicalDesigner
+            ? new[] { "## Jira", "## Requirement", "## Proposed Changes", "## Risks", "## Acceptance Criteria Mapping" }
+            : new[] { "## Jira", "## Test Strategy", "## Unit Tests", "## Acceptance Criteria" };
+        return required.Where(h => !output.Contains(h, StringComparison.OrdinalIgnoreCase)).ToList();
     }
 
     public async Task<string> StoreOutputAsync(StoryContext storyContext, AgentType agentType, string output)

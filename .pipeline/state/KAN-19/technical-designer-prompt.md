@@ -8,65 +8,18 @@ Deterministic orchestration, AI-assisted reasoning, human-controlled approval.
 - Do not commit, push, create branches, or create PRs.
 - Do not change Jira issues, workflows, or requirements.
 - Do not execute builds or tests.
-- Produce output strictly in the format defined for your role.
+- Produce output strictly as defined in your Agent.md — final Project Response must be exactly `<response>{ "status": "SUCCESS|FAILURE", "response": "...", "reason": "..." }</response>` with valid JSON inside. No alternative format.
 - Map every acceptance criterion explicitly (AC-01...).
 - Highlight OCCT/PInvoke safety, error handling, and backward-compat concerns.
-- When your role requires a structured document (e.g., Technical Designer, Test Designer), output ONLY that document in the required format. Do not add chat-style commentary outside the document.
 
 <<<SYSTEM_PROMPT_END>>>
 
 <<<TASK_PROMPT>>>
-Create a Technical Design Detail for story KAN-19.
+Create Technical Design Detail for story KAN-19 — US-1.1.1: Upload STEP file.
 
-You are the Technical Designer. Produce a complete Technical Design Detail in Markdown that will be validated automatically. Missing required headings will cause pipeline failure.
-
-=== STRICT OUTPUT RULES (MUST FOLLOW) ===
-- Output ONLY the technical design document.
-- Do NOT include any text before the first heading or after the last heading.
-- Do NOT include any chat-style commentary such as:
-  - "Now I have a comprehensive understanding..."
-  - "Let me create the technical design document."
-  - "Here is the design."
-  - Any other meta-text, introductions, summaries, or explanations.
-- Start directly with: `## Jira`
-- If you are tempted to write an introduction or summary, omit it and write the document instead.
-
-=== REQUIRED HEADINGS (MINIMUM) ===
-Your document MUST contain at least these exact headings:
-
-- ## Jira
-- ## Requirement
-- ## Proposed Changes
-- ## Risks
-- ## Acceptance Criteria Mapping
-
-=== FULL STRUCTURE (RECOMMENDED) ===
-For robustness, include the full structure in this order:
-
-# Technical Design
-## Jira
-## Requirement
-## Acceptance Criteria
-## Existing Architecture
-## Existing Code
-## Proposed Changes
-## Files Expected To Change
-## API / Interface Changes
-## Database Changes
-## OCCT Changes
-## Error Handling
-## Backward Compatibility
-## Testing Considerations
-## Risks
-## Implementation Steps
-## Acceptance Criteria Mapping
-## Uncertainties
-
-=== INPUTS ===
-Jira Key: KAN-19
-Summary: US-1.1.1: Upload STEP file
 Requirement:
 As a Maker, I want to upload a STEP file so the system can read the 3D model geometry.
+
 Acceptance Criteria:
 1. AC-01 — Valid STEP file upload
 Given I am on the “Upload Model” page,
@@ -181,34 +134,22 @@ Timestamp
 DetailsJson
 ,
 And audit records are retained indefinitely for MVP.
+
 Epic: 
 Feature: KAN-6
 
-Technical Design (previous, if any):
+Previous Technical Design:
 (not yet approved)
 
-Test Design (previous, if any):
+Previous Test Design:
 (not yet approved)
 
-=== INSTRUCTIONS ===
-- Use the inputs above and repository context (AGENTS.md, existing code) to fill every section.
-- Trace every AC (AC-01...) in ## Acceptance Criteria Mapping.
-- Flag OCCT/PInvoke safety, resource handling, and backward-compat concerns.
-- If any information is missing or unclear, still produce the full document and list uncertainties under `## Uncertainties`.
-
-=== FILE ARTIFACT (MANDATORY) ===
-You MUST write the complete document to the file:
-  .pipeline/state/KAN-19/technical-design.md
-
-Use the file tool to do this. The file content must be IDENTICAL to your stdout output.
-
-=== FINAL REMINDER ===
-Output ONLY the technical design document. Do not include any other text.
+Task: Produce the complete Technical Design Detail per Agent.md data contract. Use repository context (AGENTS.md, existing code, architecture) to fill every section, trace every AC in Acceptance Criteria Mapping, flag OCCT/PInvoke safety, resource handling, and backward-compat concerns, and list uncertainties if information is missing.
 
 <<<TASK_PROMPT_END>>>
 
 <<<ORCHESTRATOR_METADATA>>>
-Model: opencode/nemotron-3.5-lightning-free
+Model: opencode/muse-spark-1.2-contributor-free
 Story: KAN-19
 Agent: TechnicalDesigner
 TechnicalDesignApproved: False
