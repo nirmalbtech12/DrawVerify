@@ -68,14 +68,6 @@ Use the relevant guidance only when applicable.
 
 ---
 
-## Agentic Pipeline Documentation
-
-When changing pipeline code or pipeline runtime configuration under
-`.pipeline/` (including `.pipeline/LEMUAgenticPipeline.Web`), update
-`docs/agentic-pipeline.md` in the same change. Keep it aligned with actual
-runtime behavior, including any simulated, stubbed, or unenforced paths; do not
-document planned behavior as implemented behavior.
-
 ---
 
 ## Build, Run, and Publish

@@ -1,16 +1,16 @@
-# Graph Report - DrawVerify  (2026-08-23)
+# Graph Report - DrawVerify  (2026-08-24)
 
 ## Corpus Check
-- 232 files · ~37,678 words
+- 153 files · ~8,036 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 989 nodes · 1504 edges · 112 communities (90 shown, 22 thin omitted)
-- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 70 edges (avg confidence: 0.77)
+- 398 nodes · 386 edges · 53 communities (43 shown, 10 thin omitted)
+- Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 7 edges (avg confidence: 0.5)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `842224bc`
+- Built from commit: `6ce09d8e`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -24,14 +24,14 @@
 - DrawVerify.Geometry.Models
 - DrawVerify.Application.Verification.GdtRules
 - DrawVerify.Core.Enums
-- DrawVerify.Core.csproj
-- .RunFromTestDesignApprovalToPrReadyAsync
+- DrawVerify.sln
+- UserControl
 - OcctGeometryService.cs
-- FileStateStore
+- UserControl
 - OcctShapeSafeHandle
 - DrawVerify.Application.Workflow
-- PipelineRunner
-- PageModel
+- UserControl
+- UserControl
 - DrawVerify.Infrastructure.Signatures
 - DrawVerify.Infrastructure.Logging
 - UserControl
@@ -40,100 +40,60 @@
 - DrawVerify.Application.Fingerprinting
 - DrawVerify.Infrastructure.DataProtection
 - DrawVerify.Infrastructure.Pdf
-- UserControl
 - DrawVerify.App.Views
-- StoryContext
-- LEMUAgenticPipeline.Services
-- .ValidateAsync
+- UserControl
+- UserControl
+- DrawVerify.App.ViewModels
 - InAppNotificationService.cs
 - OcctToGeometryMapper.cs
 - CompositionRoot.cs
 - GeometryType.cs
-- JiraRestService
-- PipelineOptions
+- DrawVerify.Core.Exceptions
 - AGENTS.md
 - DrawVerify.Application.Tests
-- DrawVerify.sln
 - SKILL.md
-- LEMUAgenticPipeline.Orchestrator
-- PipelineWorker
-- LEMUAgenticPipeline.Web
 - DrawVerify.Infrastructure.Tests
 - Architecture
-- LEMUAgenticPipeline.csproj
-- Pipeline Orchestrator
-- DrawVerify.Geometry.Tests.csproj
-- CliGitService
 - Deployment — OCCT native DLL distribution + AOT validation
 - Fingerprint Policy
-- UserControl
-- UserControl
-- UserControl
-- UserControl
 - Engineering Rules & Known Gaps
 - MVP GD&T Subset
 - LGPL Compliance — OCCT
 - graphify.js
 - DrawVerify
-- UserControl
-- DrawVerify.Core.Tests.csproj
-- DrawVerify.Infrastructure.Tests.csproj
-- implementation-result.schema.json
-- review-result.schema.json
-- technical-design.schema.json
-- test-design.schema.json
-- Detail.cshtml
 - OcctGeometryServiceTests.cs
 - MockGeometryServiceTests.cs
 - DrawVerify.OcctWrapper
-- ErrorModel
-- IndexModel
-- Pipeline/Index.cshtml
-- Run.cshtml
-- Runs/Index.cshtml
-- Privacy.cshtml
-- Agentic Pipeline: Current Architecture and Runtime Behavior
 - .opencode/README.md
-- Pipeline (deterministic owner)
-- LEMU Agentic Pipeline — Web Control Plane
-- http
-- DrawVerify.OcctService.Tests.csproj
-- IPipelineOrchestrator
-- LEMUAgenticPipeline.Web/run.sh
-- .pipeline/run.sh
-- DrawVerify.App.ViewModels
-- clean-pipeline.sh
-- Technical Design
-- .opencode/agents/test-designer.md
 
 ## God Nodes (most connected - your core abstractions)
-1. `FileStateStore` - 38 edges
-2. `StoryContext` - 28 edges
-3. `JiraRestService` - 27 edges
-4. `AgentType` - 27 edges
-5. `PipelineOrchestrator` - 26 edges
-6. `OpenCodeAgentService` - 21 edges
-7. `OpenAIAgentService` - 19 edges
-8. `LEMUAgenticPipeline.Services` - 18 edges
-9. `Technical Design` - 18 edges
-10. `PipelineRunner` - 17 edges
+1. `DrawVerify.Core.Models` - 12 edges
+2. `DrawVerify.Core.Interfaces` - 10 edges
+3. `DrawVerify.App.ViewModels` - 7 edges
+4. `DrawVerify.App.Views` - 7 edges
+5. `DrawVerify.Application.Services` - 7 edges
+6. `DrawVerify.Application.Tests` - 7 edges
+7. `Architecture` - 6 edges
+8. `DrawVerify.Application.Verification` - 5 edges
+9. `Build, Run, and Publish` - 5 edges
+10. `Deployment — OCCT native DLL distribution + AOT validation` - 5 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `PipelineOptions` --references--> `SafetyLimits`  [EXTRACTED]
-  .pipeline/LEMUAgenticPipeline/Configuration/PipelineOptions.cs → .pipeline/LEMUAgenticPipeline/Services/IPipelineOrchestrator.cs
-- `IOpenCodeAgentService` --implements--> `ICodeAgentService`  [EXTRACTED]
-  .pipeline/LEMUAgenticPipeline/Services/IOpenCodeAgentService.cs → .pipeline/LEMUAgenticPipeline/Services/ICodeAgentService.cs
 - `UserControl` --references--> `DocumentListViewModel`  [INFERRED]
   src/DrawVerify.App/Views/DocumentListView.xaml → src/DrawVerify.App/ViewModels/DocumentListViewModel.cs
-- `StubBuildTestService` --implements--> `IBuildTestService`  [EXTRACTED]
-  .pipeline/LEMUAgenticPipeline.Orchestrator/Examples/StoryFlows.cs → .pipeline/LEMUAgenticPipeline/Services/IBuildTestService.cs
-- `CliGitService` --implements--> `IGitService`  [EXTRACTED]
-  .pipeline/LEMUAgenticPipeline.Orchestrator/Program.cs → .pipeline/LEMUAgenticPipeline/Services/IGitService.cs
+- `UserControl` --references--> `DashboardViewModel`  [INFERRED]
+  src/DrawVerify.App/Views/DashboardView.xaml → src/DrawVerify.App/ViewModels/DashboardViewModel.cs
+- `UserControl` --references--> `DocumentDetailViewModel`  [INFERRED]
+  src/DrawVerify.App/Views/DocumentDetailView.xaml → src/DrawVerify.App/ViewModels/DocumentDetailViewModel.cs
+- `UserControl` --references--> `LoginViewModel`  [INFERRED]
+  src/DrawVerify.App/Views/LoginView.xaml → src/DrawVerify.App/ViewModels/LoginViewModel.cs
+- `UserControl` --references--> `ReportViewModel`  [INFERRED]
+  src/DrawVerify.App/Views/ReportView.xaml → src/DrawVerify.App/ViewModels/ReportViewModel.cs
 
 ## Import Cycles
 - None detected.
 
-## Communities (112 total, 22 thin omitted)
+## Communities (53 total, 10 thin omitted)
 
 ### Community 0 - "DrawVerify.Core.Models"
 Cohesion: 0.08
@@ -171,21 +131,21 @@ Nodes (5): DrawVerify.Application.Verification.GdtRules, FlatnessRule, Paralleli
 Cohesion: 0.22
 Nodes (5): DrawVerify.Core.Enums, DocumentStatus, GdtControlType, VerificationStatus, WorkflowStep
 
-### Community 9 - "DrawVerify.Core.csproj"
-Cohesion: 0.18
-Nodes (9): net9.0-windows, Microsoft.NET.Sdk, Microsoft.NET.Sdk, Microsoft.NET.Sdk, Microsoft.NET.Sdk, Microsoft.NET.Test.Sdk (17.8.0), xunit (2.6.6), xunit.runner.visualstudio (2.5.6) (+1 more)
+### Community 9 - "DrawVerify.sln"
+Cohesion: 0.07
+Nodes (28): net9.0-windows, Microsoft.NET.Sdk, Microsoft.NET.Sdk, Microsoft.NET.Sdk, Microsoft.NET.Sdk, Microsoft.NET.Sdk, Microsoft.NET.Sdk, Microsoft.NET.Sdk (+20 more)
 
-### Community 10 - ".RunFromTestDesignApprovalToPrReadyAsync"
-Cohesion: 0.12
-Nodes (9): IOptions, ILoggerFactory, Task, StoryFlows, StubBuildTestService, Task, IGitService, Task (+1 more)
+### Community 10 - "UserControl"
+Cohesion: 0.33
+Nodes (3): LoginViewModel, UserControl, LoginView
 
 ### Community 11 - "OcctGeometryService.cs"
 Cohesion: 0.29
 Nodes (5): DrawVerify.Geometry, DrawVerify.OcctService, IGeometryService, NativeResourceTracker, OcctGeometryService
 
-### Community 12 - "FileStateStore"
-Cohesion: 0.06
-Nodes (21): JsonSerializerOptions, DateTime, Dictionary, PipelineState, PipelineStateData, ILogger, int, Task (+13 more)
+### Community 12 - "UserControl"
+Cohesion: 0.33
+Nodes (3): ReportViewModel, UserControl, ReportView
 
 ### Community 13 - "OcctShapeSafeHandle"
 Cohesion: 0.29
@@ -195,13 +155,13 @@ Nodes (4): DrawVerify.OcctService.SafeHandles, SafeHandleZeroOrMinusOneIsInvalid
 Cohesion: 0.29
 Nodes (4): DrawVerify.Application.Workflow, WorkflowEngine, WorkflowStateMachine, WorkflowTransition
 
-### Community 15 - "PipelineRunner"
-Cohesion: 0.10
-Nodes (30): DbContext, DbSet, IHubContext, ModelBuilder, PipelineDbContext, DateTime, List, AgentStatus (+22 more)
+### Community 15 - "UserControl"
+Cohesion: 0.33
+Nodes (3): VerificationViewModel, UserControl, VerificationView
 
-### Community 16 - "PageModel"
-Cohesion: 0.16
-Nodes (8): LEMUAgenticPipeline.Web.Pages, PageModel, ILogger, ErrorModel, ILogger, IndexModel, ILogger, PrivacyModel
+### Community 16 - "UserControl"
+Cohesion: 0.33
+Nodes (3): WorkflowViewModel, UserControl, WorkflowView
 
 ### Community 17 - "DrawVerify.Infrastructure.Signatures"
 Cohesion: 0.40
@@ -235,61 +195,33 @@ Nodes (3): DrawVerify.Infrastructure.DataProtection, AesDataProtectionService, K
 Cohesion: 0.40
 Nodes (3): DrawVerify.Infrastructure.Pdf, PdfDocumentBuilder, PdfReportGenerator
 
-### Community 25 - "UserControl"
-Cohesion: 0.40
-Nodes (3): DocumentDetailViewModel, UserControl, DocumentDetailView
-
-### Community 26 - "DrawVerify.App.Views"
+### Community 25 - "DrawVerify.App.Views"
 Cohesion: 0.33
 Nodes (3): DrawVerify.App.Views, UserControl, DocumentListView
 
-### Community 27 - "StoryContext"
-Cohesion: 0.07
-Nodes (27): Dictionary, Task, ClaudeAgentService, List, AgentResult, AgentType, ExecutionLogEntry, ModelRoutingConfiguration (+19 more)
+### Community 26 - "UserControl"
+Cohesion: 0.40
+Nodes (3): DashboardViewModel, UserControl, DashboardView
 
-### Community 28 - "LEMUAgenticPipeline.Services"
-Cohesion: 0.06
-Nodes (31): LEMUAgenticPipeline.OpenCode, LEMUAgenticPipeline.Web.Models, LEMUAgenticPipeline.OpenAI, LEMUAgenticPipeline.Jira, LEMUAgenticPipeline.Orchestrator, LEMUAgenticPipeline.Configuration, LEMUAgenticPipeline.Examples, LEMUAgenticPipeline.State (+23 more)
+### Community 27 - "UserControl"
+Cohesion: 0.40
+Nodes (3): DocumentDetailViewModel, UserControl, DocumentDetailView
 
-### Community 29 - ".ValidateAsync"
-Cohesion: 0.10
-Nodes (27): AutoSelected, List, AgentDefinition, DefaultAgents, DateTime, IActionResult, List, Task (+19 more)
-
-### Community 34 - "JiraRestService"
-Cohesion: 0.16
-Nodes (11): Func, HttpRequestMessage, HttpResponseMessage, JsonDocument, JsonElement, HttpClient, IEnumerable, ILogger (+3 more)
-
-### Community 35 - "PipelineOptions"
-Cohesion: 0.16
-Nodes (13): DrawVerify.Core.Exceptions, Exception, JiraOptions, JiraServiceException, ModelRoutingOptions, OpenAIOptions, OpenCodeOptions, PathOptions (+5 more)
+### Community 35 - "DrawVerify.Core.Exceptions"
+Cohesion: 0.32
+Nodes (5): DrawVerify.Core.Exceptions, Exception, DocumentNotFoundException, VerificationException, WorkflowException
 
 ### Community 36 - "AGENTS.md"
 Cohesion: 0.11
-Nodes (17): Agentic Pipeline Documentation, Build, Build, Run, and Publish, Clarification, Gitleaks, Graphify, Implementation Guidance, Logging and Observability (+9 more)
+Nodes (16): Build, Build, Run, and Publish, Clarification, Gitleaks, Graphify, Implementation Guidance, Logging and Observability, Principle (+8 more)
 
 ### Community 37 - "DrawVerify.Application.Tests"
 Cohesion: 0.13
 Nodes (8): DrawVerify.Application.Tests, DimensionComparerTests, FingerprintServiceTests, GdtValidatorTests, MissingDimensionDetectorTests, ToleranceComparerTests, VerificationServiceTests, WorkflowServiceTests
 
-### Community 38 - "DrawVerify.sln"
-Cohesion: 0.28
-Nodes (3): Microsoft.NET.Sdk, Microsoft.NET.Sdk, Microsoft.NET.Sdk
-
 ### Community 40 - "SKILL.md"
 Cohesion: 0.17
 Nodes (11): Before Writing Code, Code Quality, Communication, Default Rule, Development Principles, Mindset, Performance, Production Safety (+3 more)
-
-### Community 42 - "LEMUAgenticPipeline.Orchestrator"
-Cohesion: 0.20
-Nodes (10): Microsoft.Extensions.DependencyInjection (9.0.0), Microsoft.Extensions.Hosting (9.0.0), Microsoft.Extensions.Logging (9.0.0), System.CommandLine (2.0.0-beta4.22272.1), System.Text.Json (9.0.0), LEMUAgenticPipeline.Orchestrator, net9.0, Microsoft.Extensions.Configuration (9.0.0) (+2 more)
-
-### Community 43 - "PipelineWorker"
-Cohesion: 0.27
-Nodes (7): BackgroundService, IServiceProvider, CancellationToken, ILogger, Task, PipelineWorker, SemaphoreSlim
-
-### Community 45 - "LEMUAgenticPipeline.Web"
-Cohesion: 0.29
-Nodes (7): Microsoft.AspNetCore.SignalR (1.1.0), Microsoft.EntityFrameworkCore (9.0.0), Microsoft.EntityFrameworkCore.Design (9.0.0), Microsoft.EntityFrameworkCore.Sqlite (9.0.0), LEMUAgenticPipeline.Web, net9.0, Microsoft.NET.Sdk.Web
 
 ### Community 46 - "DrawVerify.Infrastructure.Tests"
 Cohesion: 0.29
@@ -299,22 +231,6 @@ Nodes (4): DrawVerify.Infrastructure.Tests, DataProtectionTests, PdfReportTests,
 Cohesion: 0.29
 Nodes (6): Architecture, Boundaries, Code base directional, Dependency rule, Layering, Source of truth
 
-### Community 48 - "LEMUAgenticPipeline.csproj"
-Cohesion: 0.29
-Nodes (7): Microsoft.Extensions.Logging.Abstractions (9.0.0), Microsoft.Extensions.Options (9.0.0), LEMUAgenticPipeline, net9.0, Microsoft.Extensions.Configuration (9.0.0), Microsoft.Extensions.Configuration.Json (9.0.0), Microsoft.NET.Sdk
-
-### Community 49 - "Pipeline Orchestrator"
-Cohesion: 0.29
-Nodes (6): Adding a new agent, Model routing (no hard-coding), Pipeline Orchestrator, Quick start, State & artifacts, Where safety limits are enforced
-
-### Community 50 - "DrawVerify.Geometry.Tests.csproj"
-Cohesion: 0.40
-Nodes (4): Microsoft.NET.Test.Sdk (17.8.0), xunit (2.6.6), xunit.runner.visualstudio (2.5.6), Microsoft.NET.Sdk
-
-### Community 51 - "CliGitService"
-Cohesion: 0.08
-Nodes (11): CliGitService, Task, DotNetBuildTestService, Task, BuildResult, IBuildTestService, TestResult, CliGitService (+3 more)
-
 ### Community 52 - "Deployment — OCCT native DLL distribution + AOT validation"
 Cohesion: 0.33
 Nodes (5): AOT / trimming validation, Build pipeline, Deployment — OCCT native DLL distribution + AOT validation, Runtime distribution, Version log
@@ -322,22 +238,6 @@ Nodes (5): AOT / trimming validation, Build pipeline, Deployment — OCCT native
 ### Community 53 - "Fingerprint Policy"
 Cohesion: 0.33
 Nodes (5): Algorithm, Behavior, Fingerprint Policy, Purpose, Stages
-
-### Community 55 - "UserControl"
-Cohesion: 0.33
-Nodes (3): LoginViewModel, UserControl, LoginView
-
-### Community 56 - "UserControl"
-Cohesion: 0.33
-Nodes (3): ReportViewModel, UserControl, ReportView
-
-### Community 57 - "UserControl"
-Cohesion: 0.33
-Nodes (3): VerificationViewModel, UserControl, VerificationView
-
-### Community 58 - "UserControl"
-Cohesion: 0.33
-Nodes (3): WorkflowViewModel, UserControl, WorkflowView
 
 ### Community 59 - "Engineering Rules & Known Gaps"
 Cohesion: 0.40
@@ -355,77 +255,25 @@ Nodes (4): Contact, Distribution requirements, LGPL Compliance — OCCT, Obligat
 Cohesion: 0.40
 Nodes (4): Build notes, Dependency rules (enforced structurally), DrawVerify, Solution layout
 
-### Community 64 - "UserControl"
-Cohesion: 0.40
-Nodes (3): DashboardViewModel, UserControl, DashboardView
-
-### Community 65 - "DrawVerify.Core.Tests.csproj"
-Cohesion: 0.40
-Nodes (4): Microsoft.NET.Test.Sdk (17.8.0), xunit (2.6.6), xunit.runner.visualstudio (2.5.6), Microsoft.NET.Sdk
-
-### Community 66 - "DrawVerify.Infrastructure.Tests.csproj"
-Cohesion: 0.40
-Nodes (4): Microsoft.NET.Test.Sdk (17.8.0), xunit (2.6.6), xunit.runner.visualstudio (2.5.6), Microsoft.NET.Sdk
-
-### Community 67 - "implementation-result.schema.json"
-Cohesion: 0.50
-Nodes (3): $schema, title, type
-
-### Community 68 - "review-result.schema.json"
-Cohesion: 0.50
-Nodes (3): $schema, title, type
-
-### Community 69 - "technical-design.schema.json"
-Cohesion: 0.50
-Nodes (3): $schema, title, type
-
-### Community 70 - "test-design.schema.json"
-Cohesion: 0.50
-Nodes (3): $schema, title, type
-
-### Community 81 - "Agentic Pipeline: Current Architecture and Runtime Behavior"
-Cohesion: 0.18
-Nodes (10): Agentic Pipeline: Current Architecture and Runtime Behavior, Agents, prompts, and artifacts, Components, Configuration and operation, Current operational boundary, Repository structure, Safety configuration and enforcement, Scope (+2 more)
-
-### Community 92 - "LEMU Agentic Pipeline — Web Control Plane"
-Cohesion: 0.15
-Nodes (12): Architecture, Configuration, Database, Definition of Done (MVP), Extensibility, Features (MVP), Human Approval (agent-suffixed, from JIRA-specific source artifact), LEMU Agentic Pipeline — Web Control Plane (+4 more)
-
-### Community 93 - "http"
-Cohesion: 0.20
-Nodes (9): ASPNETCORE_ENVIRONMENT, applicationUrl, commandName, dotnetRunMessages, environmentVariables, launchBrowser, profiles, http (+1 more)
-
-### Community 94 - "DrawVerify.OcctService.Tests.csproj"
-Cohesion: 0.40
-Nodes (4): Microsoft.NET.Test.Sdk (17.8.0), xunit (2.6.6), xunit.runner.visualstudio (2.5.6), Microsoft.NET.Sdk
-
-### Community 95 - "IPipelineOrchestrator"
-Cohesion: 0.17
-Nodes (4): Task, IPipelineOrchestrator, RecoveryResult, SafetyLimits
-
-### Community 122 - "Technical Design"
-Cohesion: 0.11
-Nodes (18): Acceptance Criteria, Acceptance Criteria Mapping, API / Interface Changes, Backward Compatibility, Database Changes, Error Handling, Existing Architecture, Existing Code (+10 more)
-
 ## Knowledge Gaps
-- **265 isolated node(s):** `net9.0`, `Microsoft.Extensions.Configuration (9.0.0)`, `Microsoft.Extensions.Configuration.Json (9.0.0)`, `Microsoft.Extensions.DependencyInjection (9.0.0)`, `Microsoft.Extensions.Hosting (9.0.0)` (+260 more)
+- **170 isolated node(s):** `DrawVerify.App.Controls`, `net9.0-windows`, `Microsoft.NET.Sdk`, `DrawVerify.App.Services`, `CompositionRoot` (+165 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **22 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **10 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `FileStateStore` connect `FileStateStore` to `.RunFromTestDesignApprovalToPrReadyAsync`, `StoryContext`, `LEMUAgenticPipeline.Services`, `PipelineRunner`?**
-  _High betweenness centrality (0.034) - this node is a cross-community bridge._
-- **Why does `PipelineOrchestrator` connect `FileStateStore` to `PipelineOptions`, `.RunFromTestDesignApprovalToPrReadyAsync`, `CliGitService`, `StoryContext`, `LEMUAgenticPipeline.Services`, `IPipelineOrchestrator`?**
-  _High betweenness centrality (0.032) - this node is a cross-community bridge._
-- **Why does `DetailModel` connect `FileStateStore` to `PipelineOptions`, `.RunFromTestDesignApprovalToPrReadyAsync`, `PipelineRunner`, `PageModel`, `LEMUAgenticPipeline.Services`, `.ValidateAsync`?**
-  _High betweenness centrality (0.029) - this node is a cross-community bridge._
-- **What connects `net9.0`, `Microsoft.Extensions.Configuration (9.0.0)`, `Microsoft.Extensions.Configuration.Json (9.0.0)` to the rest of the system?**
-  _265 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Why does `DrawVerify.App.ViewModels` connect `DrawVerify.App.ViewModels` to `UserControl`, `UserControl`, `UserControl`, `UserControl`, `UserControl`?**
+  _High betweenness centrality (0.003) - this node is a cross-community bridge._
+- **What connects `DrawVerify.App.Controls`, `net9.0-windows`, `Microsoft.NET.Sdk` to the rest of the system?**
+  _170 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `DrawVerify.Core.Models` be split into smaller, more focused modules?**
   _Cohesion score 0.08 - nodes in this community are weakly interconnected._
 - **Should `DrawVerify.Core.Interfaces` be split into smaller, more focused modules?**
   _Cohesion score 0.09523809523809523 - nodes in this community are weakly interconnected._
 - **Should `DrawVerify.Application.Services` be split into smaller, more focused modules?**
   _Cohesion score 0.13333333333333333 - nodes in this community are weakly interconnected._
+- **Should `DrawVerify.sln` be split into smaller, more focused modules?**
+  _Cohesion score 0.06533776301218161 - nodes in this community are weakly interconnected._
+- **Should `AGENTS.md` be split into smaller, more focused modules?**
+  _Cohesion score 0.1111111111111111 - nodes in this community are weakly interconnected._

@@ -1,16 +1,16 @@
 # Graph Report - DrawVerify  (2026-08-23)
 
 ## Corpus Check
-- 245 files · ~61,152 words
+- 232 files · ~37,622 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1145 nodes · 1651 edges · 124 communities (100 shown, 24 thin omitted)
-- Extraction: 96% EXTRACTED · 4% INFERRED · 0% AMBIGUOUS · INFERRED: 70 edges (avg confidence: 0.77)
+- 989 nodes · 1504 edges · 112 communities (90 shown, 22 thin omitted)
+- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 70 edges (avg confidence: 0.77)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `842224bc`
+- Built from commit: `6ce09d8e`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -30,8 +30,8 @@
 - FileStateStore
 - OcctShapeSafeHandle
 - DrawVerify.Application.Workflow
-- PipelineRun
-- CliGitService
+- PipelineRunner
+- PageModel
 - DrawVerify.Infrastructure.Signatures
 - DrawVerify.Infrastructure.Logging
 - UserControl
@@ -50,26 +50,22 @@
 - CompositionRoot.cs
 - GeometryType.cs
 - JiraRestService
-- Exception
+- PipelineOptions
 - AGENTS.md
 - DrawVerify.Application.Tests
 - DrawVerify.sln
-- Integration Tests
 - SKILL.md
-- Technical Design Detail — KAN-20 US-1.1.2: Extract STEP Measurements
 - LEMUAgenticPipeline.Orchestrator
 - PipelineWorker
-- Migration: Move ALL pipeline code under `.pipeline/` (Phase 1 — Impact Analysis)
 - LEMUAgenticPipeline.Web
 - DrawVerify.Infrastructure.Tests
 - Architecture
 - LEMUAgenticPipeline.csproj
 - Pipeline Orchestrator
 - DrawVerify.Geometry.Tests.csproj
-- IBuildTestService
+- CliGitService
 - Deployment — OCCT native DLL distribution + AOT validation
 - Fingerprint Policy
-- InitialCreate
 - UserControl
 - UserControl
 - UserControl
@@ -99,16 +95,12 @@
 - Agentic Pipeline: Current Architecture and Runtime Behavior
 - .opencode/README.md
 - Pipeline (deterministic owner)
-- Technical Design Detail — KAN-19 US-1.1.1: Upload STEP File
 - LEMU Agentic Pipeline — Web Control Plane
 - http
 - DrawVerify.OcctService.Tests.csproj
-- PipelineOrchestrator
+- IPipelineOrchestrator
 - LEMUAgenticPipeline.Web/run.sh
-- Test Design — KAN-19 US-1.1.1: Upload STEP File
-- CliGitService
 - .pipeline/run.sh
-- ICodeAgentService
 - DrawVerify.App.ViewModels
 - clean-pipeline.sh
 - Technical Design
@@ -120,28 +112,28 @@
 3. `JiraRestService` - 27 edges
 4. `AgentType` - 27 edges
 5. `PipelineOrchestrator` - 26 edges
-6. `Technical Design Detail — KAN-19 US-1.1.1: Upload STEP File` - 22 edges
-7. `OpenCodeAgentService` - 21 edges
-8. `OpenAIAgentService` - 19 edges
-9. `Technical Design Detail — KAN-20 US-1.1.2: Extract STEP Measurements` - 19 edges
-10. `LEMUAgenticPipeline.Services` - 18 edges
+6. `OpenCodeAgentService` - 21 edges
+7. `OpenAIAgentService` - 19 edges
+8. `LEMUAgenticPipeline.Services` - 18 edges
+9. `Technical Design` - 18 edges
+10. `PipelineRunner` - 17 edges
 
 ## Surprising Connections (you probably didn't know these)
+- `PipelineOptions` --references--> `SafetyLimits`  [EXTRACTED]
+  .pipeline/LEMUAgenticPipeline/Configuration/PipelineOptions.cs → .pipeline/LEMUAgenticPipeline/Services/IPipelineOrchestrator.cs
+- `IOpenCodeAgentService` --implements--> `ICodeAgentService`  [EXTRACTED]
+  .pipeline/LEMUAgenticPipeline/Services/IOpenCodeAgentService.cs → .pipeline/LEMUAgenticPipeline/Services/ICodeAgentService.cs
 - `UserControl` --references--> `DocumentListViewModel`  [INFERRED]
   src/DrawVerify.App/Views/DocumentListView.xaml → src/DrawVerify.App/ViewModels/DocumentListViewModel.cs
+- `StubBuildTestService` --implements--> `IBuildTestService`  [EXTRACTED]
+  .pipeline/LEMUAgenticPipeline.Orchestrator/Examples/StoryFlows.cs → .pipeline/LEMUAgenticPipeline/Services/IBuildTestService.cs
 - `CliGitService` --implements--> `IGitService`  [EXTRACTED]
   .pipeline/LEMUAgenticPipeline.Orchestrator/Program.cs → .pipeline/LEMUAgenticPipeline/Services/IGitService.cs
-- `PipelineRunner` --references--> `PipelineDbContext`  [EXTRACTED]
-  .pipeline/LEMUAgenticPipeline.Web/Services/PipelineRunner.cs → .pipeline/LEMUAgenticPipeline.Web/Data/PipelineDbContext.cs
-- `PipelineScheduler` --references--> `PipelineDbContext`  [EXTRACTED]
-  .pipeline/LEMUAgenticPipeline.Web/Services/PipelineScheduler.cs → .pipeline/LEMUAgenticPipeline.Web/Data/PipelineDbContext.cs
-- `RunInput` --references--> `ScheduleType`  [EXTRACTED]
-  .pipeline/LEMUAgenticPipeline.Web/Pages/Pipeline/Run.cshtml.cs → .pipeline/LEMUAgenticPipeline.Web/Models/PipelineModels.cs
 
 ## Import Cycles
 - None detected.
 
-## Communities (124 total, 24 thin omitted)
+## Communities (112 total, 22 thin omitted)
 
 ### Community 0 - "DrawVerify.Core.Models"
 Cohesion: 0.08
@@ -184,16 +176,16 @@ Cohesion: 0.18
 Nodes (9): net9.0-windows, Microsoft.NET.Sdk, Microsoft.NET.Sdk, Microsoft.NET.Sdk, Microsoft.NET.Sdk, Microsoft.NET.Test.Sdk (17.8.0), xunit (2.6.6), xunit.runner.visualstudio (2.5.6) (+1 more)
 
 ### Community 10 - ".RunFromTestDesignApprovalToPrReadyAsync"
-Cohesion: 0.21
-Nodes (5): IOptions, ILoggerFactory, StoryFlows, Task, IGitService
+Cohesion: 0.12
+Nodes (9): IOptions, ILoggerFactory, Task, StoryFlows, StubBuildTestService, Task, IGitService, Task (+1 more)
 
 ### Community 11 - "OcctGeometryService.cs"
 Cohesion: 0.29
 Nodes (5): DrawVerify.Geometry, DrawVerify.OcctService, IGeometryService, NativeResourceTracker, OcctGeometryService
 
 ### Community 12 - "FileStateStore"
-Cohesion: 0.07
-Nodes (19): IHubContext, JsonSerializerOptions, DateTime, Dictionary, PipelineStateData, Task, IJiraService, string (+11 more)
+Cohesion: 0.06
+Nodes (21): JsonSerializerOptions, DateTime, Dictionary, PipelineState, PipelineStateData, ILogger, int, Task (+13 more)
 
 ### Community 13 - "OcctShapeSafeHandle"
 Cohesion: 0.29
@@ -203,9 +195,13 @@ Nodes (4): DrawVerify.OcctService.SafeHandles, SafeHandleZeroOrMinusOneIsInvalid
 Cohesion: 0.29
 Nodes (4): DrawVerify.Application.Workflow, WorkflowEngine, WorkflowStateMachine, WorkflowTransition
 
-### Community 15 - "PipelineRun"
-Cohesion: 0.08
-Nodes (34): LEMUAgenticPipeline.Web.Pages, DbContext, DbSet, PageModel, ModelBuilder, PipelineDbContext, DateTime, List (+26 more)
+### Community 15 - "PipelineRunner"
+Cohesion: 0.10
+Nodes (30): DbContext, DbSet, IHubContext, ModelBuilder, PipelineDbContext, DateTime, List, AgentStatus (+22 more)
+
+### Community 16 - "PageModel"
+Cohesion: 0.16
+Nodes (8): LEMUAgenticPipeline.Web.Pages, PageModel, ILogger, ErrorModel, ILogger, IndexModel, ILogger, PrivacyModel
 
 ### Community 17 - "DrawVerify.Infrastructure.Signatures"
 Cohesion: 0.40
@@ -249,11 +245,11 @@ Nodes (3): DrawVerify.App.Views, UserControl, DocumentListView
 
 ### Community 27 - "StoryContext"
 Cohesion: 0.07
-Nodes (24): Dictionary, Task, ClaudeAgentService, List, AgentResult, AgentType, ExecutionLogEntry, ModelRoutingConfiguration (+16 more)
+Nodes (27): Dictionary, Task, ClaudeAgentService, List, AgentResult, AgentType, ExecutionLogEntry, ModelRoutingConfiguration (+19 more)
 
 ### Community 28 - "LEMUAgenticPipeline.Services"
-Cohesion: 0.08
-Nodes (25): LEMUAgenticPipeline.OpenCode, LEMUAgenticPipeline.Web.Models, LEMUAgenticPipeline.OpenAI, LEMUAgenticPipeline.Jira, LEMUAgenticPipeline.Orchestrator, LEMUAgenticPipeline.Configuration, LEMUAgenticPipeline.Examples, LEMUAgenticPipeline.State (+17 more)
+Cohesion: 0.06
+Nodes (31): LEMUAgenticPipeline.OpenCode, LEMUAgenticPipeline.Web.Models, LEMUAgenticPipeline.OpenAI, LEMUAgenticPipeline.Jira, LEMUAgenticPipeline.Orchestrator, LEMUAgenticPipeline.Configuration, LEMUAgenticPipeline.Examples, LEMUAgenticPipeline.State (+23 more)
 
 ### Community 29 - ".ValidateAsync"
 Cohesion: 0.10
@@ -263,9 +259,9 @@ Nodes (27): AutoSelected, List, AgentDefinition, DefaultAgents, DateTime, IActio
 Cohesion: 0.16
 Nodes (11): Func, HttpRequestMessage, HttpResponseMessage, JsonDocument, JsonElement, HttpClient, IEnumerable, ILogger (+3 more)
 
-### Community 35 - "Exception"
-Cohesion: 0.28
-Nodes (6): DrawVerify.Core.Exceptions, Exception, JiraServiceException, DocumentNotFoundException, VerificationException, WorkflowException
+### Community 35 - "PipelineOptions"
+Cohesion: 0.16
+Nodes (13): DrawVerify.Core.Exceptions, Exception, JiraOptions, JiraServiceException, ModelRoutingOptions, OpenAIOptions, OpenCodeOptions, PathOptions (+5 more)
 
 ### Community 36 - "AGENTS.md"
 Cohesion: 0.11
@@ -279,29 +275,17 @@ Nodes (8): DrawVerify.Application.Tests, DimensionComparerTests, FingerprintServ
 Cohesion: 0.28
 Nodes (3): Microsoft.NET.Sdk, Microsoft.NET.Sdk, Microsoft.NET.Sdk
 
-### Community 39 - "Integration Tests"
-Cohesion: 0.04
-Nodes (47): Acceptance Criteria, Backward-Compatibility Concerns, Config Variants, Corpus (commit under `tests/TestData/Geometry/` or generate inline; synthetic fakes for unit), DTO Fixtures (FakeGeometryService canned results), Edge, Error Handling & Observability, Execution Notes for Implementer (+39 more)
-
 ### Community 40 - "SKILL.md"
 Cohesion: 0.17
 Nodes (11): Before Writing Code, Code Quality, Communication, Default Rule, Development Principles, Mindset, Performance, Production Safety (+3 more)
-
-### Community 41 - "Technical Design Detail — KAN-20 US-1.1.2: Extract STEP Measurements"
-Cohesion: 0.07
-Nodes (26): 1. Core Domain — Models & Enums (additive, backward-compat), 2. Core Interfaces — Geometry Boundary (the ONLY OCCT seam), 3. Application Layer — Orchestration, AuthZ, Audit, Timeout, 4. Infrastructure — OCCT Isolation (THE hard boundary), 5. Persistence — SQLite, 6. App Layer — ViewModels & Views, 7. Cross-Cutting, Acceptance Criteria Mapping (+18 more)
 
 ### Community 42 - "LEMUAgenticPipeline.Orchestrator"
 Cohesion: 0.20
 Nodes (10): Microsoft.Extensions.DependencyInjection (9.0.0), Microsoft.Extensions.Hosting (9.0.0), Microsoft.Extensions.Logging (9.0.0), System.CommandLine (2.0.0-beta4.22272.1), System.Text.Json (9.0.0), LEMUAgenticPipeline.Orchestrator, net9.0, Microsoft.Extensions.Configuration (9.0.0) (+2 more)
 
 ### Community 43 - "PipelineWorker"
-Cohesion: 0.31
+Cohesion: 0.27
 Nodes (7): BackgroundService, IServiceProvider, CancellationToken, ILogger, Task, PipelineWorker, SemaphoreSlim
-
-### Community 44 - "Migration: Move ALL pipeline code under `.pipeline/` (Phase 1 — Impact Analysis)"
-Cohesion: 0.25
-Nodes (7): 1. Current Architecture (after recent refactor), 2. Motivation, 3. Proposed Architecture (all pipeline code under `.pipeline/`), 4. Impact List, 5. Risks & Considerations, 6. Step-by-Step Migration Plan (Phase 2), Migration: Move ALL pipeline code under `.pipeline/` (Phase 1 — Impact Analysis)
 
 ### Community 45 - "LEMUAgenticPipeline.Web"
 Cohesion: 0.29
@@ -327,9 +311,9 @@ Nodes (6): Adding a new agent, Model routing (no hard-coding), Pipeline Orchestr
 Cohesion: 0.40
 Nodes (4): Microsoft.NET.Test.Sdk (17.8.0), xunit (2.6.6), xunit.runner.visualstudio (2.5.6), Microsoft.NET.Sdk
 
-### Community 51 - "IBuildTestService"
-Cohesion: 0.13
-Nodes (9): Task, StubBuildTestService, DotNetBuildTestService, Task, BuildResult, IBuildTestService, TestResult, DotNetBuildTestService (+1 more)
+### Community 51 - "CliGitService"
+Cohesion: 0.08
+Nodes (11): CliGitService, Task, DotNetBuildTestService, Task, BuildResult, IBuildTestService, TestResult, CliGitService (+3 more)
 
 ### Community 52 - "Deployment — OCCT native DLL distribution + AOT validation"
 Cohesion: 0.33
@@ -338,10 +322,6 @@ Nodes (5): AOT / trimming validation, Build pipeline, Deployment — OCCT native
 ### Community 53 - "Fingerprint Policy"
 Cohesion: 0.33
 Nodes (5): Algorithm, Behavior, Fingerprint Policy, Purpose, Stages
-
-### Community 54 - "InitialCreate"
-Cohesion: 0.11
-Nodes (11): LEMUAgenticPipeline.Web.Migrations, Migration, ModelSnapshot, MigrationBuilder, ModelBuilder, InitialCreate, MigrationBuilder, ModelBuilder (+3 more)
 
 ### Community 55 - "UserControl"
 Cohesion: 0.33
@@ -407,10 +387,6 @@ Nodes (3): $schema, title, type
 Cohesion: 0.18
 Nodes (10): Agentic Pipeline: Current Architecture and Runtime Behavior, Agents, prompts, and artifacts, Components, Configuration and operation, Current operational boundary, Repository structure, Safety configuration and enforcement, Scope (+2 more)
 
-### Community 91 - "Technical Design Detail — KAN-19 US-1.1.1: Upload STEP File"
-Cohesion: 0.07
-Nodes (27): 1. Core Domain — Models & Enums, 2. Core Interfaces, 3. Application Layer — `src/DrawVerify.Application/Services/StepUploadService.cs` (new), 4. Infrastructure — File, Repo, Audit, Logger, 5. App Layer — WPF MVVM, Acceptance Criteria Mapping, Audit Logging (AC-10), Backward-Compat & Migration Notes (+19 more)
-
 ### Community 92 - "LEMU Agentic Pipeline — Web Control Plane"
 Cohesion: 0.15
 Nodes (12): Architecture, Configuration, Database, Definition of Done (MVP), Extensibility, Features (MVP), Human Approval (agent-suffixed, from JIRA-specific source artifact), LEMU Agentic Pipeline — Web Control Plane (+4 more)
@@ -423,38 +399,30 @@ Nodes (9): ASPNETCORE_ENVIRONMENT, applicationUrl, commandName, dotnetRunMessage
 Cohesion: 0.40
 Nodes (4): Microsoft.NET.Test.Sdk (17.8.0), xunit (2.6.6), xunit.runner.visualstudio (2.5.6), Microsoft.NET.Sdk
 
-### Community 95 - "PipelineOrchestrator"
-Cohesion: 0.09
-Nodes (11): PipelineState, ILogger, int, Task, PipelineOrchestrator, Dictionary, HashSet, StateMachine (+3 more)
-
-### Community 103 - "Test Design — KAN-19 US-1.1.1: Upload STEP File"
-Cohesion: 0.05
-Nodes (40): Acceptance Criteria, Backward-Compatibility Concerns, Config Variants, Corpus (commit under `tests/TestData/StepUpload/` or generate inline), Edge, Error Handling & Observability, Execution Notes for Implementer, In Scope for KAN-19 (+32 more)
-
-### Community 106 - "ICodeAgentService"
-Cohesion: 0.25
-Nodes (6): Dictionary, List, Task, ICodeAgentService, SchemaValidationResult, IOpenCodeAgentService
+### Community 95 - "IPipelineOrchestrator"
+Cohesion: 0.17
+Nodes (4): Task, IPipelineOrchestrator, RecoveryResult, SafetyLimits
 
 ### Community 122 - "Technical Design"
 Cohesion: 0.11
 Nodes (18): Acceptance Criteria, Acceptance Criteria Mapping, API / Interface Changes, Backward Compatibility, Database Changes, Error Handling, Existing Architecture, Existing Code (+10 more)
 
 ## Knowledge Gaps
-- **395 isolated node(s):** `net9.0`, `Microsoft.Extensions.Configuration (9.0.0)`, `Microsoft.Extensions.Configuration.Json (9.0.0)`, `Microsoft.Extensions.DependencyInjection (9.0.0)`, `Microsoft.Extensions.Hosting (9.0.0)` (+390 more)
+- **265 isolated node(s):** `net9.0`, `Microsoft.Extensions.Configuration (9.0.0)`, `Microsoft.Extensions.Configuration.Json (9.0.0)`, `Microsoft.Extensions.DependencyInjection (9.0.0)`, `Microsoft.Extensions.Hosting (9.0.0)` (+260 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **24 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **22 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `PipelineOrchestrator` connect `PipelineOrchestrator` to `ICodeAgentService`, `.RunFromTestDesignApprovalToPrReadyAsync`, `FileStateStore`, `IBuildTestService`, `StoryContext`, `LEMUAgenticPipeline.Services`?**
+- **Why does `FileStateStore` connect `FileStateStore` to `.RunFromTestDesignApprovalToPrReadyAsync`, `StoryContext`, `LEMUAgenticPipeline.Services`, `PipelineRunner`?**
+  _High betweenness centrality (0.034) - this node is a cross-community bridge._
+- **Why does `PipelineOrchestrator` connect `FileStateStore` to `PipelineOptions`, `.RunFromTestDesignApprovalToPrReadyAsync`, `CliGitService`, `StoryContext`, `LEMUAgenticPipeline.Services`, `IPipelineOrchestrator`?**
+  _High betweenness centrality (0.032) - this node is a cross-community bridge._
+- **Why does `DetailModel` connect `FileStateStore` to `PipelineOptions`, `.RunFromTestDesignApprovalToPrReadyAsync`, `PipelineRunner`, `PageModel`, `LEMUAgenticPipeline.Services`, `.ValidateAsync`?**
   _High betweenness centrality (0.029) - this node is a cross-community bridge._
-- **Why does `IJiraService` connect `FileStateStore` to `JiraRestService`, `.RunFromTestDesignApprovalToPrReadyAsync`, `PipelineRun`, `LEMUAgenticPipeline.Services`, `.ValidateAsync`, `PipelineOrchestrator`?**
-  _High betweenness centrality (0.026) - this node is a cross-community bridge._
-- **Why does `FileStateStore` connect `FileStateStore` to `.RunFromTestDesignApprovalToPrReadyAsync`, `PipelineRun`, `StoryContext`, `LEMUAgenticPipeline.Services`, `PipelineOrchestrator`?**
-  _High betweenness centrality (0.023) - this node is a cross-community bridge._
 - **What connects `net9.0`, `Microsoft.Extensions.Configuration (9.0.0)`, `Microsoft.Extensions.Configuration.Json (9.0.0)` to the rest of the system?**
-  _395 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _265 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `DrawVerify.Core.Models` be split into smaller, more focused modules?**
   _Cohesion score 0.08 - nodes in this community are weakly interconnected._
 - **Should `DrawVerify.Core.Interfaces` be split into smaller, more focused modules?**

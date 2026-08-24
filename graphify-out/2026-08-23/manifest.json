@@ -50,8 +50,8 @@
     "semantic_hash": ""
   },
   ".pipeline/LEMUAgenticPipeline/OpenCode/OpenCodeAgentService.cs": {
-    "mtime": 1787461309.8872054,
-    "ast_hash": "d3e2976b364ae8f915c27a6cc74dc17f",
+    "mtime": 1787466068.0986915,
+    "ast_hash": "75423da00fb43c3fba7aaa22ec81bee2",
     "semantic_hash": ""
   },
   ".pipeline/LEMUAgenticPipeline/Orchestrator/PipelineOrchestrator.cs": {
@@ -804,11 +804,6 @@
     "ast_hash": "7015e0b5784c975d124f43d9b2fcd4ad",
     "semantic_hash": ""
   },
-  ".pipeline/MIGRATION_TO_PIPELINE_ONLY.md": {
-    "mtime": 1787315031.069454,
-    "ast_hash": "64695d58337d5774205b843381910679",
-    "semantic_hash": ""
-  },
   ".pipeline/README.md": {
     "mtime": 1787392104.9728136,
     "ast_hash": "9c4aec492bfcf7bd83d88a34d4e6b073",
@@ -1055,13 +1050,13 @@
     "semantic_hash": ""
   },
   ".pipeline/LEMUAgenticPipeline.Web/Pages/Pipeline/Runs/Index.cshtml": {
-    "mtime": 1787312158.600925,
-    "ast_hash": "7222b788ed395562bd3cd0f1aefe02b1",
+    "mtime": 1787466939.8190584,
+    "ast_hash": "5ea4252186a77ccce69fca68cd63c10c",
     "semantic_hash": ""
   },
   ".pipeline/LEMUAgenticPipeline.Web/Pages/Pipeline/Runs/Index.cshtml.cs": {
-    "mtime": 1787314841.5457501,
-    "ast_hash": "decb36025f94712cbad11d3f69bf17c0",
+    "mtime": 1787466377.9550722,
+    "ast_hash": "d55746e8f5a053e75a0e9415d7f7e81f",
     "semantic_hash": ""
   },
   ".pipeline/LEMUAgenticPipeline.Web/Pages/Privacy.cshtml": {
@@ -1110,8 +1105,8 @@
     "semantic_hash": ""
   },
   ".pipeline/LEMUAgenticPipeline.Web/Services/PipelineRunner.cs": {
-    "mtime": 1787465136.1071055,
-    "ast_hash": "151c6a2b1fd9293575492845dc7b5260",
+    "mtime": 1787472051.016854,
+    "ast_hash": "b4b48f9867b783109db7f3626b272f07",
     "semantic_hash": ""
   },
   ".pipeline/LEMUAgenticPipeline.Web/Services/PipelineScheduler.cs": {
@@ -1157,46 +1152,6 @@
   ".pipeline/run.sh": {
     "mtime": 1787459386.0344574,
     "ast_hash": "61a5f10d947e602f61fb7ca423c86781",
-    "semantic_hash": ""
-  },
-  ".pipeline/state/KAN-19/technical-design.md": {
-    "mtime": 1787463285.116011,
-    "ast_hash": "a6986b782027df870030e708fe658fb2",
-    "semantic_hash": ""
-  },
-  ".pipeline/state/KAN-19/technical-designer-prompt.md": {
-    "mtime": 1787463118.8034236,
-    "ast_hash": "677c0c7bc47bccc3aedaef87db14385a",
-    "semantic_hash": ""
-  },
-  ".pipeline/state/KAN-19/test-design.md": {
-    "mtime": 1787463946.5120044,
-    "ast_hash": "965c059db7deb550fcc8c741f5a7440b",
-    "semantic_hash": ""
-  },
-  ".pipeline/state/KAN-19/test-designer-prompt.md": {
-    "mtime": 1787463858.4031227,
-    "ast_hash": "b6c77279e7f30eac99c6c608455b241f",
-    "semantic_hash": ""
-  },
-  ".pipeline/state/KAN-20/technical-design.md": {
-    "mtime": 1787464137.9351294,
-    "ast_hash": "7107d8e03473115e4e7c655dd76a34c5",
-    "semantic_hash": ""
-  },
-  ".pipeline/state/KAN-20/technical-designer-prompt.md": {
-    "mtime": 1787463982.819133,
-    "ast_hash": "b06fcc3f7a937dcbeacf53d162a98c66",
-    "semantic_hash": ""
-  },
-  ".pipeline/state/KAN-20/test-design.md": {
-    "mtime": 1787464309.2203977,
-    "ast_hash": "4fadf5232b519f192d06b56f1f36aa5d",
-    "semantic_hash": ""
-  },
-  ".pipeline/state/KAN-20/test-designer-prompt.md": {
-    "mtime": 1787464166.3431237,
-    "ast_hash": "5aac0dfba77d162c39fe88151bda0f47",
     "semantic_hash": ""
   },
   ".pipeline/clean-pipeline.sh": {
