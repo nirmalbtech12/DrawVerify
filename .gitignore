@@ -35,8 +35,9 @@ bld/
 
 # Native OCCT build output
 native/build/
-native/bin/
-native/occt/
+native/occt-build/
+native/build-occt/
+native/out/
 
 # SWIG generated wrapper output (regenerated via scripts/generate-wrapper.ps1)
 src/DrawVerify.OcctWrapper/Generated/*.cs
