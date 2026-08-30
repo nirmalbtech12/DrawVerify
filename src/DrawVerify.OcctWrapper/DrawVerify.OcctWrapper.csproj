@@ -5,4 +5,10 @@
     <AssemblyName>DrawVerify.OcctWrapper</AssemblyName>
   </PropertyGroup>
 
+  <Target Name="ValidateOcctWrapperGenerated" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('Generated/StepReader.cs')" Text="OCCT wrapper is absent: src/DrawVerify.OcctWrapper/Generated/*.cs is missing. Run native/scripts/generate-wrapper.ps1 (requires SWIG 4.x). See src/DrawVerify.OcctWrapper/README.md." />
+    <Error Condition="!Exists('Generated/DrawVerifyOcct.cs')" Text="OCCT wrapper is absent: src/DrawVerify.OcctWrapper/Generated/DrawVerifyOcct.cs is missing. Run native/scripts/generate-wrapper.ps1." />
+    <Error Condition="!Exists('Generated/Model.cs')" Text="OCCT wrapper is absent: src/DrawVerify.OcctWrapper/Generated/Model.cs is missing. Run native/scripts/generate-wrapper.ps1." />
+  </Target>
+
 </Project>
