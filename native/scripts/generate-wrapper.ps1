@@ -1,24 +1,9 @@
-# Regenerates the SWIG C# wrapper into src/DrawVerify.OcctWrapper/Generated.
-<#
-.SYNOPSIS
-    Runs SWIG against native/swig/occcsharp.i for C# and writes the generated
-    C# wrapper + C++ glue into src/DrawVerify.OcctWrapper/Generated.
-.DESCRIPTION
-    Requires SWIG (>= 4.x) supporting the C# backend. Output is created by SWIG
-    and must never be edited by hand. The OCCT version used must be recorded in
-    docs/deployment.md and src/DrawVerify.OcctWrapper/README.md.
-.NOTES
-    Generated output is gitignored; regenerate as part of the build pipeline.
-#>
 [CmdletBinding()]
-param(
-    [string]$SwigModule = "native/swig/occcsharp.i",
-    [string]$OutputDir = "src/DrawVerify.OcctWrapper/Generated"
-)
-
-$ErrorActionPreference = "Stop"
-
-Write-Host "DrawVerify: SWIG wrapper generation is scaffolded but not yet implemented."
-Write-Host "Steps to complete:"
-Write-Host "  1. swig -c++ -csharp -module occcsharp -outdir $OutputDir -o $OutputDir/occcsharp.cxx $SwigModule"
-Write-Host "  2. Verify generated .cs files land under $OutputDir"
+param([string]$Interface='native/DrawVerifyOcct/swig/DrawVerifyOcct.i',[string]$HeaderDirectory='native/DrawVerifyOcct/include',[string]$NativeOutputDirectory='native/DrawVerifyOcct/generated',[string]$ManagedOutputDirectory='src/DrawVerify.OcctWrapper/Generated')
+$ErrorActionPreference='Stop'
+if(-not(Get-Command swig -ErrorAction SilentlyContinue)){throw 'ENVIRONMENT_MISSING: SWIG 4.x is required.'}
+if((& swig -version|Out-String)-notmatch 'SWIG Version 4\.'){throw 'ENVIRONMENT_MISSING: SWIG 4.x is required.'}
+foreach($path in @($Interface,(Join-Path $HeaderDirectory 'DrawVerify/Occt/Facade.hxx'))){if(-not(Test-Path $path)){throw "BUILD_FAILED: required input is missing: $path"}}
+New-Item -Force -ItemType Directory -Path $NativeOutputDirectory,$ManagedOutputDirectory|Out-Null
+& swig -c++ -csharp -namespace DrawVerify.OcctWrapper.Generated -dllimport DrawVerifyOcctNative -I$HeaderDirectory -outdir $ManagedOutputDirectory -o (Join-Path $NativeOutputDirectory DrawVerifyOcct_wrap.cxx) $Interface
+if($LASTEXITCODE -ne 0){throw 'BUILD_FAILED: SWIG generation failed.'}

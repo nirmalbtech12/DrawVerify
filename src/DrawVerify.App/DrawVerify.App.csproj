@@ -13,6 +13,7 @@
     <ProjectReference Include="..\DrawVerify.Application\DrawVerify.Application.csproj" />
     <ProjectReference Include="..\DrawVerify.Core\DrawVerify.Core.csproj" />
     <ProjectReference Include="..\DrawVerify.Geometry\DrawVerify.Geometry.csproj" />
+    <ProjectReference Include="..\DrawVerify.OcctService\DrawVerify.OcctService.csproj" />
   </ItemGroup>
 
   <ItemGroup>

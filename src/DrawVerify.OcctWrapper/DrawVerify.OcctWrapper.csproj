@@ -5,8 +5,4 @@
     <AssemblyName>DrawVerify.OcctWrapper</AssemblyName>
   </PropertyGroup>
 
-  <ItemGroup>
-    <Compile Include="Generated\**\*.cs" />
-  </ItemGroup>
-
 </Project>

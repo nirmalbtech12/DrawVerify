@@ -43,6 +43,7 @@ native/out/
 src/DrawVerify.OcctWrapper/Generated/*.cs
 src/DrawVerify.OcctWrapper/Generated/*.cxx
 !src/DrawVerify.OcctWrapper/Generated/.gitkeep
+native/DrawVerifyOcct/generated/
 
 # Logs
 *.log

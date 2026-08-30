@@ -17,4 +17,35 @@
     <ProjectReference Include="..\..\src\DrawVerify.OcctService\DrawVerify.OcctService.csproj" />
   </ItemGroup>
 
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <None Include="..\..\native\build\drawverify-occt\libDrawVerifyOcctNative.so" Link="libDrawVerifyOcctNative.so" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\native\out\occt\lib\*.so*" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <None Include="..\..\native\build\drawverify-occt\$(Configuration)\DrawVerifyOcctNative.dll" Link="DrawVerifyOcctNative.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\native\out\occt\bin\*.dll" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Fixtures\invalid.step" Link="Fixtures\invalid.step" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\native\occt\data\step\screw.step" Link="Fixtures\screw.step" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\native\build\drawverify-occt\fixtures\*.step" Link="Fixtures\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\data\eccv2026-cad-challenge-data\train\sample-000000\000000.dxf" Link="Dataset\sample-000000\000000.dxf" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\data\eccv2026-cad-challenge-data\train\sample-000000\000000.step" Link="Dataset\sample-000000\000000.step" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\data\eccv2026-cad-challenge-data\train\sample-000001\000001.dxf" Link="Dataset\sample-000001\000001.dxf" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\data\eccv2026-cad-challenge-data\train\sample-000001\000001.step" Link="Dataset\sample-000001\000001.step" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="ValidateOcctIntegrationPrerequisites" BeforeTargets="Build">
+    <Error Condition="!Exists('..\..\native\occt\data\step\screw.step')" Text="OCCT integration fixture is missing. Run git submodule update --init --recursive." />
+    <Error Condition="$([MSBuild]::IsOSPlatform('Linux')) and !Exists('..\..\native\build\drawverify-occt\libDrawVerifyOcctNative.so')" Text="DrawVerifyOcctNative has not been built. Run native/scripts/build-native.ps1." />
+    <Error Condition="$([MSBuild]::IsOSPlatform('Windows')) and !Exists('..\..\native\build\drawverify-occt\$(Configuration)\DrawVerifyOcctNative.dll')" Text="DrawVerifyOcctNative has not been built. Run native/scripts/build-native.ps1." />
+    <Error Condition="!Exists('..\..\native\build\drawverify-occt\fixtures\cube.step')" Text="DrawVerify OCCT fixtures have not been generated. Build native/DrawVerifyOcctFixtures first." />
+    <Error Condition="!Exists('..\..\data\eccv2026-cad-challenge-data\train\sample-000000\000000.step')" Text="Dataset sample 000000 STEP fixture is missing." />
+    <Error Condition="!Exists('..\..\data\eccv2026-cad-challenge-data\train\sample-000001\000001.step')" Text="Dataset sample 000001 STEP fixture is missing." />
+    <Error Condition="!Exists('..\..\data\eccv2026-cad-challenge-data\train\sample-000000\000000.dxf')" Text="Dataset sample 000000 DXF fixture is missing." />
+    <Error Condition="!Exists('..\..\data\eccv2026-cad-challenge-data\train\sample-000001\000001.dxf')" Text="Dataset sample 000001 DXF fixture is missing." />
+  </Target>
+
 </Project>
