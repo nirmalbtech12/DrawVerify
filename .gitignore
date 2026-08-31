@@ -37,6 +37,7 @@ bld/
 native/build/
 native/occt-build/
 native/build-occt/
+artifacts/DrawVerify-native-occt-8.0.0-linux-x64.zip
 native/out/
 
 # SWIG generated wrapper output (regenerated via scripts/generate-wrapper.ps1)
