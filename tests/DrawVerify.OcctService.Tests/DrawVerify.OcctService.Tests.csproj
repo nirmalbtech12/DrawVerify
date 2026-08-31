@@ -18,8 +18,8 @@
   </ItemGroup>
 
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
-    <None Include="..\..\native\build\drawverify-occt\libDrawVerifyOcctNative.so" Link="libDrawVerifyOcctNative.so" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\..\native\out\occt\lib\*.so*" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\native\build\drawverify-occt\libDrawVerifyOcctNative.so" Condition="Exists('..\..\native\build\drawverify-occt\libDrawVerifyOcctNative.so')" Link="libDrawVerifyOcctNative.so" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\native\out\occt\lib\*.so*" Condition="Exists('..\..\native\out\occt\lib')" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
@@ -29,15 +29,15 @@
 
   <ItemGroup>
     <None Include="Fixtures\invalid.step" Link="Fixtures\invalid.step" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\..\native\occt\data\step\screw.step" Link="Fixtures\screw.step" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\..\native\build\drawverify-occt\fixtures\*.step" Link="Fixtures\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\..\data\eccv2026-cad-challenge-data\train\sample-000000\000000.dxf" Link="Dataset\sample-000000\000000.dxf" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\..\data\eccv2026-cad-challenge-data\train\sample-000000\000000.step" Link="Dataset\sample-000000\000000.step" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\..\data\eccv2026-cad-challenge-data\train\sample-000001\000001.dxf" Link="Dataset\sample-000001\000001.dxf" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\..\data\eccv2026-cad-challenge-data\train\sample-000001\000001.step" Link="Dataset\sample-000001\000001.step" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\native\occt\data\step\screw.step" Condition="Exists('..\..\native\occt\data\step\screw.step')" Link="Fixtures\screw.step" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\native\build\drawverify-occt\fixtures\*.step" Condition="Exists('..\..\native\build\drawverify-occt\fixtures')" Link="Fixtures\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\data\eccv2026-cad-challenge-data\train\sample-000000\000000.dxf" Condition="Exists('..\..\data\eccv2026-cad-challenge-data\train\sample-000000\000000.dxf')" Link="Dataset\sample-000000\000000.dxf" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\data\eccv2026-cad-challenge-data\train\sample-000000\000000.step" Condition="Exists('..\..\data\eccv2026-cad-challenge-data\train\sample-000000\000000.step')" Link="Dataset\sample-000000\000000.step" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\data\eccv2026-cad-challenge-data\train\sample-000001\000001.dxf" Condition="Exists('..\..\data\eccv2026-cad-challenge-data\train\sample-000001\000001.dxf')" Link="Dataset\sample-000001\000001.dxf" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\data\eccv2026-cad-challenge-data\train\sample-000001\000001.step" Condition="Exists('..\..\data\eccv2026-cad-challenge-data\train\sample-000001\000001.step')" Link="Dataset\sample-000001\000001.step" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
-  <Target Name="ValidateOcctIntegrationPrerequisites" BeforeTargets="Build">
+  <Target Name="ValidateOcctIntegrationPrerequisites" BeforeTargets="VSTest">
     <Error Condition="!Exists('..\..\native\occt\data\step\screw.step')" Text="OCCT integration fixture is missing. Run git submodule update --init --recursive." />
     <Error Condition="$([MSBuild]::IsOSPlatform('Linux')) and !Exists('..\..\native\build\drawverify-occt\libDrawVerifyOcctNative.so')" Text="DrawVerifyOcctNative has not been built. Run native/scripts/build-native.ps1." />
     <Error Condition="$([MSBuild]::IsOSPlatform('Windows')) and !Exists('..\..\native\build\drawverify-occt\$(Configuration)\DrawVerifyOcctNative.dll')" Text="DrawVerifyOcctNative has not been built. Run native/scripts/build-native.ps1." />
