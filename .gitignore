@@ -99,3 +99,6 @@ control-plane/AgenticWeb/pipeline.db-wal
 
 # Pipeline state folder (runtime state, not source)
 .pipeline/state/
+
+/$InstallDir/include/opencascade/
+/$InstallDir/
