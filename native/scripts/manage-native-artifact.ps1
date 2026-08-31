@@ -2,6 +2,8 @@
 param(
     [ValidateSet('Pack', 'Restore')]
     [string]$Mode = 'Pack',
+    # For Restore, this is the path to an artifact outside the clone. The
+    # artifact is copied into the clone's artifacts directory before restore.
     [string]$ArtifactPath,
     [ValidateSet('win-x64', 'linux-x64')]
     [string]$RuntimeId,
@@ -22,14 +24,32 @@ function Resolve-RepositoryPath([string]$Path) {
     return [IO.Path]::GetFullPath((Join-Path $repositoryRoot $Path))
 }
 
-if ([string]::IsNullOrWhiteSpace($ArtifactPath)) {
-    $ArtifactPath = "artifacts/DrawVerify-native-occt-8.0.0-$RuntimeId.zip"
+$artifactPathProvided = -not [string]::IsNullOrWhiteSpace($ArtifactPath)
+$defaultArtifactPath = "artifacts/DrawVerify-native-occt-8.0.0-$RuntimeId.zip"
+
+if ($artifactPathProvided) {
+    $artifact = Resolve-RepositoryPath $ArtifactPath
+} else {
+    $artifact = Resolve-RepositoryPath $defaultArtifactPath
 }
-$artifact = Resolve-RepositoryPath $ArtifactPath
 
 if ($Mode -eq 'Restore') {
+    if ($artifactPathProvided) {
+        if (-not (Test-Path $artifact -PathType Leaf)) {
+            throw "NATIVE_ARTIFACT_MISSING: artifact was not found: $artifact"
+        }
+
+        $localArtifact = Resolve-RepositoryPath $defaultArtifactPath
+        if ([IO.Path]::GetFullPath($artifact) -ne [IO.Path]::GetFullPath($localArtifact)) {
+            New-Item -ItemType Directory -Force -Path (Split-Path $localArtifact -Parent) | Out-Null
+            Copy-Item -LiteralPath $artifact -Destination $localArtifact -Force
+            Write-Host "Copied native artifact to local clone: $localArtifact"
+        }
+        $artifact = $localArtifact
+    }
+
     if (-not (Test-Path $artifact -PathType Leaf)) {
-        throw "NATIVE_ARTIFACT_MISSING: artifact was not found: $artifact"
+        throw "NATIVE_ARTIFACT_MISSING: artifact was not found in the local clone: $artifact"
     }
 
     Expand-Archive -LiteralPath $artifact -DestinationPath $repositoryRoot -Force
