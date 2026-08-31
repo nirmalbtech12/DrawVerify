@@ -17,6 +17,6 @@ native/scripts/generate-wrapper.ps1
 
 ## Contents
 
-- `Generated/*.cs` — generated C# wrapper classes (CI/`dotnet build` ignore these until
-  SWIG has run)
+- `Generated/*.cs` — generated C# wrapper classes (`dotnet build` generates these when
+  they are absent or stale)
 - `Generated/*.cxx` — generated C++ glue compiled into the OCCT native build
