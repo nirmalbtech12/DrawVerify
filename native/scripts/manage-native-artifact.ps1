@@ -61,7 +61,8 @@ $requiredPaths = @(
     'native/out/occt',
     "native/out/runtime/$RuntimeId/native",
     'src/DrawVerify.OcctWrapper/Generated',
-    'native/DrawVerifyOcct/generated'
+    'native/DrawVerifyOcct/generated',
+    'native/build/drawverify-occt/fixtures'
 )
 
 foreach ($relativePath in $requiredPaths) {
