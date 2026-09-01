@@ -1,0 +1,13 @@
+DrawVerify uses Open CASCADE Technology (OCCT).
+
+Open CASCADE Technology is distributed under the GNU Lesser General Public
+License version 2.1 with the Open CASCADE LGPL Exception.
+
+Open CASCADE Technology is copyright its respective Open CASCADE
+contributors/copyright holders.
+
+The applicable OCCT license files are distributed with DrawVerify.
+
+DrawVerify proprietary code is not licensed under the LGPL. OCCT is loaded
+dynamically, and deployment must not prevent replacement of the OCCT shared
+libraries with an interface-compatible build as required by applicable rights.

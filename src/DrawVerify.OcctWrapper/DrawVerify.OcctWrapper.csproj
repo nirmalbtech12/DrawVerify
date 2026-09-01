@@ -3,10 +3,32 @@
   <PropertyGroup>
     <RootNamespace>DrawVerify.OcctWrapper</RootNamespace>
     <AssemblyName>DrawVerify.OcctWrapper</AssemblyName>
+    <RepositoryRoot>$(MSBuildProjectDirectory)/../..</RepositoryRoot>
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="Generated\**\*.cs" />
+    <Compile Remove="Generated/**/*.cs" />
   </ItemGroup>
+
+  <Target Name="GenerateOcctWrapper" BeforeTargets="ValidateOcctWrapperGenerated"
+          Inputs="$(RepositoryRoot)/native/scripts/generate-wrapper.ps1;$(RepositoryRoot)/native/DrawVerifyOcct/swig/DrawVerifyOcct.i;$(RepositoryRoot)/native/DrawVerifyOcct/include/DrawVerify/Occt/Facade.hxx"
+          Outputs="Generated/StepReader.cs;Generated/DrawVerifyOcct.cs;Generated/Model.cs">
+    <MakeDir Directories="$(MSBuildProjectDirectory)/Generated;$(RepositoryRoot)/native/DrawVerifyOcct/generated" />
+    <Exec Command="swig -c++ -csharp -namespace DrawVerify.OcctWrapper.Generated -dllimport DrawVerifyOcctNative -I&quot;$(RepositoryRoot)/native/DrawVerifyOcct/include&quot; -outdir &quot;$(MSBuildProjectDirectory)/Generated&quot; -o &quot;$(RepositoryRoot)/native/DrawVerifyOcct/generated/DrawVerifyOcct_wrap.cxx&quot; &quot;$(RepositoryRoot)/native/DrawVerifyOcct/swig/DrawVerifyOcct.i&quot;"
+          WorkingDirectory="$(RepositoryRoot)"
+          IgnoreExitCode="false" />
+  </Target>
+
+  <Target Name="IncludeOcctWrapperGenerated" BeforeTargets="CoreCompile">
+    <ItemGroup>
+      <Compile Include="Generated/**/*.cs" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="ValidateOcctWrapperGenerated" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('Generated/StepReader.cs')" Text="OCCT wrapper is absent: src/DrawVerify.OcctWrapper/Generated/*.cs is missing. Run native/scripts/generate-wrapper.ps1 (requires SWIG 4.x). See src/DrawVerify.OcctWrapper/README.md." />
+    <Error Condition="!Exists('Generated/DrawVerifyOcct.cs')" Text="OCCT wrapper is absent: src/DrawVerify.OcctWrapper/Generated/DrawVerifyOcct.cs is missing. Run native/scripts/generate-wrapper.ps1." />
+    <Error Condition="!Exists('Generated/Model.cs')" Text="OCCT wrapper is absent: src/DrawVerify.OcctWrapper/Generated/Model.cs is missing. Run native/scripts/generate-wrapper.ps1." />
+  </Target>
 
 </Project>

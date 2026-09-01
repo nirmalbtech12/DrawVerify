@@ -35,13 +35,16 @@ bld/
 
 # Native OCCT build output
 native/build/
-native/bin/
-native/occt/
+native/occt-build/
+native/build-occt/
+artifacts/DrawVerify-native-occt-8.0.0-linux-x64.zip
+native/out/
 
 # SWIG generated wrapper output (regenerated via scripts/generate-wrapper.ps1)
 src/DrawVerify.OcctWrapper/Generated/*.cs
 src/DrawVerify.OcctWrapper/Generated/*.cxx
 !src/DrawVerify.OcctWrapper/Generated/.gitkeep
+native/DrawVerifyOcct/generated/
 
 # Logs
 *.log
@@ -97,3 +100,6 @@ control-plane/AgenticWeb/pipeline.db-wal
 
 # Pipeline state folder (runtime state, not source)
 .pipeline/state/
+
+/$InstallDir/include/opencascade/
+/$InstallDir/

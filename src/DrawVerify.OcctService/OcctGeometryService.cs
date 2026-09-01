@@ -1,4 +1,5 @@
 using DrawVerify.Geometry;
+using DrawVerify.Occt;
 
 namespace DrawVerify.OcctService;
 
@@ -8,4 +9,17 @@ namespace DrawVerify.OcctService;
 /// </summary>
 public sealed class OcctGeometryService : IGeometryService
 {
+    private readonly IOcctModelLoader _loader;
+
+    /// <summary>Creates the production OCCT-backed geometry service.</summary>
+    public OcctGeometryService(IOcctModelLoader? loader = null)
+    {
+        _loader = loader ?? new OcctModelLoader();
+    }
+
+    /// <summary>Runtime capability status, including native linkage diagnostics.</summary>
+    public OcctRuntimeStatus CheckRuntime() => new OcctRuntime().CheckReadiness();
+
+    /// <summary>Loads one STEP model and returns an owned, disposable model boundary.</summary>
+    public OcctModel LoadStep(string path) => _loader.LoadStep(path);
 }

@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <RootNamespace>DrawVerify.OcctService</RootNamespace>
-    <AssemblyName>DrawVerify.OcctService</AssemblyName>
+    <RootNamespace>DrawVerify.Occt</RootNamespace>
+    <AssemblyName>DrawVerify.Occt</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>

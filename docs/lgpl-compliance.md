@@ -4,11 +4,12 @@ DrawVerify links against Open CASCADE Technology (OCCT).
 
 ## Obligations
 
-- OCCT is licensed under LGPL-2.1 with additional terms (the "OCCT Public License").
+- OCCT is licensed under GNU LGPL-2.1 with the OCCT LGPL Exception.
 - The native OCCT libraries distributed with DrawVerify may be LGPL; when we link
   dynamically and allow relinking, the LGPL obligations apply to the OCCT components
   and must be recorded here.
-- This project is itself distributed under LGPL-3.0 (see `LICENSE.txt`).
+- DrawVerify proprietary code is not licensed under the LGPL. These obligations
+  apply to the dynamically linked OCCT components only.
 
 ## Distribution requirements
 
