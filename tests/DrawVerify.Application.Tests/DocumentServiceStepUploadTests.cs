@@ -171,7 +171,7 @@ public sealed class DocumentServiceStepUploadTests
         public Fakes(StepUploadConfiguration? configuration = null, User? user = null, bool cancelAfterFirstWrite = false, bool unauthenticated = false, Action? cancelUpload = null)
         {
             Auth = new Authentication(unauthenticated ? null : user ?? new User { UserId = "maker-1", DisplayName = "Maker One", Role = Role.Maker });
-            Documents = new DocumentRepository();
+            Documents = new DocumentRepository(Audit);
             Store = new FileStore { CancelAfterFirstWrite = cancelAfterFirstWrite, CancelUpload = cancelUpload };
             Service = new DocumentService(Documents, Audit, Auth, Store, configuration ?? new StepUploadConfiguration());
         }
@@ -188,7 +188,7 @@ public sealed class DocumentServiceStepUploadTests
     private sealed class Authentication(User? user) : IAuthenticationService { public User? CurrentUser { get; } = user; public bool IsAuthenticated => CurrentUser is not null; public bool IsMaker => CurrentUser?.IsMaker == true; }
     private sealed class RecordingProgress : IProgress<long> { public List<long> Values { get; } = new(); public void Report(long value) => Values.Add(value); public int Count => Values.Count; }
     private sealed class AuditLogger : IAuditLogger { public List<AuditEntry> Entries { get; } = new(); public Task WriteAsync(AuditEntry entry, CancellationToken cancellationToken = default) { Entries.Add(entry); return Task.CompletedTask; } }
-    private sealed class DocumentRepository : IDocumentRepository
+    private sealed class DocumentRepository(AuditLogger audit) : IDocumentRepository, ITransactionalDocumentRepository
     {
         public Document? Duplicate { get; set; }
         public Document? Created { get; private set; }
@@ -199,6 +199,8 @@ public sealed class DocumentServiceStepUploadTests
         public Task<Document?> GetAsync(Guid documentId, CancellationToken cancellationToken = default) => Task.FromResult(Created);
         public Task CreateWithVersionAsync(Document document, DocumentVersion version, CancellationToken cancellationToken = default) { if (ThrowOnCreate) throw new InvalidOperationException("persistence failure"); Created = document; Writes.Add("create"); return Task.CompletedTask; }
         public Task AddVersionAsync(Guid documentId, DocumentVersion version, CancellationToken cancellationToken = default) { AddedVersions.Add(version); Writes.Add("version"); return Task.CompletedTask; }
+        public async Task CreateWithVersionAndAuditAsync(Document document, DocumentVersion version, AuditEntry auditEntry, CancellationToken cancellationToken = default) { await CreateWithVersionAsync(document, version, cancellationToken); audit.Entries.Add(auditEntry); }
+        public async Task AddVersionWithAuditAsync(Guid documentId, DocumentVersion version, AuditEntry auditEntry, CancellationToken cancellationToken = default) { await AddVersionAsync(documentId, version, cancellationToken); audit.Entries.Add(auditEntry); }
     }
     private sealed class FileStore : IStepUploadFileStore
     {

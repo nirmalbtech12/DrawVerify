@@ -16,6 +16,7 @@ public sealed class DocumentService
     public const string DuplicateMessage = "A file with the same name and size already exists. Create a new version?";
     public const string CancelledMessage = "Upload cancelled.";
     private readonly IDocumentRepository _documents;
+    private readonly ITransactionalDocumentRepository _transactionalDocuments;
     private readonly IAuditLogger _audit;
     private readonly IAuthenticationService _authentication;
     private readonly IStepUploadFileStore _files;
@@ -25,7 +26,7 @@ public sealed class DocumentService
 
     public DocumentService(IDocumentRepository documents, IAuditLogger audit, IAuthenticationService authentication, IStepUploadFileStore files, StepUploadConfiguration configuration, ICentralizedLogger? logger = null)
     {
-        _documents = documents; _audit = audit; _authentication = authentication; _files = files; _configuration = configuration; _logger = logger; _configuration.Validate();
+        _documents = documents; _transactionalDocuments = documents as ITransactionalDocumentRepository ?? throw new ArgumentException("The document repository must support transactional document, version, and audit persistence.", nameof(documents)); _audit = audit; _authentication = authentication; _files = files; _configuration = configuration; _logger = logger; _configuration.Validate();
     }
 
     public async Task<StepUploadResult> PrepareStepUploadAsync(StepUploadRequest request)
@@ -80,38 +81,29 @@ public sealed class DocumentService
             {
                 var version = NewVersion(duplicate.DocumentId, duplicate.CurrentVersion + 1, finalPath, size, user);
                 var audit = CreateAudit(duplicate.DocumentId, DocumentAuditAction.Overwritten, request, "new version");
-                if (_documents is ITransactionalDocumentRepository transactional)
-                    await transactional.AddVersionWithAuditAsync(duplicate.DocumentId, version, audit, request.CancellationToken).ConfigureAwait(false);
-                else
-                {
-                    await _documents.AddVersionAsync(duplicate.DocumentId, version, request.CancellationToken).ConfigureAwait(false);
-                    await _audit.WriteAsync(audit, request.CancellationToken).ConfigureAwait(false);
-                }
+                await _transactionalDocuments.AddVersionWithAuditAsync(duplicate.DocumentId, version, audit, request.CancellationToken).ConfigureAwait(false);
                 return new StepUploadResult { Kind = StepUploadResultKind.Success, Message = $"Uploaded {name} ({size} bytes).", Document = duplicate, OriginalFileName = name, FileSizeBytes = size };
             }
             var document = NewDocument(name, size, finalPath, user);
             var uploadedAudit = CreateAudit(document.DocumentId, DocumentAuditAction.Uploaded, request, "uploaded");
-            if (_documents is ITransactionalDocumentRepository createTransactional)
-                await createTransactional.CreateWithVersionAndAuditAsync(document, document.Version!, uploadedAudit, request.CancellationToken).ConfigureAwait(false);
-            else
-            {
-                await _documents.CreateWithVersionAsync(document, document.Version!, request.CancellationToken).ConfigureAwait(false);
-                await _audit.WriteAsync(uploadedAudit, request.CancellationToken).ConfigureAwait(false);
-            }
+            await _transactionalDocuments.CreateWithVersionAndAuditAsync(document, document.Version!, uploadedAudit, request.CancellationToken).ConfigureAwait(false);
             return new StepUploadResult { Kind = StepUploadResultKind.Success, Message = $"Uploaded {name} ({size} bytes).", Document = document, OriginalFileName = name, FileSizeBytes = size };
         }
-        catch (OperationCanceledException) when (request.CancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException cancellationException) when (request.CancellationToken.IsCancellationRequested)
         {
-            if (staging is not null) await staging.DisposeAsync().ConfigureAwait(false);
-            if (stagingPath is not null) await _files.DeleteAsync(stagingPath, CancellationToken.None).ConfigureAwait(false);
+            var cleanupSucceeded = await TryDisposeAsync(staging, cancellationException, "cancellation").ConfigureAwait(false);
+            var stagingDeleted = await TryDeleteAsync(stagingPath, cancellationException, "cancellation").ConfigureAwait(false);
+            cleanupSucceeded &= stagingDeleted;
+            cleanupSucceeded &= await TryDeleteAsync(finalPath, cancellationException, "cancellation").ConfigureAwait(false);
+            if (!cleanupSucceeded) throw new IOException("Upload cancellation cleanup failed; the operation was not reported as cancelled.", cancellationException);
             await WriteAuditAsync(null, DocumentAuditAction.Cancelled, request, "cancelled", CancellationToken.None).ConfigureAwait(false);
             return new StepUploadResult { Kind = StepUploadResultKind.Cancelled, Message = CancelledMessage, OriginalFileName = name, FileSizeBytes = size };
         }
         catch (Exception exception)
         {
-            if (staging is not null) await staging.DisposeAsync().ConfigureAwait(false);
-            if (stagingPath is not null) await _files.DeleteAsync(stagingPath, CancellationToken.None).ConfigureAwait(false);
-            if (finalPath is not null) await _files.DeleteAsync(finalPath).ConfigureAwait(false);
+            await TryDisposeAsync(staging, exception, "failure compensation").ConfigureAwait(false);
+            await TryDeleteAsync(stagingPath, exception, "failure compensation").ConfigureAwait(false);
+            await TryDeleteAsync(finalPath, exception, "failure compensation").ConfigureAwait(false);
             _logger?.Log(exception, "STEP upload", $"fileName={name}; documentId={duplicate?.DocumentId.ToString() ?? "none"}");
             throw;
         }
@@ -138,5 +130,17 @@ public sealed class DocumentService
     {
         try { await _audit.WriteAsync(CreateAudit(id, action, request, detail), cancellationToken ?? request.CancellationToken).ConfigureAwait(false); }
         catch (Exception exception) { _logger?.Log(exception, "STEP audit", $"action={action}; documentId={id?.ToString() ?? "none"}"); throw; }
+    }
+    private async Task<bool> TryDeleteAsync(string? relativePath, Exception originalException, string operation)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath)) return true;
+        try { await _files.DeleteAsync(relativePath, CancellationToken.None).ConfigureAwait(false); return true; }
+        catch (Exception cleanupException) { _logger?.Log(cleanupException, "STEP upload cleanup", $"operation={operation}; orphanPath={relativePath}; original={originalException.GetType().Name}: {originalException.Message}"); return false; }
+    }
+    private async Task<bool> TryDisposeAsync(StepUploadStagingFile? staging, Exception originalException, string operation)
+    {
+        if (staging is null) return true;
+        try { await staging.DisposeAsync().ConfigureAwait(false); return true; }
+        catch (Exception cleanupException) { _logger?.Log(cleanupException, "STEP upload cleanup", $"operation={operation}; stagingPath={staging.RelativePath}; original={originalException.GetType().Name}: {originalException.Message}"); return false; }
     }
 }
