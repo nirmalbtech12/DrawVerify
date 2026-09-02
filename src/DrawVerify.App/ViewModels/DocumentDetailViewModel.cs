@@ -9,6 +9,7 @@ using DrawVerify.Geometry.Models;
 
 public sealed class DocumentDetailViewModel : INotifyPropertyChanged
 {
+<<<<<<< HEAD
     private readonly MeasurementExtractionService? _measurements;
     private readonly IAuthenticationService? _authentication;
     private readonly IDocumentRepository? _documents;
@@ -72,4 +73,17 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
 
     private sealed class RelayCommand(Action execute, Func<bool> canExecute) : ICommand
     { public event EventHandler? CanExecuteChanged; public bool CanExecute(object? parameter) => canExecute(); public void Execute(object? parameter) => execute(); public void RaiseCanExecuteChanged() => CanExecuteChanged?.Invoke(this, EventArgs.Empty); }
+=======
+    public DocumentDetailViewModel(DrawVerify.Core.Models.Document document) => Document = document;
+    public DrawVerify.Core.Models.Document Document { get; }
+    public string OriginalFileName => Document.OriginalFileName;
+    public long FileSizeBytes => Document.FileSizeBytes;
+    public DateTime UploadTimestampUtc => Document.UploadTimestampUtc;
+    public string UploaderUserId => Document.UploaderUserId;
+    public string UploaderDisplayName => Document.UploaderDisplayName;
+    public DrawVerify.Core.Enums.DocumentType DocumentType => Document.DocumentType;
+    public DrawVerify.Core.Enums.UploadStatus UploadStatus => Document.UploadStatus;
+    public DrawVerify.Core.Enums.GeometryStatus GeometryStatus => Document.GeometryStatus;
+    public int CurrentVersion => Document.CurrentVersion;
+>>>>>>> 642060c (KAN-19: implementation)
 }

@@ -1,3 +1,12 @@
+using System.IO;
+using DrawVerify.Application.Services;
+using DrawVerify.Core.Configuration;
+using DrawVerify.Core.Interfaces;
+using DrawVerify.Core.Models;
+using DrawVerify.Infrastructure.FileStorage;
+using DrawVerify.Infrastructure.Persistence;
+using DrawVerify.App.ViewModels;
+
 namespace DrawVerify.App.Services;
 using DrawVerify.Application.Services;
 using DrawVerify.Core.Interfaces;
@@ -12,6 +21,7 @@ using System.IO;
 /// </summary>
 public static class CompositionRoot
 {
+<<<<<<< HEAD
     public sealed record Services(IDocumentRepository Documents, IAuditLogger Audit, IAuthenticationService Authentication, MeasurementExtractionService Measurements);
 
     public static Services Create(string databasePath, string workerPath, IAuthenticationService authentication, string configurationPath = "appsettings.json")
@@ -41,4 +51,15 @@ public static class CompositionRoot
     }
 
     private sealed record MeasurementSettings(long MaximumFileSizeBytes, int TimeoutSeconds);
+=======
+    public static StepUploadViewModel CreateStepUploadViewModel()
+    {
+        var config=new StepUploadConfiguration();
+        var auth=new DesktopAuthenticationService();
+        var database=Path.Combine(AppContext.BaseDirectory,"drawverify.db");
+        return new StepUploadViewModel(new DocumentService(new SqliteDocumentRepository(database),new SqliteAuditRepository(database),auth,new DocumentFileStore(AppContext.BaseDirectory,config),config));
+    }
+    private sealed class DesktopAuthenticationService:IAuthenticationService
+    { public User? CurrentUser { get; }=new() { UserId="local-maker",DisplayName="Local Maker",Role=Role.Maker }; public bool IsAuthenticated=>CurrentUser is not null; public bool IsMaker=>CurrentUser?.IsMaker==true; }
+>>>>>>> 642060c (KAN-19: implementation)
 }

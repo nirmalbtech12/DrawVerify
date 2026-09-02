@@ -1,6 +1,7 @@
 <UserControl x:Class="DrawVerify.App.Views.DocumentDetailView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+<<<<<<< HEAD
     <Grid>
         <StackPanel Margin="16">
             <TextBlock Text="STEP-derived measurements" FontWeight="Bold" />
@@ -36,4 +37,7 @@
             </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
         </StackPanel>
     </Grid>
+=======
+    <StackPanel Margin="24"><TextBlock Text="Document details" FontSize="24"/><TextBlock Text="{Binding OriginalFileName}"/><TextBlock Text="{Binding FileSizeBytes, StringFormat=Size: {0} bytes}"/><TextBlock Text="{Binding UploadTimestampUtc}"/><TextBlock Text="{Binding UploaderUserId}"/><TextBlock Text="{Binding UploaderDisplayName}"/><TextBlock Text="{Binding DocumentType}"/><TextBlock Text="{Binding UploadStatus}"/><TextBlock Text="{Binding GeometryStatus}"/><TextBlock Text="{Binding CurrentVersion, StringFormat=Version: {0}}"/></StackPanel>
+>>>>>>> 642060c (KAN-19: implementation)
 </UserControl>
