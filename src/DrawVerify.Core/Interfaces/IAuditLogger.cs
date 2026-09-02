@@ -1,3 +1,5 @@
+using DrawVerify.Core.Models;
+
 namespace DrawVerify.Core.Interfaces;
 
 /// <summary>
@@ -5,4 +7,5 @@ namespace DrawVerify.Core.Interfaces;
 /// </summary>
 public interface IAuditLogger
 {
+    Task WriteAsync(AuditEntry entry, CancellationToken cancellationToken = default);
 }
