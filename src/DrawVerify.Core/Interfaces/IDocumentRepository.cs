@@ -13,3 +13,9 @@ public interface IDocumentRepository
     Task CreateWithVersionAsync(Document document, DocumentVersion version, CancellationToken cancellationToken = default);
     Task AddVersionAsync(Guid documentId, DocumentVersion version, CancellationToken cancellationToken = default);
 }
+
+public interface ITransactionalDocumentRepository
+{
+    Task CreateWithVersionAndAuditAsync(Document document, DocumentVersion version, AuditEntry auditEntry, CancellationToken cancellationToken = default);
+    Task AddVersionWithAuditAsync(Guid documentId, DocumentVersion version, AuditEntry auditEntry, CancellationToken cancellationToken = default);
+}
