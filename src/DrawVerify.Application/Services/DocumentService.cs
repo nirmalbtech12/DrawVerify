@@ -22,6 +22,7 @@ public sealed class DocumentService
     private readonly IStepUploadFileStore _files;
     private readonly StepUploadConfiguration _configuration;
     private readonly ICentralizedLogger? _logger;
+    private readonly Dictionary<string, StepUploadPreparation> _preparedDuplicates = new(StringComparer.Ordinal);
     public bool CanUploadStep => _authentication.IsAuthenticated && _authentication.IsMaker;
 
     public DocumentService(IDocumentRepository documents, IAuditLogger audit, IAuthenticationService authentication, IStepUploadFileStore files, StepUploadConfiguration configuration, ICentralizedLogger? logger = null)
@@ -37,7 +38,9 @@ public sealed class DocumentService
         if (duplicate is not null)
         {
             await WriteAuditAsync(duplicate.DocumentId, DocumentAuditAction.DuplicateDetected, request, "duplicate").ConfigureAwait(false);
-            return new StepUploadResult { Kind = StepUploadResultKind.Duplicate, Message = DuplicateMessage, Document = duplicate, OriginalFileName = Path.GetFileName(request.OriginalFileName), FileSizeBytes = GetSize(request) };
+            var preparation = new StepUploadPreparation { DuplicateDocument = duplicate, OriginalFileName = Path.GetFileName(request.OriginalFileName), FileSizeBytes = GetSize(request) };
+            lock (_preparedDuplicates) _preparedDuplicates[PreparationKey(preparation.OriginalFileName, preparation.FileSizeBytes)] = preparation;
+            return new StepUploadResult { Kind = StepUploadResultKind.Duplicate, Message = DuplicateMessage, Document = duplicate, Preparation = preparation, OriginalFileName = preparation.OriginalFileName, FileSizeBytes = preparation.FileSizeBytes };
         }
         return new StepUploadResult { Kind = StepUploadResultKind.Success, OriginalFileName = Path.GetFileName(request.OriginalFileName), FileSizeBytes = GetSize(request) };
     }
@@ -47,6 +50,13 @@ public sealed class DocumentService
     public async Task<StepUploadResult> CancelDuplicateAsync(StepUploadRequest request, Guid documentId)
     {
         if (!_authentication.IsAuthenticated || !_authentication.IsMaker) return new() { Kind = StepUploadResultKind.Unauthorized, Message = "You must be an authenticated Maker to upload a STEP file." };
+        var name = Path.GetFileName(request.OriginalFileName);
+        var size = GetSize(request);
+        lock (_preparedDuplicates)
+        {
+            if (!_preparedDuplicates.Remove(PreparationKey(name, size), out var preparation) || preparation.DuplicateDocument?.DocumentId != documentId)
+                return StepUploadResult.Rejected("The duplicate confirmation has expired or is invalid.");
+        }
         await WriteAuditAsync(documentId, DocumentAuditAction.Cancelled, request, "duplicate cancelled").ConfigureAwait(false);
         return new StepUploadResult { Kind = StepUploadResultKind.Cancelled, Message = CancelledMessage, OriginalFileName = Path.GetFileName(request.OriginalFileName), FileSizeBytes = GetSize(request) };
     }
@@ -61,7 +71,17 @@ public sealed class DocumentService
         if (duplicate is not null && !confirmDuplicate)
         {
             await WriteAuditAsync(duplicate.DocumentId, DocumentAuditAction.DuplicateDetected, request, "duplicate").ConfigureAwait(false);
-            return new StepUploadResult { Kind = StepUploadResultKind.Duplicate, Message = DuplicateMessage, Document = duplicate, OriginalFileName = name, FileSizeBytes = size };
+            var preparation = new StepUploadPreparation { DuplicateDocument = duplicate, OriginalFileName = name, FileSizeBytes = size };
+            lock (_preparedDuplicates) _preparedDuplicates[PreparationKey(name, size)] = preparation;
+            return new StepUploadResult { Kind = StepUploadResultKind.Duplicate, Message = DuplicateMessage, Document = duplicate, Preparation = preparation, OriginalFileName = name, FileSizeBytes = size };
+        }
+        if (duplicate is not null && confirmDuplicate)
+        {
+            lock (_preparedDuplicates)
+            {
+                if (!_preparedDuplicates.Remove(PreparationKey(name, size), out var preparation) || preparation.DuplicateDocument?.DocumentId != duplicate.DocumentId)
+                    return StepUploadResult.Rejected("The duplicate confirmation has expired or is invalid.");
+            }
         }
 
         StepUploadStagingFile? staging = null;
@@ -121,6 +141,7 @@ public sealed class DocumentService
     }
 
     private static long GetSize(StepUploadRequest request) => request.FileSizeBytes ?? (request.Content.CanSeek ? request.Content.Length : throw new InvalidOperationException("A non-seekable upload stream must provide its byte size."));
+    private static string PreparationKey(string name, long size) => $"{name}\u001f{size}";
     private static async Task CopyAsync(Stream source, Stream destination, long size, IProgress<long>? progress, CancellationToken token)
     { source.Position = 0; var buffer = new byte[81920]; long copied = 0; int read; while ((read = await source.ReadAsync(buffer, token).ConfigureAwait(false)) > 0) { await destination.WriteAsync(buffer.AsMemory(0, read), token).ConfigureAwait(false); copied += read; progress?.Report(copied); } if (copied != size) throw new IOException("The upload stream changed while it was being copied."); await destination.FlushAsync(token).ConfigureAwait(false); }
     private static Document NewDocument(string name, long size, string path, User user) { var id = Guid.NewGuid(); var version = NewVersion(id, 1, path, size, user); return new Document { DocumentId = id, OriginalFileName = name, FileSizeBytes = size, UploadTimestampUtc = DateTime.UtcNow, UploaderUserId = user.UserId, UploaderDisplayName = user.DisplayName, Version = version, Versions = new[] { version } }; }
