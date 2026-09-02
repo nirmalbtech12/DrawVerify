@@ -17,10 +17,12 @@ namespace DrawVerify.App.Services;
 /// </summary>
 public static class CompositionRoot
 {
+    private static readonly StepUploadConfiguration StepUploadConfiguration = LoadStepUploadConfiguration();
     public static SessionAuthenticationService Authentication { get; } = new();
+    public static void Initialize() { }
     public static StepUploadViewModel CreateStepUploadViewModel()
     {
-        var config=LoadStepUploadConfiguration();
+        var config=StepUploadConfiguration;
         var database=Path.Combine(AppContext.BaseDirectory,"drawverify.db");
         return new StepUploadViewModel(new DocumentService(new SqliteDocumentRepository(database),new SqliteAuditRepository(database),Authentication,new DocumentFileStore(AppContext.BaseDirectory,config),config,new CentralizedLogger()));
     }
