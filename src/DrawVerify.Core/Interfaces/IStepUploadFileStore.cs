@@ -9,5 +9,6 @@ public interface IStepUploadFileStore
 
 public sealed record StepUploadStagingFile(string RelativePath, Stream Stream) : IAsyncDisposable
 {
+    public string? SanitizedFileName { get; init; }
     public ValueTask DisposeAsync() { Stream.Dispose(); return ValueTask.CompletedTask; }
 }

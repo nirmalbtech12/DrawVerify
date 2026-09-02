@@ -17,9 +17,10 @@ public static class StepFileValidator
             using var reader = new StreamReader(content, new UTF8Encoding(false, true), detectEncodingFromByteOrderMarks: true, leaveOpen: true);
             var text = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
             var trimmed = text.TrimStart('\uFEFF', ' ', '\t', '\r', '\n');
-            return trimmed.StartsWith("ISO-10303-21;", StringComparison.Ordinal) &&
-                   trimmed.Contains("HEADER;", StringComparison.Ordinal) &&
-                   trimmed.Contains("END-ISO-10303-21;", StringComparison.Ordinal);
+            var normalized = trimmed.TrimEnd(' ', '\t', '\r', '\n');
+            return normalized.StartsWith("ISO-10303-21;", StringComparison.Ordinal) &&
+                   normalized.Contains("HEADER;", StringComparison.Ordinal) &&
+                   normalized.EndsWith("END-ISO-10303-21;", StringComparison.Ordinal);
         }
         catch (DecoderFallbackException) { return false; }
         finally { content.Position = originalPosition; }

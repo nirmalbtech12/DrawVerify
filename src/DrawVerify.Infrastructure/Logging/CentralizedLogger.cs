@@ -1,3 +1,5 @@
+using DrawVerify.Core.Interfaces;
+
 namespace DrawVerify.Infrastructure.Logging;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
@@ -6,6 +8,7 @@ using DrawVerify.Core.Models;
 /// Centralized logging sink aggregating LogEntry records.
 /// </summary>
 public sealed class CentralizedLogger : IAuditLogger
+public sealed class CentralizedLogger : ICentralizedLogger
 {
 <<<<<<< HEAD
     private readonly List<AuditEntry> _entries = new();

@@ -24,3 +24,9 @@ public interface IDocumentRepository
     Task AddVersionAsync(Guid documentId, DocumentVersion version, CancellationToken cancellationToken = default);
 >>>>>>> 642060c (KAN-19: implementation)
 }
+
+public interface ITransactionalDocumentRepository
+{
+    Task CreateWithVersionAndAuditAsync(Document document, DocumentVersion version, AuditEntry auditEntry, CancellationToken cancellationToken = default);
+    Task AddVersionWithAuditAsync(Guid documentId, DocumentVersion version, AuditEntry auditEntry, CancellationToken cancellationToken = default);
+}

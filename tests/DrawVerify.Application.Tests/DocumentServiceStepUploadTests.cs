@@ -59,8 +59,9 @@ public sealed class DocumentServiceStepUploadTests
     public async Task Size_boundary_is_accepted_and_one_byte_over_is_rejected()
     {
         var configuration = new StepUploadConfiguration { MaxFileSizeMb = 1 };
-        var boundary = new byte[1024 * 1024];
-        Encoding.UTF8.GetBytes("ISO-10303-21;HEADER;END-ISO-10303-21;").CopyTo(boundary, 0);
+        var validBytes = Encoding.UTF8.GetBytes("ISO-10303-21;HEADER;END-ISO-10303-21;");
+        var boundary = Enumerable.Repeat((byte)' ', 1024 * 1024).ToArray();
+        validBytes.CopyTo(boundary, 0);
         var atLimit = new Fakes(configuration);
         var accepted = await atLimit.Service.UploadStepAsync(new StepUploadRequest("limit.step", new MemoryStream(boundary), boundary.Length));
         Assert.Equal(StepUploadResultKind.Success, accepted.Kind);
@@ -125,15 +126,15 @@ public sealed class DocumentServiceStepUploadTests
     [Fact]
     public async Task Cancellation_reports_progress_cleans_staging_and_creates_no_document()
     {
-        var progress = new List<long>();
+        var progress = new RecordingProgress();
         using var cancellation = new CancellationTokenSource();
         var fakes = new Fakes(cancelAfterFirstWrite: true, cancelUpload: cancellation.Cancel);
-        var request = new StepUploadRequest("part.step", new MemoryStream(Encoding.UTF8.GetBytes(ValidStep))) { Progress = new Progress<long>(progress.Add), CancellationToken = cancellation.Token };
+        var request = new StepUploadRequest("part.step", new MemoryStream(Encoding.UTF8.GetBytes(ValidStep))) { Progress = progress, CancellationToken = cancellation.Token };
         var result = await fakes.Service.UploadStepAsync(request);
 
         Assert.Equal(StepUploadResultKind.Cancelled, result.Kind);
         Assert.Equal(DocumentService.CancelledMessage, result.Message);
-        Assert.NotEmpty(progress);
+        Assert.NotEmpty(progress.Values);
         Assert.Empty(fakes.Documents.Writes);
         Assert.Contains(fakes.Audit.Entries, x => x.Action == DocumentAuditAction.Cancelled && x.DocumentId is null);
         Assert.Contains(fakes.Store.Deleted, x => x.Contains("staging", StringComparison.Ordinal));
@@ -185,6 +186,7 @@ public sealed class DocumentServiceStepUploadTests
     }
 
     private sealed class Authentication(User? user) : IAuthenticationService { public User? CurrentUser { get; } = user; public bool IsAuthenticated => CurrentUser is not null; public bool IsMaker => CurrentUser?.IsMaker == true; }
+    private sealed class RecordingProgress : IProgress<long> { public List<long> Values { get; } = new(); public void Report(long value) => Values.Add(value); public int Count => Values.Count; }
     private sealed class AuditLogger : IAuditLogger { public List<AuditEntry> Entries { get; } = new(); public Task WriteAsync(AuditEntry entry, CancellationToken cancellationToken = default) { Entries.Add(entry); return Task.CompletedTask; } }
     private sealed class DocumentRepository : IDocumentRepository
     {
