@@ -1,5 +1,5 @@
 <UserControl x:Class="DrawVerify.App.Views.LoginView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <StackPanel Margin="24" Width="320"><TextBlock Text="Sign in" FontSize="24"/><TextBlock Text="User ID" Margin="0,16,0,4"/><TextBox Text="{Binding UserId, UpdateSourceTrigger=PropertyChanged}"/><TextBlock Text="Display name" Margin="0,12,0,4"/><TextBox Text="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}"/><TextBlock Text="Role (Maker or Reviewer)" Margin="0,12,0,4"/><TextBox Text="{Binding Role, UpdateSourceTrigger=PropertyChanged}"/><Button Content="Sign in" Command="{Binding SignInCommand}" Margin="0,16,0,8"/><TextBlock Text="{Binding Message}" TextWrapping="Wrap"/></StackPanel>
+    <StackPanel Margin="24" Width="320"><TextBlock Text="Sign in" FontSize="24"/><TextBlock Text="Use your trusted Windows account to continue." Margin="0,16,0,12" TextWrapping="Wrap"/><Button Content="Sign in with Windows" Command="{Binding SignInCommand}" Margin="0,0,0,8"/><TextBlock Text="{Binding Message}" TextWrapping="Wrap"/></StackPanel>
 </UserControl>

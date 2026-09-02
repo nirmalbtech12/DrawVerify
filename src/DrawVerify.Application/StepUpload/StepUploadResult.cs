@@ -9,6 +9,7 @@ public sealed class StepUploadResult
     public StepUploadResultKind Kind { get; init; }
     public string Message { get; init; } = string.Empty;
     public Document? Document { get; init; }
+    public StepUploadPreparation? Preparation { get; init; }
     public string? OriginalFileName { get; init; }
     public long FileSizeBytes { get; init; }
     public bool IsDuplicate => Kind == StepUploadResultKind.Duplicate;
