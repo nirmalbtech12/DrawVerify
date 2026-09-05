@@ -16,19 +16,11 @@ public sealed class UsernamePasswordAuthenticationService
         string reason = "InvalidUsername"; AuthenticationResult result;
         try
         {
-            var account = await _users.FindByUsernameAsync(normalized, cancellationToken);
-            if (account is null) result = new(AuthenticationResultKind.InvalidCredentials, GenericFailure);
-            else if (account.LockedUntilUtc > DateTimeOffset.UtcNow) { reason = "AccountLocked"; result = new(AuthenticationResultKind.AccountLocked, GenericFailure); }
-            else
-            {
-                var actual = Rfc2898DeriveBytes.Pbkdf2(password, account.PasswordSalt, account.PasswordIterations, HashAlgorithmName.SHA256, account.PasswordHash.Length);
-                var valid = CryptographicOperations.FixedTimeEquals(actual, account.PasswordHash);
-                reason = valid ? string.Empty : "InvalidPassword";
-                var state = await _users.RecordLoginAttemptAsync(normalized, valid, _configuration.LockoutThreshold, _configuration.LockoutDuration, DateTimeOffset.UtcNow, cancellationToken);
-                if (!valid) { reason = state.IsLocked ? "AccountLocked" : "InvalidPassword"; result = new(state.IsLocked ? AuthenticationResultKind.AccountLocked : AuthenticationResultKind.InvalidCredentials, GenericFailure); }
-                else if (state.IsLocked) { reason = "AccountLocked"; result = new(AuthenticationResultKind.AccountLocked, GenericFailure); }
-                else result = new(AuthenticationResultKind.Success, "Login successful.", new AuthenticatedUser(account.Username, account.Roles));
-            }
+            var state = await _users.VerifyAndRecordLoginAttemptAsync(normalized, account => { var actual=Rfc2898DeriveBytes.Pbkdf2(password,account.PasswordSalt,account.PasswordIterations,HashAlgorithmName.SHA256,account.PasswordHash.Length); return CryptographicOperations.FixedTimeEquals(actual,account.PasswordHash); }, _configuration.LockoutThreshold, _configuration.LockoutDuration, DateTimeOffset.UtcNow, cancellationToken);
+            if(state.Account is null) { reason=state.FailureReason??"InvalidUsername"; result=new(state.IsLocked?AuthenticationResultKind.AccountLocked:AuthenticationResultKind.InvalidCredentials,GenericFailure); }
+            else if(state.FailureReason=="AccountLocked") { reason="AccountLocked"; result=new(AuthenticationResultKind.AccountLocked,GenericFailure); }
+            else if(state.FailureReason=="InvalidPassword") { reason="InvalidPassword"; result=new(AuthenticationResultKind.InvalidCredentials,GenericFailure); }
+            else result=new(AuthenticationResultKind.Success,"Login successful.",new AuthenticatedUser(state.Account.Username,state.Account.Roles));
             var auditReason = result.Succeeded ? null : reason == string.Empty ? "InvalidPassword" : reason;
             await _audit.WriteAsync(new(username, normalized, DateTimeOffset.UtcNow, "Login", result.Succeeded ? "Success" : "Failure", auditReason), cancellationToken);
             if (result.Succeeded) _session.SignIn(result.User!);
