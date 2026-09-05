@@ -19,7 +19,7 @@ public sealed class DocumentServiceStepUploadTests
     [Theory(DisplayName = "TD-KAN116-APP-001 upload operates without legacy user dependencies")]
     [InlineData("part.step")]
     [InlineData("PART.STP")]
-    public async Task Maker_uploads_both_step_extensions_with_required_metadata(string name)
+    public async Task Upload_accepts_both_step_extensions_with_required_metadata(string name)
     {
         var fakes = new Fakes();
         var request = new StepUploadRequest(name, new MemoryStream(Encoding.UTF8.GetBytes(ValidStep)));
