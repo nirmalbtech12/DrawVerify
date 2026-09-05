@@ -22,9 +22,9 @@
             <StackPanel Orientation="Horizontal"><TextBlock Text="Width: " /><TextBlock Text="{Binding Geometry.Width}" /></StackPanel>
             <StackPanel Orientation="Horizontal"><TextBlock Text="Height: " /><TextBlock Text="{Binding Geometry.Height}" /></StackPanel>
             <TextBlock Text="Topology counts (faces / edges / vertices)" FontWeight="SemiBold" />
-            <TextBlock Text="Faces: {Binding Geometry.FaceCount}" />
-            <TextBlock Text="Edges: {Binding Geometry.EdgeCount}" />
-            <TextBlock Text="Vertices: {Binding Geometry.VertexCount}" />
+            <StackPanel Orientation="Horizontal"><TextBlock Text="Faces: " /><TextBlock Text="{Binding Geometry.FaceCount}" /></StackPanel>
+            <StackPanel Orientation="Horizontal"><TextBlock Text="Edges: " /><TextBlock Text="{Binding Geometry.EdgeCount}" /></StackPanel>
+            <StackPanel Orientation="Horizontal"><TextBlock Text="Vertices: " /><TextBlock Text="{Binding Geometry.VertexCount}" /></StackPanel>
             <TextBlock Text="Detected features (derived from STEP model)" FontWeight="SemiBold" Margin="0,8,0,0" />
             <ItemsControl ItemsSource="{Binding Features}"><ItemsControl.ItemTemplate><DataTemplate>
                 <StackPanel Margin="0,2"><TextBlock Text="{Binding FeatureType}" FontWeight="SemiBold" />
