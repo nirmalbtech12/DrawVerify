@@ -12,11 +12,28 @@
             <TextBlock Text="Volume (derived from STEP model)" FontWeight="SemiBold" Margin="0,8,0,0" />
             <TextBlock Text="{Binding Geometry.Volume}" />
             <TextBlock Text="Bounding box (derived from STEP model)" FontWeight="SemiBold" Margin="0,8,0,0" />
-            <TextBlock Text="{Binding Geometry.BoundingBox}" />
+            <StackPanel Orientation="Horizontal"><TextBlock Text="Min X: " /><TextBlock Text="{Binding Geometry.MinimumX}" /></StackPanel>
+            <StackPanel Orientation="Horizontal"><TextBlock Text="Min Y: " /><TextBlock Text="{Binding Geometry.MinimumY}" /></StackPanel>
+            <StackPanel Orientation="Horizontal"><TextBlock Text="Min Z: " /><TextBlock Text="{Binding Geometry.MinimumZ}" /></StackPanel>
+            <StackPanel Orientation="Horizontal"><TextBlock Text="Max X: " /><TextBlock Text="{Binding Geometry.MaximumX}" /></StackPanel>
+            <StackPanel Orientation="Horizontal"><TextBlock Text="Max Y: " /><TextBlock Text="{Binding Geometry.MaximumY}" /></StackPanel>
+            <StackPanel Orientation="Horizontal"><TextBlock Text="Max Z: " /><TextBlock Text="{Binding Geometry.MaximumZ}" /></StackPanel>
+            <StackPanel Orientation="Horizontal"><TextBlock Text="Length: " /><TextBlock Text="{Binding Geometry.Length}" /></StackPanel>
+            <StackPanel Orientation="Horizontal"><TextBlock Text="Width: " /><TextBlock Text="{Binding Geometry.Width}" /></StackPanel>
+            <StackPanel Orientation="Horizontal"><TextBlock Text="Height: " /><TextBlock Text="{Binding Geometry.Height}" /></StackPanel>
             <TextBlock Text="Topology counts (faces / edges / vertices)" FontWeight="SemiBold" />
-            <TextBlock Text="{Binding Geometry.FaceCount, StringFormat={}{0} / {1} / {2}}" />
+            <TextBlock Text="Faces: {Binding Geometry.FaceCount}" />
+            <TextBlock Text="Edges: {Binding Geometry.EdgeCount}" />
+            <TextBlock Text="Vertices: {Binding Geometry.VertexCount}" />
             <TextBlock Text="Detected features (derived from STEP model)" FontWeight="SemiBold" Margin="0,8,0,0" />
-            <ItemsControl ItemsSource="{Binding Features}"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding FeatureType}" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+            <ItemsControl ItemsSource="{Binding Features}"><ItemsControl.ItemTemplate><DataTemplate>
+                <StackPanel Margin="0,2"><TextBlock Text="{Binding FeatureType}" FontWeight="SemiBold" />
+                    <ItemsControl ItemsSource="{Binding NominalDimensions}"><ItemsControl.ItemTemplate><DataTemplate><StackPanel Orientation="Horizontal"><TextBlock Text="{Binding Key}" /><TextBlock Text=": " /><TextBlock Text="{Binding Value}" /></StackPanel></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                    <StackPanel Orientation="Horizontal"><TextBlock Text="Lower tolerance: " /><TextBlock Text="{Binding LowerTolerance}" /></StackPanel>
+                    <StackPanel Orientation="Horizontal"><TextBlock Text="Upper tolerance: " /><TextBlock Text="{Binding UpperTolerance}" /></StackPanel>
+                    <StackPanel Orientation="Horizontal"><TextBlock Text="Uncertainty: " /><TextBlock Text="{Binding Uncertainty}" /></StackPanel>
+                </StackPanel>
+            </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
         </StackPanel>
     </Grid>
 </UserControl>
