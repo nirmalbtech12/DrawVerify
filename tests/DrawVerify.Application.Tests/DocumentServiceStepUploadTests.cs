@@ -16,10 +16,10 @@ public sealed class DocumentServiceStepUploadTests
 {
     private const string ValidStep = "ISO-10303-21;HEADER;FILE_DESCRIPTION(('test'),'2;1');ENDSEC;END-ISO-10303-21;";
 
-    [Theory]
+    [Theory(DisplayName = "TD-KAN116-APP-001 upload operates without legacy user dependencies")]
     [InlineData("part.step")]
     [InlineData("PART.STP")]
-    public async Task Maker_uploads_both_step_extensions_with_required_metadata(string name)
+    public async Task Upload_accepts_both_step_extensions_with_required_metadata(string name)
     {
         var fakes = new Fakes();
         var request = new StepUploadRequest(name, new MemoryStream(Encoding.UTF8.GetBytes(ValidStep)));
@@ -34,8 +34,6 @@ public sealed class DocumentServiceStepUploadTests
         Assert.Equal(DocumentType.StepModel, document.DocumentType);
         Assert.Equal(UploadStatus.Uploaded, document.UploadStatus);
         Assert.Equal(GeometryStatus.PendingValidation, document.GeometryStatus);
-        Assert.Equal("maker-1", document.UploaderUserId);
-        Assert.Equal("Maker One", document.UploaderDisplayName);
         Assert.True(document.UploadTimestampUtc > DateTime.UtcNow.AddMinutes(-1));
         Assert.Equal(DocumentAuditAction.Uploaded, Assert.Single(fakes.Audit.Entries).Action);
         Assert.NotNull(document.Version);
@@ -154,41 +152,23 @@ public sealed class DocumentServiceStepUploadTests
         Assert.Empty(fakes.Audit.Entries);
     }
 
-    [Theory]
-    [MemberData(nameof(DeniedUsers))]
-    public async Task Authorization_is_enforced_before_stream_or_storage(User? user)
-    {
-        var fakes = new Fakes(user: user, unauthenticated: user is null);
-        var result = await fakes.Service.UploadStepAsync(new StepUploadRequest("part.step", new ThrowingStream()));
-
-        Assert.Equal(StepUploadResultKind.Unauthorized, result.Kind);
-        Assert.Empty(fakes.Documents.Writes);
-        Assert.Empty(fakes.Store.Created);
-        Assert.Empty(fakes.Audit.Entries);
-    }
-
-    public static IEnumerable<object?[]> DeniedUsers() => new[] { new object?[] { null }, new object?[] { new User { UserId = "reviewer", DisplayName = "Reviewer", Role = Role.Reviewer } } };
-
     private sealed class Fakes
     {
-        public Fakes(StepUploadConfiguration? configuration = null, User? user = null, bool cancelAfterFirstWrite = false, bool unauthenticated = false, Action? cancelUpload = null)
+        public Fakes(StepUploadConfiguration? configuration = null, bool cancelAfterFirstWrite = false, Action? cancelUpload = null)
         {
-            Auth = new Authentication(unauthenticated ? null : user ?? new User { UserId = "maker-1", DisplayName = "Maker One", Role = Role.Maker });
             Documents = new DocumentRepository(Audit);
             Store = new FileStore { CancelAfterFirstWrite = cancelAfterFirstWrite, CancelUpload = cancelUpload };
-            Service = new DocumentService(Documents, Audit, Auth, Store, configuration ?? new StepUploadConfiguration());
+            Service = new DocumentService(Documents, Audit, Store, configuration ?? new StepUploadConfiguration());
         }
         public Document? Duplicate { get => Documents.Duplicate; set => Documents.Duplicate = value; }
         public bool CancelAfterFirstWrite { get; set; }
         public bool ThrowOnCreate { get => Documents.ThrowOnCreate; set => Documents.ThrowOnCreate = value; }
         public DocumentRepository Documents { get; }
         public AuditLogger Audit { get; } = new();
-        public Authentication Auth { get; } = new(new User { UserId = "maker-1", DisplayName = "Maker One", Role = Role.Maker });
         public FileStore Store { get; }
         public DocumentService Service { get; }
     }
 
-    private sealed class Authentication(User? user) : IAuthenticationService { public User? CurrentUser { get; } = user; public bool IsAuthenticated => CurrentUser is not null; public bool IsMaker => CurrentUser?.IsMaker == true; }
     private sealed class RecordingProgress : IProgress<long> { public List<long> Values { get; } = new(); public void Report(long value) => Values.Add(value); public int Count => Values.Count; }
     private sealed class AuditLogger : IAuditLogger { public List<AuditEntry> Entries { get; } = new(); public Task WriteAsync(AuditEntry entry, CancellationToken cancellationToken = default) { Entries.Add(entry); return Task.CompletedTask; } }
     private sealed class DocumentRepository(AuditLogger audit) : IDocumentRepository, ITransactionalDocumentRepository

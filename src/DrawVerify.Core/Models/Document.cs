@@ -12,8 +12,6 @@ public sealed record Document
     public long FileSize => FileSizeBytes;
     public DateTime UploadTimestampUtc { get; init; } = DateTime.UtcNow;
     public DateTime UploadTimestamp => UploadTimestampUtc;
-    public string UploaderUserId { get; init; } = string.Empty;
-    public string UploaderDisplayName { get; init; } = string.Empty;
     public DrawVerify.Core.Enums.DocumentType DocumentType { get; init; } = DrawVerify.Core.Enums.DocumentType.StepModel;
     public DrawVerify.Core.Enums.UploadStatus UploadStatus { get; set; } = DrawVerify.Core.Enums.UploadStatus.Uploaded;
     public DrawVerify.Core.Enums.GeometryStatus GeometryStatus { get; set; } = DrawVerify.Core.Enums.GeometryStatus.PendingValidation;

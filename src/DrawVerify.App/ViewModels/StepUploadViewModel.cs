@@ -13,7 +13,7 @@ public sealed class StepUploadViewModel : INotifyPropertyChanged
     private CancellationTokenSource? _cancellation;
     private string? _fileName;
     private Stream? _content;
-    public StepUploadViewModel(DocumentService service) { _service=service; SelectCommand=new RelayCommand(_=>SelectRequested?.Invoke(), _=>_service.CanUploadStep&&!IsBusy); UploadCommand=new RelayCommand(async _=>await UploadAsync(), _=>_content is not null&&!IsBusy&&_service.CanUploadStep); CancelCommand=new RelayCommand(_=>_cancellation?.Cancel(), _=>IsBusy); }
+    public StepUploadViewModel(DocumentService service) { _service=service; SelectCommand=new RelayCommand(_=>SelectRequested?.Invoke(), _=>!IsBusy); UploadCommand=new RelayCommand(async _=>await UploadAsync(), _=>_content is not null&&!IsBusy); CancelCommand=new RelayCommand(_=>_cancellation?.Cancel(), _=>IsBusy); }
     public event PropertyChangedEventHandler? PropertyChanged;
     public event Action? SelectRequested;
     public string? FileName { get=>_fileName; set { _fileName=value; OnChanged(); } }

@@ -6,7 +6,7 @@ namespace DrawVerify.App.Tests;
 
 public sealed class DocumentDetailViewModelTests
 {
-    [Fact(DisplayName = "TD-UI-001 exposes STEP-derived status and error")]
+    [Fact(DisplayName = "TD-KAN116-APP-003 exposes retained document detail state without uploader identity")]
     public void Details_model_maps_geometry_status_and_stored_error()
     {
         var document = new Document { DocumentType = DocumentType.StepModel, UploadStatus = UploadStatus.Uploaded, GeometryStatus = GeometryStatus.Error, GeometryError = "Measurement extraction failed." };
@@ -19,7 +19,7 @@ public sealed class DocumentDetailViewModelTests
         Assert.Equal(document, viewModel.Document);
     }
 
-    [Fact(DisplayName = "TD-UI-001 defaults missing geometry to not extracted")]
+    [Fact(DisplayName = "TD-KAN116-APP-003 defaults missing geometry to not extracted")]
     public void Empty_details_are_not_reported_as_processed()
     {
         var viewModel = new DocumentDetailViewModel();
