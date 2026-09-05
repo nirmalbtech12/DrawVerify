@@ -2,5 +2,10 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Grid>
+        <StackPanel Margin="16">
+            <TextBlock Text="STEP-derived measurements" FontWeight="Bold" />
+            <TextBlock Text="Geometry status" />
+            <TextBlock Text="Volume, bounding box, face/edge/vertex counts, and detected features are derived from the STEP model." TextWrapping="Wrap" />
+        </StackPanel>
     </Grid>
 </UserControl>

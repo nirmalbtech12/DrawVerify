@@ -1,3 +1,4 @@
+using DrawVerify.Core.Models;
 namespace DrawVerify.Core.Interfaces;
 
 /// <summary>
@@ -5,4 +6,5 @@ namespace DrawVerify.Core.Interfaces;
 /// </summary>
 public interface IAuditLogger
 {
+    void Append(AuditEntry entry);
 }

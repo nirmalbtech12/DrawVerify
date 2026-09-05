@@ -1,3 +1,4 @@
+using DrawVerify.Core.Models;
 namespace DrawVerify.Core.Interfaces;
 
 /// <summary>
@@ -6,4 +7,7 @@ namespace DrawVerify.Core.Interfaces;
 /// </summary>
 public interface IDocumentRepository
 {
+    Document? Get(Guid documentId);
+    DocumentVersion? GetCurrentVersion(Guid documentId);
+    void ReplaceMeasurements(Guid versionId, GeometryMeasurement? geometry, IReadOnlyCollection<FeatureMeasurement> features, GeometryStatus status, string? error);
 }
