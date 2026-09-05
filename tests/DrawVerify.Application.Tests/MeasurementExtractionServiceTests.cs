@@ -13,8 +13,8 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class MeasurementExtractionServiceTests
 {
-    [Fact(DisplayName = "TD-APP-001 authorized Maker extraction persists and audits success")]
-    public void Maker_extraction_processes_uploaded_step_and_writes_audit()
+    [Fact(DisplayName = "TD-KAN116-APP-002 extraction persists and audits success")]
+    public void Extraction_processes_uploaded_step_and_writes_audit()
     {
         var document = Document();
         var version = new DocumentVersion { DocumentId = document.Id, StoredFilePath = "model.step" };
@@ -22,7 +22,7 @@ public sealed class MeasurementExtractionServiceTests
         var audit = new FakeAudit();
         var geometry = new FakeGeometry(new MeasurementExtractionResult(true,
             new GeometryData { Volume = 10, BoundingBox = new BoundingBox(0, 0, 0, 1, 2, 3), FaceCount = 6, EdgeCount = 12, VertexCount = 8 }, Array.Empty<FeatureData>()));
-        var service = new MeasurementExtractionService(repository, audit, new FakeAuth(new User { Role = "Maker", IsAuthenticated = true }), geometry);
+        var service = new MeasurementExtractionService(repository, audit, geometry);
 
         var result = service.Extract(document.Id);
 
@@ -33,27 +33,14 @@ public sealed class MeasurementExtractionServiceTests
         Assert.Equal(1, geometry.Calls);
     }
 
-    [Fact(DisplayName = "TD-APP-001 denied users cannot invoke extraction")]
-    public void Unauthorized_user_is_rejected_before_geometry_call()
-    {
-        var document = Document();
-        var repository = new FakeRepository(document, new DocumentVersion { DocumentId = document.Id });
-        var geometry = new FakeGeometry(MeasurementExtractionResult.Failure("x", "x"));
-        var service = new MeasurementExtractionService(repository, new FakeAudit(), new FakeAuth(null), geometry);
-
-        Assert.Throws<UnauthorizedAccessException>(() => service.Extract(document.Id));
-        Assert.Equal(0, geometry.Calls);
-        Assert.Equal(0, repository.Replacements);
-    }
-
-    [Fact(DisplayName = "TD-APP-001 re-extraction replaces same version and records failure")]
+    [Fact(DisplayName = "TD-KAN116-APP-002 extraction failure persists without authorization dependency")]
     public void Non_solid_result_sets_error_and_keeps_partial_geometry()
     {
         var document = Document();
         var version = new DocumentVersion { DocumentId = document.Id };
         var repository = new FakeRepository(document, version);
         var audit = new FakeAudit();
-        var service = new MeasurementExtractionService(repository, audit, new FakeAuth(new User { Role = "Checker", IsAuthenticated = true }),
+        var service = new MeasurementExtractionService(repository, audit,
             new FakeGeometry(MeasurementExtractionResult.Failure("NonSolid", "Model does not contain a valid solid; volume cannot be computed.", new GeometryData { FaceCount = 1 })));
 
         service.Extract(document.Id);
@@ -68,7 +55,6 @@ public sealed class MeasurementExtractionServiceTests
 
     private sealed class FakeGeometry(MeasurementExtractionResult result) : DrawVerify.Geometry.IGeometryService
     { public int Calls; public MeasurementExtractionResult ExtractMeasurements(MeasurementExtractionRequest request, CancellationToken cancellationToken = default) { Calls++; return result; } }
-    private sealed class FakeAuth(User? user) : IAuthenticationService { public User? CurrentUser => user; public bool CanExtractMeasurements => user is not null; }
     private sealed class FakeAudit : IAuditLogger { public List<AuditEntry> Entries { get; } = new(); public void Append(AuditEntry entry) => Entries.Add(entry); }
     private sealed class FakeRepository(Document document, DocumentVersion version) : IDocumentRepository
     {

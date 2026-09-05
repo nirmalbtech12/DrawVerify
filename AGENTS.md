@@ -150,6 +150,8 @@ Note: the separate `dotnet restore -r win-x64` before `--no-restore` is required
 
 This is a production system.
 
+KAN-116 removed the legacy user-management and authentication module. Future User & Role Management work belongs to Epic 13; no replacement identity, roles, or authorization are provided by this removal.
+
 Prefer **clear, visible failure over silent or misleading success**.
 
 Do not introduce silent fallback or fail-safe behavior merely to keep the application running.

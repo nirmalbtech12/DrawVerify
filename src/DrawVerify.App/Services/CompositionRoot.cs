@@ -3,7 +3,6 @@ using System.Text.Json;
 using DrawVerify.Application.Services;
 using DrawVerify.Core.Configuration;
 using DrawVerify.Core.Interfaces;
-using DrawVerify.Core.Models;
 using DrawVerify.Infrastructure.FileStorage;
 using DrawVerify.Infrastructure.Persistence;
 using DrawVerify.Infrastructure.Logging;
@@ -18,13 +17,13 @@ namespace DrawVerify.App.Services;
 public static class CompositionRoot
 {
     private static readonly StepUploadConfiguration StepUploadConfiguration = LoadStepUploadConfiguration();
-    public static SessionAuthenticationService Authentication { get; } = new();
     public static void Initialize() { }
     public static StepUploadViewModel CreateStepUploadViewModel()
     {
         var config=StepUploadConfiguration;
         var database=Path.Combine(AppContext.BaseDirectory,"drawverify.db");
-        return new StepUploadViewModel(new DocumentService(new SqliteDocumentRepository(database),new SqliteAuditRepository(database),Authentication,new DocumentFileStore(AppContext.BaseDirectory,config),config,new CentralizedLogger()));
+        var logger = new CentralizedLogger();
+        return new StepUploadViewModel(new DocumentService(new SqliteDocumentRepository(database, logger),new SqliteAuditRepository(database),new DocumentFileStore(AppContext.BaseDirectory,config),config,logger));
     }
     private static StepUploadConfiguration LoadStepUploadConfiguration()
     {
@@ -43,13 +42,4 @@ public static class CompositionRoot
             throw;
         }
     }
-}
-
-public sealed class SessionAuthenticationService : IAuthenticationService
-{
-    public User? CurrentUser { get; private set; }
-    public bool IsAuthenticated => CurrentUser is not null;
-    public bool IsMaker => CurrentUser?.IsMaker == true;
-    public void SignIn(User user) => CurrentUser = user;
-    public void SignOut() => CurrentUser = null;
 }

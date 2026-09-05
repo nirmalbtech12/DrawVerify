@@ -11,24 +11,11 @@ public partial class MainWindow : Window
     {
         CompositionRoot.Initialize();
         InitializeComponent();
-        if (!CompositionRoot.Authentication.IsAuthenticated)
-        {
-            var login = new LoginView { DataContext = new LoginViewModel(CompositionRoot.Authentication) };
-            ((LoginViewModel)login.DataContext).SignedIn += () => Dispatcher.Invoke(ShowAuthenticatedContent);
-            MainContent.Content = login;
-            return;
-        }
-        ShowAuthenticatedContent();
+        ShowUpload();
     }
 
     private void ShowAuthenticatedContent()
     {
-        if (!CompositionRoot.Authentication.IsMaker)
-        {
-            MainContent.Content = new System.Windows.Controls.TextBlock { Text = "Access denied. A Maker role is required to upload STEP files.", Margin = new System.Windows.Thickness(24) };
-            return;
-        }
-        ShowUpload();
     }
 
     private void ShowUpload()

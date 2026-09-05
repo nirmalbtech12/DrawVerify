@@ -12,17 +12,13 @@ public sealed class MeasurementExtractionService
 {
     private readonly IDocumentRepository _documents;
     private readonly IAuditLogger _audit;
-    private readonly IAuthenticationService _authentication;
     private readonly DrawVerify.Geometry.IGeometryService _geometry;
 
-    public MeasurementExtractionService(IDocumentRepository documents, IAuditLogger audit, IAuthenticationService authentication, DrawVerify.Geometry.IGeometryService geometry)
-        => (_documents, _audit, _authentication, _geometry) = (documents, audit, authentication, geometry);
+    public MeasurementExtractionService(IDocumentRepository documents, IAuditLogger audit, DrawVerify.Geometry.IGeometryService geometry)
+        => (_documents, _audit, _geometry) = (documents, audit, geometry);
 
     public MeasurementExtractionResult Extract(Guid documentId, CancellationToken cancellationToken = default)
     {
-        var user = _authentication.CurrentUser;
-        if (user is null || !IsAllowed(user.Role))
-            throw new UnauthorizedAccessException("Only authenticated Maker or Checker users may extract measurements.");
         var document = _documents.Get(documentId) ?? throw new InvalidOperationException("Document was not found.");
         if (document.DocumentType != DrawVerify.Core.Enums.DocumentType.StepModel || document.UploadStatus != DrawVerify.Core.Enums.UploadStatus.Uploaded)
             throw new InvalidOperationException("Measurement extraction requires an uploaded STEP model.");
@@ -44,9 +40,8 @@ public sealed class MeasurementExtractionService
         document.GeometryStatus = status;
         document.GeometryError = error;
         var details = JsonSerializer.Serialize(new { durationMilliseconds = stopwatch.ElapsedMilliseconds, error, result.Geometry, featureCount = features.Length });
-        _audit.Append(new AuditEntry { DocumentId = documentId, UserId = user.Id, Action = result.Succeeded ? DocumentAuditAction.MeasurementsExtracted : DocumentAuditAction.MeasurementExtractionFailed, DetailsJson = details });
+        _audit.Append(new AuditEntry { DocumentId = documentId, Action = result.Succeeded ? DocumentAuditAction.MeasurementsExtracted : DocumentAuditAction.MeasurementExtractionFailed, DetailsJson = details });
         return result;
     }
 
-    private static bool IsAllowed(string role) => string.Equals(role, "Maker", StringComparison.OrdinalIgnoreCase) || string.Equals(role, "Checker", StringComparison.OrdinalIgnoreCase);
 }
