@@ -15,10 +15,10 @@ public sealed class DocumentDetailViewModel
     public DocumentVersion? Version { get; private set; }
     public GeometryMeasurement? Geometry { get; private set; }
     public IReadOnlyList<FeatureMeasurement> Features { get; private set; } = Array.Empty<FeatureMeasurement>();
-    public GeometryStatus GeometryStatus => Document?.GeometryStatus ?? GeometryStatus.NotExtracted;
-    public string? GeometryError => Document?.GeometryError;
+    public GeometryStatus GeometryStatus => IsAuthorized() ? Document?.GeometryStatus ?? GeometryStatus.NotExtracted : GeometryStatus.NotExtracted;
+    public string? GeometryError => IsAuthorized() ? Document?.GeometryError : null;
     public bool IsExtracting => _isExtracting;
-    public bool CanExtractMeasurements => !_isExtracting && Document is { DocumentType: DocumentType.StepModel, UploadStatus: UploadStatus.Uploaded } && (_authentication?.CanExtractMeasurements ?? _measurements is not null);
+    public bool CanExtractMeasurements => !_isExtracting && IsAuthorized() && Document is { DocumentType: DocumentType.StepModel, UploadStatus: UploadStatus.Uploaded };
     public ICommand ExtractMeasurementsCommand { get; }
     public string? Feedback { get; private set; }
 
@@ -32,6 +32,13 @@ public sealed class DocumentDetailViewModel
     private void Refresh()
     {
         if (Document is null) return;
+        if (!IsAuthorized())
+        {
+            Version = null;
+            Geometry = null;
+            Features = Array.Empty<FeatureMeasurement>();
+            return;
+        }
         Version ??= _documents?.GetCurrentVersion(Document.Id);
         if (Version is not null) { Geometry = _documents?.GetGeometry(Version.Id) ?? Version.Geometry; Features = _documents?.GetFeatures(Version.Id) ?? Version.Features; Document.GeometryStatus = Version.GeometryStatus; Document.GeometryError = Version.GeometryError; }
     }
@@ -44,6 +51,8 @@ public sealed class DocumentDetailViewModel
         finally { _isExtracting = false; NotifyState(); }
     }
     private void NotifyState() { (ExtractMeasurementsCommand as RelayCommand)?.RaiseCanExecuteChanged(); }
+    private bool IsAuthorized() => _authentication?.CanExtractMeasurements == true && _authentication.CurrentUser is { IsAuthenticated: true } user &&
+        (string.Equals(user.Role, "Maker", StringComparison.OrdinalIgnoreCase) || string.Equals(user.Role, "Checker", StringComparison.OrdinalIgnoreCase));
 
     private sealed class RelayCommand(Action execute, Func<bool> canExecute) : ICommand
     { public event EventHandler? CanExecuteChanged; public bool CanExecute(object? parameter) => canExecute(); public void Execute(object? parameter) => execute(); public void RaiseCanExecuteChanged() => CanExecuteChanged?.Invoke(this, EventArgs.Empty); }
