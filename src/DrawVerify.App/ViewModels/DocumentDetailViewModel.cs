@@ -1,11 +1,13 @@
 namespace DrawVerify.App.ViewModels;
 using System.Windows.Input;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using DrawVerify.Application.Services;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
 using DrawVerify.Geometry.Models;
 
-public sealed class DocumentDetailViewModel
+public sealed class DocumentDetailViewModel : INotifyPropertyChanged
 {
     private readonly MeasurementExtractionService? _measurements;
     private readonly IAuthenticationService? _authentication;
@@ -21,6 +23,7 @@ public sealed class DocumentDetailViewModel
     public bool CanExtractMeasurements => !_isExtracting && IsAuthorized() && Document is { DocumentType: DocumentType.StepModel, UploadStatus: UploadStatus.Uploaded };
     public ICommand ExtractMeasurementsCommand { get; }
     public string? Feedback { get; private set; }
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     public DocumentDetailViewModel(MeasurementExtractionService? measurements = null, IAuthenticationService? authentication = null, IDocumentRepository? documents = null)
     {
@@ -50,7 +53,20 @@ public sealed class DocumentDetailViewModel
         catch (Exception ex) { Feedback = ex.Message; if (Document is not null) { Document.GeometryStatus = GeometryStatus.Error; Document.GeometryError = ex.Message; } }
         finally { _isExtracting = false; NotifyState(); }
     }
-    private void NotifyState() { (ExtractMeasurementsCommand as RelayCommand)?.RaiseCanExecuteChanged(); }
+    private void NotifyState()
+    {
+        OnPropertyChanged(nameof(Document));
+        OnPropertyChanged(nameof(Version));
+        OnPropertyChanged(nameof(Geometry));
+        OnPropertyChanged(nameof(Features));
+        OnPropertyChanged(nameof(GeometryStatus));
+        OnPropertyChanged(nameof(GeometryError));
+        OnPropertyChanged(nameof(Feedback));
+        OnPropertyChanged(nameof(IsExtracting));
+        OnPropertyChanged(nameof(CanExtractMeasurements));
+        (ExtractMeasurementsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+    }
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     private bool IsAuthorized() => _authentication?.CanExtractMeasurements == true && _authentication.CurrentUser is { IsAuthenticated: true } user &&
         (string.Equals(user.Role, "Maker", StringComparison.OrdinalIgnoreCase) || string.Equals(user.Role, "Checker", StringComparison.OrdinalIgnoreCase));
 
