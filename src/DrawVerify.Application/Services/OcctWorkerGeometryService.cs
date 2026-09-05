@@ -33,14 +33,30 @@ public sealed class OcctWorkerGeometryService : IGeometryService
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(_timeout);
             try { process.WaitForExitAsync(timeout.Token).GetAwaiter().GetResult(); }
-            catch (OperationCanceledException) { try { if (!process.HasExited) process.Kill(true); process.WaitForExit(); } catch { } return MeasurementExtractionResult.Failure("Timeout", "Measurement extraction failed: operation exceeded the configured timeout."); }
+            catch (OperationCanceledException)
+            {
+                var cleanupError = string.Empty;
+                try { if (!process.HasExited) process.Kill(true); process.WaitForExit(); }
+                catch (Exception cleanupException) { cleanupError = $" Worker termination failed: {cleanupException.Message}"; }
+                return MeasurementExtractionResult.Failure("Timeout", $"Measurement extraction failed: operation exceeded the configured timeout.{cleanupError}");
+            }
+            var diagnostics = process.StandardError.ReadToEnd();
             var output = process.StandardOutput.ReadToEnd();
             if (string.IsNullOrWhiteSpace(output)) return MeasurementExtractionResult.Failure("WorkerProtocol", "Measurement extraction failed: worker returned no result.");
             using var json = JsonDocument.Parse(output);
-            var result = json.RootElement.GetProperty("Result").Deserialize<MeasurementExtractionResult>();
-            return result ?? MeasurementExtractionResult.Failure("WorkerProtocol", "Measurement extraction failed: worker returned an invalid result.");
+            var root = json.RootElement;
+            if (!root.TryGetProperty("ProtocolVersion", out var version) || version.GetInt32() != 1)
+                return MeasurementExtractionResult.Failure("WorkerProtocol", "Measurement extraction failed: unsupported worker protocol version.");
+            if (process.ExitCode != 0)
+                return MeasurementExtractionResult.Failure("WorkerExit", $"Measurement extraction failed: worker exited with code {process.ExitCode}. {SafeDiagnostics(diagnostics)}");
+            var result = root.TryGetProperty("Result", out var resultElement) ? resultElement.Deserialize<MeasurementExtractionResult>() : null;
+            if (result is null) return MeasurementExtractionResult.Failure("WorkerProtocol", "Measurement extraction failed: worker returned an invalid result.");
+            if (result.Succeeded && (result.Geometry is null || result.Geometry.BoundingBox is null || result.Geometry.Volume is not > 0))
+                return MeasurementExtractionResult.Failure("WorkerProtocol", "Measurement extraction failed: worker returned an invalid successful result.");
+            return result;
         }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException or IOException)
         { return MeasurementExtractionResult.Failure("Worker", $"Measurement extraction failed: {ex.Message}"); }
     }
+    private static string SafeDiagnostics(string diagnostics) => string.IsNullOrWhiteSpace(diagnostics) ? "No worker diagnostics." : diagnostics.Length > 512 ? diagnostics[..512] : diagnostics;
 }

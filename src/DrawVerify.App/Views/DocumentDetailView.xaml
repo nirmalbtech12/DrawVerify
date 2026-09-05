@@ -4,8 +4,19 @@
     <Grid>
         <StackPanel Margin="16">
             <TextBlock Text="STEP-derived measurements" FontWeight="Bold" />
-            <TextBlock Text="Geometry status" />
-            <TextBlock Text="Volume, bounding box, face/edge/vertex counts, and detected features are derived from the STEP model." TextWrapping="Wrap" />
+            <Button Content="Extract Measurements" Command="{Binding ExtractMeasurementsCommand}" Margin="0,8" />
+            <TextBlock Text="Geometry status" FontWeight="SemiBold" />
+            <TextBlock Text="{Binding GeometryStatus}" />
+            <TextBlock Text="{Binding GeometryError}" Foreground="DarkRed" TextWrapping="Wrap" />
+            <TextBlock Text="{Binding Feedback}" TextWrapping="Wrap" />
+            <TextBlock Text="Volume (derived from STEP model)" FontWeight="SemiBold" Margin="0,8,0,0" />
+            <TextBlock Text="{Binding Geometry.Volume}" />
+            <TextBlock Text="Bounding box (derived from STEP model)" FontWeight="SemiBold" Margin="0,8,0,0" />
+            <TextBlock Text="{Binding Geometry.BoundingBox}" />
+            <TextBlock Text="Topology counts (faces / edges / vertices)" FontWeight="SemiBold" />
+            <TextBlock Text="{Binding Geometry.FaceCount, StringFormat={}{0} / {1} / {2}}" />
+            <TextBlock Text="Detected features (derived from STEP model)" FontWeight="SemiBold" Margin="0,8,0,0" />
+            <ItemsControl ItemsSource="{Binding Features}"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding FeatureType}" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
         </StackPanel>
     </Grid>
 </UserControl>

@@ -11,5 +11,5 @@ public sealed class GeometryData
     public int EdgeCount { get; init; }
     public int VertexCount { get; init; }
     public string Unit { get; init; } = "mm";
-    public string? Uncertainty { get; init; }
+    public string? Uncertainty { get; set; }
 }
