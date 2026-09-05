@@ -86,6 +86,32 @@ dotnet build DrawVerify.sln
 dotnet test
 ```
 
+Test execution must respect project platform requirements:
+
+- `src/DrawVerify.Application` targets `net9.0` and is cross-platform.
+- `src/DrawVerify.App` targets `net9.0-windows` and uses WPF.
+- `tests/DrawVerify.Application.Tests` targets `net9.0`, references only the
+  cross-platform Application dependencies, and is eligible on Linux, macOS,
+  and Windows.
+- `tests/DrawVerify.App.Tests` targets `net9.0-windows`, tests WPF/ViewModel
+  behavior, and is Windows-only.
+
+Pipeline agents must select eligible test projects from the runner operating
+system rather than blindly launching every test assembly:
+
+- On Linux or macOS, run `DrawVerify.Core.Tests`,
+  `DrawVerify.Geometry.Tests`, `DrawVerify.OcctService.Tests`,
+  `DrawVerify.Application.Tests`, and `DrawVerify.Infrastructure.Tests`.
+  Explicitly report `DrawVerify.App.Tests` as skipped because it requires the
+  Windows Desktop runtime.
+- On Windows, run the full test suite, including `DrawVerify.App.Tests`.
+
+An eligible test failure must fail the pipeline. Do not suppress test-host
+startup errors or treat an aborted Windows-only test run as a passing result.
+When moving tests, keep Application-layer tests in `Application.Tests` and
+WPF/ViewModel tests in `App.Tests` so target frameworks and CI eligibility
+remain aligned.
+
 ### Rebuild / clean rebuild
 
 Incremental rebuild:
@@ -103,15 +129,18 @@ dotnet build DrawVerify.sln -t:Rebuild
 
 ### Publish and run the Windows app
 
-`DrawVerify.App` is Windows-only (WPF). From WSL, publish self-contained to the path configured in `src/DrawVerify.App/appsettings.json` under `Publish.Path`, then launch it from Windows:
+`DrawVerify.App` is Windows-only (WPF). From WSL, run [`run.sh`](/home/nirmal/projects/DrawVerify/run.sh) to publish self-contained to the path configured in `src/DrawVerify.App/appsettings.json` under `Publish.Path`, then launch it from Windows:
 
 ```bash
-PUB=$(python3 -c "import json,re;p=json.load(open('src/DrawVerify.App/appsettings.json'))['Publish']['Path'];d,r=re.match(r'^([A-Za-z]):\\\\(.*)$',p).groups();print('/mnt/'+d.lower()+'/'+r.replace('\\\\','/'))") \
-&& rm -rf "$PUB" \
-&& dotnet restore src/DrawVerify.App -r win-x64 \
-&& dotnet publish src/DrawVerify.App -c Debug -r win-x64 --self-contained true --no-restore -o "$PUB" \
-&& cmd.exe /c "C:\Users\nirma\Documents\Product\DrawVerify\Published\DrawVerify.App.exe"
+./run.sh
 ```
+
+The script must be run from the repository root. It reads the Windows publish
+path from `src/DrawVerify.App/appsettings.json`, clears that publish directory,
+restores for `win-x64`, publishes the self-contained application, and launches
+the resulting executable through Windows. The restore step must remain
+separate from `dotnet publish --no-restore` so the runtime-specific assets are
+present.
 
 The publish destination is read from `appsettings.json` (`Publish.Path`), so changing it there changes the target.
 
