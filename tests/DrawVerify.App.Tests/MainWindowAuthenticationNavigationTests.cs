@@ -31,5 +31,11 @@ public sealed class MainWindowAuthenticationNavigationTests
         if (failure is not null) throw new Xunit.Sdk.XunitException("WPF navigation assertion failed.", failure);
     }
 
+    [Fact(DisplayName = "TD-WPF-NAV-01 blocks protected content after logout")]
+    public void Authenticated_content_is_guarded_after_session_ends()
+    {
+        Exception? failure=null; var thread=new Thread(()=>{try{CompositionRoot.SessionAuthentication.SignIn(new DrawVerify.Core.Models.AuthenticatedUser("ADMIN",new[]{"Admin"})); var window=new MainWindow(); typeof(MainWindow).GetMethod("ShowAuthenticatedContent",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(window,null); CompositionRoot.SessionAuthentication.SignOut(); typeof(MainWindow).GetMethod("ShowUpload",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(window,null); Assert.IsType<LoginView>(Content(window).Content); window.Close(); Dispatcher.CurrentDispatcher.InvokeShutdown();}catch(Exception ex){failure=ex;}}); thread.SetApartmentState(ApartmentState.STA);thread.Start();thread.Join();if(failure is not null)throw new Xunit.Sdk.XunitException("Post-logout protected navigation assertion failed.",failure);
+    }
+
     private static ContentControl Content(MainWindow window) => (ContentControl)typeof(MainWindow).GetField("MainContent", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
 }

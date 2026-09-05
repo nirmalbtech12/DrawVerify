@@ -20,7 +20,7 @@ public sealed class LoginViewModel : INotifyPropertyChanged
     public ICommand LoginCommand { get; }
     public async Task LoginAsync()
     {
-        if (IsBusy) return; IsBusy=true; Changed(nameof(IsBusy)); try { var result=await _authentication.LoginAsync(Username,Password); Message=result.Message; Changed(nameof(Message)); if(result.Succeeded) { Password=string.Empty; LoginSucceeded?.Invoke(); } } catch(Exception) { Message="Unable to complete login."; Changed(nameof(Message)); } finally { IsBusy=false; Changed(nameof(IsBusy)); ((Command)LoginCommand).Raise(); }
+        if (IsBusy) return; IsBusy=true; Changed(nameof(IsBusy)); try { var result=await _authentication.LoginAsync(Username,Password); Message=result.Message; Changed(nameof(Message)); if(result.Succeeded) LoginSucceeded?.Invoke(); } catch(Exception) { Message="Unable to complete login."; Changed(nameof(Message)); } finally { Password=string.Empty; Changed(nameof(Password)); IsBusy=false; Changed(nameof(IsBusy)); ((Command)LoginCommand).Raise(); }
     }
     private void Changed([CallerMemberName]string? n=null)=>PropertyChanged?.Invoke(this,new PropertyChangedEventArgs(n));
     private sealed class Command(Action<object?> execute, Predicate<object?>? can=null):ICommand { public event EventHandler? CanExecuteChanged; public bool CanExecute(object? p)=>can?.Invoke(p)??true; public void Execute(object? p)=>execute(p); public void Raise()=>CanExecuteChanged?.Invoke(this,EventArgs.Empty); }

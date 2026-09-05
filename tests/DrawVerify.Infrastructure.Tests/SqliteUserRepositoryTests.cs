@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using DrawVerify.Core.Models;
+using DrawVerify.Application.Services;
 using DrawVerify.Infrastructure.Persistence;
 using Microsoft.Data.Sqlite;
 using Xunit;
@@ -41,6 +42,22 @@ public sealed class SqliteUserRepositoryTests
             await using var connection = new SqliteConnection($"Data Source={path}"); await connection.OpenAsync(); await using var command=connection.CreateCommand(); command.CommandText="SELECT COUNT(*) FROM UserAccount"; Assert.Equal(1L, await command.ExecuteScalarAsync());
         }
         finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task Non_username_constraint_failure_is_not_translated_to_duplicate()
+    {
+        var path=Path.Combine(Path.GetTempPath(),$"drawverify-auth-{Guid.NewGuid():N}.db");
+        try { var repository=new SqliteUserRepository(path); var first=Account("FIRST"); await repository.CreateAsync(first,Audit("FIRST")); var generated=Account("SECOND"); var second=new UserAccount { Id=first.Id, Username=generated.Username, DisplayName=generated.DisplayName, PasswordSalt=generated.PasswordSalt, PasswordHash=generated.PasswordHash }; var error=await Assert.ThrowsAnyAsync<Exception>(()=>repository.CreateAsync(second,Audit("SECOND"))); Assert.IsNotType<DuplicateUsernameException>(error); }
+        finally { if(File.Exists(path))File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task User_and_creation_audit_are_atomic_when_audit_insert_fails()
+    {
+        var path=Path.Combine(Path.GetTempPath(),$"drawverify-auth-{Guid.NewGuid():N}.db");
+        try { var repository=new SqliteUserRepository(path); await using(var connection=new SqliteConnection($"Data Source={path}")){await connection.OpenAsync(); await using var command=connection.CreateCommand(); command.CommandText="CREATE TRIGGER BlockAuthAudit BEFORE INSERT ON AuthenticationAuditLog BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END;"; await command.ExecuteNonQueryAsync();} await Assert.ThrowsAnyAsync<Exception>(()=>repository.CreateAsync(Account("ATOMIC"),Audit("ATOMIC"))); Assert.Null(await repository.FindByUsernameAsync("ATOMIC")); }
+        finally { if(File.Exists(path))File.Delete(path); }
     }
 
     private static UserAccount Account(string username) { var salt=RandomNumberGenerator.GetBytes(16); return new UserAccount { Username=username,DisplayName=username,PasswordSalt=salt,PasswordHash=Rfc2898DeriveBytes.Pbkdf2("GoodPassword1!",salt,600000,HashAlgorithmName.SHA256,32) }; }

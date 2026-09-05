@@ -25,7 +25,8 @@ public sealed class UsernamePasswordAuthenticationService
                 var valid = CryptographicOperations.FixedTimeEquals(actual, account.PasswordHash);
                 reason = valid ? string.Empty : "InvalidPassword";
                 var state = await _users.RecordLoginAttemptAsync(normalized, valid, _configuration.LockoutThreshold, _configuration.LockoutDuration, DateTimeOffset.UtcNow, cancellationToken);
-                if (!valid) result = new(state.IsLocked ? AuthenticationResultKind.AccountLocked : AuthenticationResultKind.InvalidCredentials, GenericFailure);
+                if (!valid) { reason = state.IsLocked ? "AccountLocked" : "InvalidPassword"; result = new(state.IsLocked ? AuthenticationResultKind.AccountLocked : AuthenticationResultKind.InvalidCredentials, GenericFailure); }
+                else if (state.IsLocked) { reason = "AccountLocked"; result = new(AuthenticationResultKind.AccountLocked, GenericFailure); }
                 else result = new(AuthenticationResultKind.Success, "Login successful.", new AuthenticatedUser(account.Username, account.Roles));
             }
             var auditReason = result.Succeeded ? null : reason == string.Empty ? "InvalidPassword" : reason;

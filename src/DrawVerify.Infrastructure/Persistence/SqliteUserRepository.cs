@@ -8,9 +8,10 @@ namespace DrawVerify.Infrastructure.Persistence;
 public sealed class SqliteUserRepository : IUserRepository
 {
     private readonly string _connectionString;
+    private readonly ICentralizedLogger? _logger;
     public SqliteUserRepository(string databasePath, ICentralizedLogger? logger = null)
     {
-        _connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath }.ToString();
+        _connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath }.ToString(); _logger=logger;
         try { Initialize(); } catch (Exception ex) { logger?.Log(ex, "SQLite identity startup", "Unable to initialize identity schema"); throw; }
     }
     private void Initialize()
@@ -30,12 +31,20 @@ public sealed class SqliteUserRepository : IUserRepository
     {
         await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(cancellationToken); await using var tx = (SqliteTransaction)await c.BeginTransactionAsync(cancellationToken);
         try { await Execute(c, tx, "INSERT INTO UserAccount (UserId,NormalizedUsername,DisplayName,PasswordSalt,PasswordHash,PasswordAlgorithm,PasswordIterations) VALUES ($id,$u,$d,$s,$h,$a,$i)", cancellationToken, ("$id",account.Id.ToString()),("$u",account.Username),("$d",account.DisplayName),("$s",account.PasswordSalt),("$h",account.PasswordHash),("$a",account.PasswordAlgorithm),("$i",account.PasswordIterations)); foreach (var role in account.Roles) await Execute(c,tx,"INSERT INTO UserAccountRole (UserId,RoleName) VALUES ($id,$r)",cancellationToken,("$id",account.Id.ToString()),("$r",role)); await SqliteAuthenticationAuditRepository.InsertAsync(c,tx,audit,cancellationToken); await tx.CommitAsync(cancellationToken); }
-        catch (SqliteException ex) when (ex.SqliteErrorCode == 19) { await tx.RollbackAsync(cancellationToken); throw new DuplicateUsernameException(); }
+        catch (SqliteException ex) when (IsNormalizedUsernameConflict(ex)) { await tx.RollbackAsync(cancellationToken); throw new DuplicateUsernameException(); }
+        catch (Exception ex) { try { await tx.RollbackAsync(cancellationToken); } catch { } _logger?.Log(ex, "SQLite user creation", $"Unable to persist user '{account.Username}'."); throw; }
     }
     public async Task<LoginAttemptState> RecordLoginAttemptAsync(string normalizedUsername, bool successful, int threshold, TimeSpan duration, DateTimeOffset now, CancellationToken cancellationToken = default)
     {
-        var account = await FindByUsernameAsync(normalizedUsername, cancellationToken); if (account is null) return new(null,false,"InvalidUsername");
-        await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(cancellationToken); await using var q = c.CreateCommand(); q.CommandText = successful ? "UPDATE UserAccount SET FailedAttempts=0,LockedUntilUtc=NULL WHERE NormalizedUsername=$u" : "UPDATE UserAccount SET FailedAttempts=FailedAttempts+1,LockedUntilUtc=CASE WHEN $t>0 AND FailedAttempts+1 >= $t THEN $until ELSE LockedUntilUtc END WHERE NormalizedUsername=$u"; q.Parameters.AddWithValue("$u",normalizedUsername); q.Parameters.AddWithValue("$t",threshold); q.Parameters.AddWithValue("$until",now.Add(duration).ToString("O")); await q.ExecuteNonQueryAsync(cancellationToken); var updated=await FindByUsernameAsync(normalizedUsername,cancellationToken); return new(updated, updated?.LockedUntilUtc > now, successful ? null : updated?.LockedUntilUtc > now ? "AccountLocked" : "InvalidPassword");
+        await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(cancellationToken); await using var tx=(SqliteTransaction)await c.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            await using var read=c.CreateCommand(); read.Transaction=tx; read.CommandText="SELECT LockedUntilUtc FROM UserAccount WHERE NormalizedUsername=$u"; read.Parameters.AddWithValue("$u",normalizedUsername); var lockedValue=await read.ExecuteScalarAsync(cancellationToken); if(lockedValue is null) { await tx.CommitAsync(cancellationToken); return new(null,false,"InvalidUsername"); }
+            var lockedUntil=lockedValue is DBNull ? (DateTimeOffset?)null : DateTimeOffset.Parse((string)lockedValue); if(lockedUntil > now) { await tx.CommitAsync(cancellationToken); return new(null,true,"AccountLocked"); }
+            await using var q=c.CreateCommand(); q.Transaction=tx; q.CommandText=successful ? "UPDATE UserAccount SET FailedAttempts=0,LockedUntilUtc=NULL WHERE NormalizedUsername=$u" : "UPDATE UserAccount SET FailedAttempts=FailedAttempts+1,LockedUntilUtc=CASE WHEN $t>0 AND FailedAttempts+1 >= $t THEN $until ELSE NULL END WHERE NormalizedUsername=$u"; q.Parameters.AddWithValue("$u",normalizedUsername); q.Parameters.AddWithValue("$t",threshold); q.Parameters.AddWithValue("$until",now.Add(duration).ToString("O")); await q.ExecuteNonQueryAsync(cancellationToken); await tx.CommitAsync(cancellationToken); var updated=await FindByUsernameAsync(normalizedUsername,cancellationToken); var isLocked=updated?.LockedUntilUtc > now; return new(updated,isLocked,successful?null:isLocked?"AccountLocked":"InvalidPassword");
+        }
+        catch(Exception ex) { try { await tx.RollbackAsync(cancellationToken); } catch { } _logger?.Log(ex,"SQLite login state mutation",$"Unable to update login state for '{normalizedUsername}'."); throw; }
     }
+    private static bool IsNormalizedUsernameConflict(SqliteException ex) => ex.SqliteErrorCode == 19 && ex.Message.Contains("UserAccount.NormalizedUsername",StringComparison.OrdinalIgnoreCase);
     private static async Task Execute(SqliteConnection c, SqliteTransaction tx, string sql, CancellationToken token, params (string,object)[] values) { await using var q=c.CreateCommand(); q.Transaction=tx; q.CommandText=sql; foreach(var (name,value) in values) q.Parameters.AddWithValue(name,value); await q.ExecuteNonQueryAsync(token); }
 }

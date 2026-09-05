@@ -20,6 +20,9 @@ public sealed class LoginViewModelTests
         var failed = new LoginViewModel(new UsernamePasswordAuthenticationService(users,audit,failedSession,new AuthenticationConfiguration(),new LoggerFake())) { Username="missing", Password="wrong" };
         await failed.LoginAsync();
         Assert.Equal("Invalid username or password.",failed.Message); Assert.Null(failedSession.CurrentUser);
+        Assert.Equal(string.Empty,failed.Password);
+        var wrong = new LoginViewModel(new UsernamePasswordAuthenticationService(users,audit,new SessionAuthenticationService(),new AuthenticationConfiguration(),new LoggerFake())) { Username="user", Password="wrong" };
+        await wrong.LoginAsync(); Assert.Equal(failed.Message,wrong.Message); Assert.Equal(string.Empty,wrong.Password);
     }
     private sealed class UsersFake : IUserRepository { private readonly UserAccount _account; public UsersFake(){var salt=System.Security.Cryptography.RandomNumberGenerator.GetBytes(16);_account=new UserAccount{Username="USER",DisplayName="User",PasswordSalt=salt,PasswordHash=System.Security.Cryptography.Rfc2898DeriveBytes.Pbkdf2("GoodPassword1!",salt,600000,System.Security.Cryptography.HashAlgorithmName.SHA256,32),Roles=new[]{"Viewer"}};} public Task<UserAccount?> FindByUsernameAsync(string n,CancellationToken t=default)=>Task.FromResult<UserAccount?>(n=="USER"?_account:null); public Task CreateAsync(UserAccount a,AuthenticationAuditEntry e,CancellationToken t=default)=>Task.CompletedTask; public Task<LoginAttemptState> RecordLoginAttemptAsync(string n,bool s,int th,TimeSpan d,DateTimeOffset now,CancellationToken t=default)=>Task.FromResult(new LoginAttemptState(_account,false,null)); }
     private sealed class AuditFake : IAuthenticationAuditRepository { public Task WriteAsync(AuthenticationAuditEntry e,CancellationToken t=default)=>Task.CompletedTask; }
