@@ -1,0 +1,41 @@
+using DrawVerify.Core.Interfaces;
+using DrawVerify.Core.Models;
+using DrawVerify.Application.Services;
+using Microsoft.Data.Sqlite;
+
+namespace DrawVerify.Infrastructure.Persistence;
+
+public sealed class SqliteUserRepository : IUserRepository
+{
+    private readonly string _connectionString;
+    public SqliteUserRepository(string databasePath, ICentralizedLogger? logger = null)
+    {
+        _connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath }.ToString();
+        try { Initialize(); } catch (Exception ex) { logger?.Log(ex, "SQLite identity startup", "Unable to initialize identity schema"); throw; }
+    }
+    private void Initialize()
+    {
+        using var c = new SqliteConnection(_connectionString); c.Open();
+        using var cmd = c.CreateCommand(); cmd.CommandText = "CREATE TABLE IF NOT EXISTS UserAccount (UserId TEXT PRIMARY KEY, NormalizedUsername TEXT NOT NULL UNIQUE, DisplayName TEXT NOT NULL, PasswordSalt BLOB NOT NULL, PasswordHash BLOB NOT NULL, PasswordAlgorithm TEXT NOT NULL, PasswordIterations INTEGER NOT NULL, FailedAttempts INTEGER NOT NULL DEFAULT 0, LockedUntilUtc TEXT NULL); CREATE TABLE IF NOT EXISTS UserAccountRole (UserId TEXT NOT NULL, RoleName TEXT NOT NULL, PRIMARY KEY(UserId, RoleName), FOREIGN KEY(UserId) REFERENCES UserAccount(UserId)); CREATE TABLE IF NOT EXISTS AuthenticationAuditLog (AuditId TEXT PRIMARY KEY, ActorUsername TEXT NULL, Username TEXT NOT NULL, TimestampUtc TEXT NOT NULL, Action TEXT NOT NULL, Result TEXT NOT NULL, FailureReason TEXT NULL);"; cmd.ExecuteNonQuery();
+    }
+    public async Task<UserAccount?> FindByUsernameAsync(string normalizedUsername, CancellationToken cancellationToken = default)
+    {
+        await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(cancellationToken);
+        await using var q = c.CreateCommand(); q.CommandText = "SELECT UserId,NormalizedUsername,DisplayName,PasswordSalt,PasswordHash,PasswordAlgorithm,PasswordIterations,FailedAttempts,LockedUntilUtc FROM UserAccount WHERE NormalizedUsername=$u"; q.Parameters.AddWithValue("$u", normalizedUsername);
+        await using var r = await q.ExecuteReaderAsync(cancellationToken); if (!await r.ReadAsync(cancellationToken)) return null;
+        var account = new UserAccount { Id = Guid.Parse(r.GetString(0)), Username = r.GetString(1), DisplayName = r.GetString(2), PasswordSalt = (byte[])r[3], PasswordHash = (byte[])r[4], PasswordAlgorithm = r.GetString(5), PasswordIterations = r.GetInt32(6), FailedAttempts = r.GetInt32(7), LockedUntilUtc = r.IsDBNull(8) ? null : DateTimeOffset.Parse(r.GetString(8)) };
+        await r.DisposeAsync(); await using var roles = c.CreateCommand(); roles.CommandText = "SELECT RoleName FROM UserAccountRole WHERE UserId=$id ORDER BY RoleName"; roles.Parameters.AddWithValue("$id", account.Id.ToString()); await using var rr = await roles.ExecuteReaderAsync(cancellationToken); var list = new List<string>(); while (await rr.ReadAsync(cancellationToken)) list.Add(rr.GetString(0)); return new UserAccount { Id=account.Id, Username=account.Username, DisplayName=account.DisplayName, PasswordSalt=account.PasswordSalt, PasswordHash=account.PasswordHash, PasswordAlgorithm=account.PasswordAlgorithm, PasswordIterations=account.PasswordIterations, FailedAttempts=account.FailedAttempts, LockedUntilUtc=account.LockedUntilUtc, Roles=list };
+    }
+    public async Task CreateAsync(UserAccount account, AuthenticationAuditEntry audit, CancellationToken cancellationToken = default)
+    {
+        await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(cancellationToken); await using var tx = (SqliteTransaction)await c.BeginTransactionAsync(cancellationToken);
+        try { await Execute(c, tx, "INSERT INTO UserAccount (UserId,NormalizedUsername,DisplayName,PasswordSalt,PasswordHash,PasswordAlgorithm,PasswordIterations) VALUES ($id,$u,$d,$s,$h,$a,$i)", cancellationToken, ("$id",account.Id.ToString()),("$u",account.Username),("$d",account.DisplayName),("$s",account.PasswordSalt),("$h",account.PasswordHash),("$a",account.PasswordAlgorithm),("$i",account.PasswordIterations)); foreach (var role in account.Roles) await Execute(c,tx,"INSERT INTO UserAccountRole (UserId,RoleName) VALUES ($id,$r)",cancellationToken,("$id",account.Id.ToString()),("$r",role)); await SqliteAuthenticationAuditRepository.InsertAsync(c,tx,audit,cancellationToken); await tx.CommitAsync(cancellationToken); }
+        catch (SqliteException ex) when (ex.SqliteErrorCode == 19) { await tx.RollbackAsync(cancellationToken); throw new DuplicateUsernameException(); }
+    }
+    public async Task<LoginAttemptState> RecordLoginAttemptAsync(string normalizedUsername, bool successful, int threshold, TimeSpan duration, DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        var account = await FindByUsernameAsync(normalizedUsername, cancellationToken); if (account is null) return new(null,false,"InvalidUsername");
+        await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(cancellationToken); await using var q = c.CreateCommand(); q.CommandText = successful ? "UPDATE UserAccount SET FailedAttempts=0,LockedUntilUtc=NULL WHERE NormalizedUsername=$u" : "UPDATE UserAccount SET FailedAttempts=FailedAttempts+1,LockedUntilUtc=CASE WHEN $t>0 AND FailedAttempts+1 >= $t THEN $until ELSE LockedUntilUtc END WHERE NormalizedUsername=$u"; q.Parameters.AddWithValue("$u",normalizedUsername); q.Parameters.AddWithValue("$t",threshold); q.Parameters.AddWithValue("$until",now.Add(duration).ToString("O")); await q.ExecuteNonQueryAsync(cancellationToken); var updated=await FindByUsernameAsync(normalizedUsername,cancellationToken); return new(updated, updated?.LockedUntilUtc > now, successful ? null : updated?.LockedUntilUtc > now ? "AccountLocked" : "InvalidPassword");
+    }
+    private static async Task Execute(SqliteConnection c, SqliteTransaction tx, string sql, CancellationToken token, params (string,object)[] values) { await using var q=c.CreateCommand(); q.Transaction=tx; q.CommandText=sql; foreach(var (name,value) in values) q.Parameters.AddWithValue(name,value); await q.ExecuteNonQueryAsync(token); }
+}

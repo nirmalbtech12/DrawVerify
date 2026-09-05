@@ -17,7 +17,20 @@ namespace DrawVerify.App.Services;
 public static class CompositionRoot
 {
     private static readonly StepUploadConfiguration StepUploadConfiguration = LoadStepUploadConfiguration();
+    private static readonly AuthenticationConfiguration AuthenticationConfiguration = LoadAuthenticationConfiguration();
+    private static readonly SessionAuthenticationService Session = new();
     public static void Initialize() { }
+    public static ISessionAuthenticationService SessionAuthentication => Session;
+    public static UsernamePasswordAuthenticationService CreateAuthenticationService()
+    {
+        var logger=new CentralizedLogger(); var database=DatabasePath();
+        return new(new SqliteUserRepository(database,logger),new SqliteAuthenticationAuditRepository(database,logger),Session,AuthenticationConfiguration,logger);
+    }
+    public static UserAdministrationService CreateUserAdministrationService()
+    {
+        var logger=new CentralizedLogger(); var database=DatabasePath();
+        return new(new SqliteUserRepository(database,logger),new SqliteAuthenticationAuditRepository(database,logger),Session,AuthenticationConfiguration,logger);
+    }
     public static StepUploadViewModel CreateStepUploadViewModel()
     {
         var config=StepUploadConfiguration;
@@ -41,5 +54,10 @@ public static class CompositionRoot
             logger.Log(exception,"STEP configuration startup","Unable to load or validate StepUpload settings");
             throw;
         }
+    }
+    private static string DatabasePath() => Path.Combine(AppContext.BaseDirectory,"drawverify.db");
+    private static AuthenticationConfiguration LoadAuthenticationConfiguration()
+    {
+        var logger=new CentralizedLogger(); try { using var document=JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"appsettings.json"))); var section=document.RootElement.GetProperty("Authentication"); var config=new AuthenticationConfiguration { PasswordMinimumLength=section.GetProperty("PasswordMinimumLength").GetInt32(), RequireUppercase=section.GetProperty("RequireUppercase").GetBoolean(), RequireLowercase=section.GetProperty("RequireLowercase").GetBoolean(), RequireDigit=section.GetProperty("RequireDigit").GetBoolean(), RequireNonAlphanumeric=section.GetProperty("RequireNonAlphanumeric").GetBoolean(), LockoutThreshold=section.GetProperty("LockoutThreshold").GetInt32(), LockoutDuration=TimeSpan.FromMinutes(section.GetProperty("LockoutDurationMinutes").GetDouble()) }; config.Validate(); return config; } catch(Exception ex) { logger.Log(ex,"Authentication configuration startup","Unable to load or validate Authentication settings"); throw; }
     }
 }
