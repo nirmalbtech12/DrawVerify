@@ -1,9 +1,13 @@
 using DrawVerify.Application.Services;
+using DrawVerify.Core.Enums;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
 using DrawVerify.Geometry;
 using DrawVerify.Geometry.Models;
 using Xunit;
+using GeometryStatus = DrawVerify.Core.Enums.GeometryStatus;
+using DocumentType = DrawVerify.Core.Enums.DocumentType;
+using UploadStatus = DrawVerify.Core.Enums.UploadStatus;
 
 namespace DrawVerify.Application.Tests;
 
@@ -24,7 +28,7 @@ public sealed class MeasurementExtractionServiceTests
 
         Assert.True(result.Succeeded);
         Assert.Equal(GeometryStatus.Processed, repository.Status);
-        Assert.Equal("MeasurementsExtracted", Assert.Single(audit.Entries).Action);
+        Assert.Equal(DocumentAuditAction.MeasurementsExtracted, Assert.Single(audit.Entries).Action);
         Assert.Contains("durationMilliseconds", audit.Entries[0].DetailsJson);
         Assert.Equal(1, geometry.Calls);
     }
@@ -55,7 +59,7 @@ public sealed class MeasurementExtractionServiceTests
         service.Extract(document.Id);
 
         Assert.Equal(GeometryStatus.Error, repository.Status);
-        Assert.Equal("MeasurementExtractionFailed", Assert.Single(audit.Entries).Action);
+        Assert.Equal(DocumentAuditAction.MeasurementExtractionFailed, Assert.Single(audit.Entries).Action);
         Assert.Null(repository.Geometry!.Volume);
         Assert.Equal(version.Id, repository.ReplacedVersionId);
     }

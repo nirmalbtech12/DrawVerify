@@ -8,15 +8,10 @@
   <ItemGroup>
     <ProjectReference Include="..\DrawVerify.Core\DrawVerify.Core.csproj" />
     <ProjectReference Include="..\DrawVerify.Application\DrawVerify.Application.csproj" />
-    <ProjectReference Include="..\DrawVerify.Geometry\DrawVerify.Geometry.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
   </ItemGroup>
 
-<<<<<<< HEAD
 </Project>
-=======
-</Project>
->>>>>>> 642060c (KAN-19: implementation)

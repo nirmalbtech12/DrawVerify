@@ -84,7 +84,7 @@ public sealed class StepUploadPersistenceAndStorageTests
                 Assert.Contains("fileName", reader.GetString(4));
                 if ((DocumentAuditAction)reader.GetInt32(0) == DocumentAuditAction.Cancelled) Assert.True(reader.IsDBNull(1));
             }
-            Assert.Equal(4, rows);
+            Assert.Equal(Enum.GetValues<DocumentAuditAction>().Length, rows);
         }
         finally { Directory.Delete(root, recursive: true); }
     }

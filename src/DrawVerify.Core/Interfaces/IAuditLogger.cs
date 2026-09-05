@@ -1,8 +1,5 @@
 using DrawVerify.Core.Models;
-<<<<<<< HEAD
-=======
 
->>>>>>> 642060c (KAN-19: implementation)
 namespace DrawVerify.Core.Interfaces;
 
 /// <summary>
@@ -10,9 +7,6 @@ namespace DrawVerify.Core.Interfaces;
 /// </summary>
 public interface IAuditLogger
 {
-<<<<<<< HEAD
-    void Append(AuditEntry entry);
-=======
-    Task WriteAsync(AuditEntry entry, CancellationToken cancellationToken = default);
->>>>>>> 642060c (KAN-19: implementation)
+    Task WriteAsync(AuditEntry entry, CancellationToken cancellationToken = default) { Append(entry); return Task.CompletedTask; }
+    void Append(AuditEntry entry) => WriteAsync(entry).GetAwaiter().GetResult();
 }

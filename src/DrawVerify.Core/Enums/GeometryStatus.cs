@@ -1,3 +1,11 @@
 namespace DrawVerify.Core.Enums;
 
-public enum GeometryStatus { PendingValidation = 0, Valid = 1, Invalid = 2 }
+public enum GeometryStatus
+{
+    PendingValidation = 0,
+    Valid = 1,
+    Invalid = 2,
+    NotExtracted = 3,
+    Processed = 4,
+    Error = 5
+}

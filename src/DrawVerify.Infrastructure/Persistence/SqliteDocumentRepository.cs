@@ -1,52 +1,16 @@
-<<<<<<< HEAD
-using Microsoft.Data.Sqlite;
-using DrawVerify.Core.Interfaces;
-using DrawVerify.Core.Models;
-=======
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
 using Microsoft.Data.Sqlite;
 
->>>>>>> 642060c (KAN-19: implementation)
 namespace DrawVerify.Infrastructure.Persistence;
 
 /// <summary>
 /// SQLite persistence for documents, implementing IDocumentRepository.
 /// </summary>
-<<<<<<< HEAD
-public sealed class SqliteDocumentRepository : IDocumentRepository, IDisposable
-{
-    private readonly string _connectionString;
-    private readonly SqliteConnection _connection;
-    public SqliteDocumentRepository(string databasePath = ":memory:")
-    {
-        _connectionString = databasePath == ":memory:" ? "Data Source=:memory:;Cache=Shared" : $"Data Source={databasePath}";
-        _connection = new SqliteConnection(_connectionString);
-        _connection.Open();
-        using var command = _connection.CreateCommand();
-        command.CommandText = "CREATE TABLE IF NOT EXISTS Documents (Id TEXT PRIMARY KEY, Name TEXT NOT NULL, DocumentType INTEGER NOT NULL, UploadStatus INTEGER NOT NULL, CurrentVersionId TEXT NULL, GeometryStatus INTEGER NOT NULL, GeometryError TEXT NULL); CREATE TABLE IF NOT EXISTS DocumentVersions (Id TEXT PRIMARY KEY, DocumentId TEXT NOT NULL, VersionNumber INTEGER NOT NULL, StoredFilePath TEXT NOT NULL, GeometryStatus INTEGER NOT NULL, GeometryError TEXT NULL); CREATE TABLE IF NOT EXISTS GeometryData (DocumentVersionId TEXT PRIMARY KEY, Volume REAL NULL, MinX REAL NOT NULL, MinY REAL NOT NULL, MinZ REAL NOT NULL, MaxX REAL NOT NULL, MaxY REAL NOT NULL, MaxZ REAL NOT NULL, FaceCount INTEGER NOT NULL, EdgeCount INTEGER NOT NULL, VertexCount INTEGER NOT NULL, Unit TEXT NOT NULL, Uncertainty TEXT NULL); CREATE TABLE IF NOT EXISTS FeatureData (Id INTEGER PRIMARY KEY AUTOINCREMENT, DocumentVersionId TEXT NOT NULL, FeatureType TEXT NOT NULL, NominalDimensions TEXT NOT NULL, Unit TEXT NOT NULL, LowerTolerance REAL NULL, UpperTolerance REAL NULL, Uncertainty TEXT NULL); CREATE TABLE IF NOT EXISTS DocumentAuditLog (Id TEXT PRIMARY KEY, DocumentId TEXT NOT NULL, Action TEXT NOT NULL, UserId TEXT NULL, Timestamp TEXT NOT NULL, DetailsJson TEXT NOT NULL);";
-        command.ExecuteNonQuery();
-    }
-    public void Save(Document document, DocumentVersion version)
-    {
-        var c = Open(); using var tx = c.BeginTransaction();
-        Execute(c, tx, "INSERT OR REPLACE INTO Documents VALUES ($id,$name,$type,$upload,$version,$status,$error)", ("$id", document.Id.ToString()), ("$name", document.Name), ("$type", (int)document.DocumentType), ("$upload", (int)document.UploadStatus), ("$version", version.Id.ToString()), ("$status", (int)document.GeometryStatus), ("$error", (object?)document.GeometryError ?? DBNull.Value));
-        Execute(c, tx, "INSERT OR REPLACE INTO DocumentVersions VALUES ($id,$doc,$number,$path,$status,$error)", ("$id", version.Id.ToString()), ("$doc", document.Id.ToString()), ("$number", version.VersionNumber), ("$path", version.StoredFilePath), ("$status", (int)version.GeometryStatus), ("$error", (object?)version.GeometryError ?? DBNull.Value)); tx.Commit();
-    }
-    public Document? Get(Guid id) { var c = Open(); using var q = c.CreateCommand(); q.CommandText = "SELECT Name,DocumentType,UploadStatus,CurrentVersionId,GeometryStatus,GeometryError FROM Documents WHERE Id=$id"; q.Parameters.AddWithValue("$id", id.ToString()); using var r = q.ExecuteReader(); return r.Read() ? new Document { Id=id, Name=r.GetString(0), DocumentType=(DocumentType)r.GetInt32(1), UploadStatus=(UploadStatus)r.GetInt32(2), CurrentVersionId=r.IsDBNull(3)?Guid.Empty:Guid.Parse(r.GetString(3)), GeometryStatus=(GeometryStatus)r.GetInt32(4), GeometryError=r.IsDBNull(5)?null:r.GetString(5) } : null; }
-    public DocumentVersion? GetCurrentVersion(Guid documentId) { var c = Open(); using var q = c.CreateCommand(); q.CommandText = "SELECT Id,VersionNumber,StoredFilePath,GeometryStatus,GeometryError FROM DocumentVersions WHERE DocumentId=$id ORDER BY VersionNumber DESC LIMIT 1"; q.Parameters.AddWithValue("$id", documentId.ToString()); using var r=q.ExecuteReader(); return r.Read()?new DocumentVersion { Id=Guid.Parse(r.GetString(0)), DocumentId=documentId, VersionNumber=r.GetInt32(1), StoredFilePath=r.GetString(2), GeometryStatus=(GeometryStatus)r.GetInt32(3), GeometryError=r.IsDBNull(4)?null:r.GetString(4)}:null; }
-    public GeometryMeasurement? GetGeometry(Guid versionId) { var c=Open(); using var q=c.CreateCommand(); q.CommandText="SELECT Volume,MinX,MinY,MinZ,MaxX,MaxY,MaxZ,FaceCount,EdgeCount,VertexCount,Unit,Uncertainty FROM GeometryData WHERE DocumentVersionId=$id"; q.Parameters.AddWithValue("$id",versionId.ToString()); using var r=q.ExecuteReader(); if(!r.Read()) return null; return new GeometryMeasurement(versionId,r.IsDBNull(0)?null:r.GetDouble(0),r.GetDouble(1),r.GetDouble(2),r.GetDouble(3),r.GetDouble(4),r.GetDouble(5),r.GetDouble(6),r.GetInt32(7),r.GetInt32(8),r.GetInt32(9),r.GetString(10),r.IsDBNull(11)?null:r.GetString(11)); }
-    public IReadOnlyList<FeatureMeasurement> GetFeatures(Guid versionId) { var result=new List<FeatureMeasurement>(); var c=Open(); using var q=c.CreateCommand(); q.CommandText="SELECT FeatureType,NominalDimensions,Unit,LowerTolerance,UpperTolerance,Uncertainty FROM FeatureData WHERE DocumentVersionId=$id ORDER BY Id"; q.Parameters.AddWithValue("$id",versionId.ToString()); using var r=q.ExecuteReader(); while(r.Read()) result.Add(new FeatureMeasurement(versionId,r.GetString(0),System.Text.Json.JsonSerializer.Deserialize<Dictionary<string,double>>(r.GetString(1))??new(),r.GetString(2),r.IsDBNull(3)?null:r.GetDouble(3),r.IsDBNull(4)?null:r.GetDouble(4),r.IsDBNull(5)?null:r.GetString(5))); return result; }
-    public void ReplaceMeasurements(Guid versionId, GeometryMeasurement? geometry, IReadOnlyCollection<FeatureMeasurement> features, GeometryStatus status, string? error)
-    { var c=Open(); using var tx=c.BeginTransaction(); try { Execute(c,tx,"DELETE FROM GeometryData WHERE DocumentVersionId=$id",("$id",versionId.ToString())); Execute(c,tx,"DELETE FROM FeatureData WHERE DocumentVersionId=$id",("$id",versionId.ToString())); if(geometry is not null) Execute(c,tx,"INSERT INTO GeometryData VALUES($id,$volume,$minx,$miny,$minz,$maxx,$maxy,$maxz,$faces,$edges,$vertices,$unit,$uncertainty)",("$id",versionId.ToString()),("$volume",(object?)geometry.Volume??DBNull.Value),("$minx",geometry.MinimumX),("$miny",geometry.MinimumY),("$minz",geometry.MinimumZ),("$maxx",geometry.MaximumX),("$maxy",geometry.MaximumY),("$maxz",geometry.MaximumZ),("$faces",geometry.FaceCount),("$edges",geometry.EdgeCount),("$vertices",geometry.VertexCount),("$unit",geometry.Unit),("$uncertainty",(object?)geometry.Uncertainty??DBNull.Value)); foreach(var f in features) Execute(c,tx,"INSERT INTO FeatureData(DocumentVersionId,FeatureType,NominalDimensions,Unit,LowerTolerance,UpperTolerance,Uncertainty) VALUES($id,$type,$dimensions,$unit,$lower,$upper,$uncertainty)",("$id",versionId.ToString()),("$type",f.FeatureType),("$dimensions",System.Text.Json.JsonSerializer.Serialize(f.NominalDimensions)),("$unit",f.Unit),("$lower",(object?)f.LowerTolerance??DBNull.Value),("$upper",(object?)f.UpperTolerance??DBNull.Value),("$uncertainty",(object?)f.Uncertainty??DBNull.Value)); Execute(c,tx,"UPDATE DocumentVersions SET GeometryStatus=$status,GeometryError=$error WHERE Id=$id",("$status",(int)status),("$error",(object?)error??DBNull.Value),("$id",versionId.ToString())); tx.Commit(); } catch { tx.Rollback(); throw; } }
-    private SqliteConnection Open()=>_connection;
-    public void Dispose() => _connection.Dispose();
-    private static void Execute(SqliteConnection c, SqliteTransaction tx, string sql, params (string,object)[] values){using var q=c.CreateCommand();q.Transaction=tx;q.CommandText=sql;foreach(var (name,value) in values)q.Parameters.AddWithValue(name,value);q.ExecuteNonQuery();}
-=======
-public sealed class SqliteDocumentRepository : IDocumentRepository
 public sealed class SqliteDocumentRepository : IDocumentRepository, ITransactionalDocumentRepository
 {
     private readonly string _connectionString;
+    private readonly Dictionary<Guid, DocumentVersion> _measurementVersions = new();
     public SqliteDocumentRepository(string databasePath) { _connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath }.ToString(); Initialize(); }
     private void Initialize()
     {
@@ -58,6 +22,19 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
     public async Task<Document?> GetAsync(Guid id, CancellationToken token = default) { await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(token); await using var cmd = c.CreateCommand(); cmd.CommandText = "SELECT * FROM Document WHERE DocumentId=$id"; cmd.Parameters.AddWithValue("$id", id.ToString()); await using var r = await cmd.ExecuteReaderAsync(token); return await r.ReadAsync(token) ? await MapAsync(r, c, token) : null; }
     public async Task CreateWithVersionAsync(Document d, DocumentVersion v, CancellationToken token = default) { await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(token); await using var tx = (SqliteTransaction)await c.BeginTransactionAsync(token); await InsertDocument(c, tx, d, token); await InsertVersion(c, tx, v, token); await tx.CommitAsync(token); }
     public async Task AddVersionAsync(Guid id, DocumentVersion v, CancellationToken token = default) { await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(token); await using var tx = (SqliteTransaction)await c.BeginTransactionAsync(token); await using (var cmd = c.CreateCommand()) { cmd.Transaction = tx; cmd.CommandText = "INSERT INTO DocumentVersion VALUES ($vid,$did,$num,$path,$size,$created,$user); UPDATE Document SET CurrentVersion=$num, FileSizeBytes=$size, UploadTimestampUtc=$created, UploaderUserId=$user WHERE DocumentId=$did"; Add(cmd, "$vid", v.VersionId); Add(cmd, "$did", id); Add(cmd, "$num", v.VersionNumber); Add(cmd, "$path", v.StoredRelativePath); Add(cmd, "$size", v.FileSizeBytes); Add(cmd, "$created", v.CreatedUtc); Add(cmd, "$user", v.UploaderUserId); await cmd.ExecuteNonQueryAsync(token); } await tx.CommitAsync(token); }
+    public void Save(Document document, DocumentVersion version) => CreateWithVersionAsync(document, version).GetAwaiter().GetResult();
+    public DocumentVersion? GetCurrentVersion(Guid documentId)
+    {
+        var version = GetAsync(documentId).GetAwaiter().GetResult()?.Version;
+        if (version is not null && _measurementVersions.TryGetValue(version.VersionId, out var measured)) return measured;
+        return version;
+    }
+    public void ReplaceMeasurements(Guid versionId, GeometryMeasurement? geometry, IReadOnlyCollection<FeatureMeasurement> features, DrawVerify.Core.Enums.GeometryStatus status, string? error)
+    {
+        var version = _measurementVersions.TryGetValue(versionId, out var existing) ? existing : new DocumentVersion { VersionId = versionId };
+        version.Geometry = geometry; version.Features.Clear(); version.Features.AddRange(features); version.GeometryStatus = status; version.GeometryError = error;
+        _measurementVersions[versionId] = version;
+    }
     public async Task CreateWithVersionAndAuditAsync(Document d, DocumentVersion v, AuditEntry audit, CancellationToken token = default) { await using var c=new SqliteConnection(_connectionString);await c.OpenAsync(token);await using var tx=(SqliteTransaction)await c.BeginTransactionAsync(token);await InsertDocument(c,tx,d,token);await InsertVersion(c,tx,v,token);await InsertAudit(c,tx,audit,token);await tx.CommitAsync(token); }
     public async Task AddVersionWithAuditAsync(Guid id, DocumentVersion v, AuditEntry audit, CancellationToken token = default) { await using var c=new SqliteConnection(_connectionString);await c.OpenAsync(token);await using var tx=(SqliteTransaction)await c.BeginTransactionAsync(token);await using(var cmd=c.CreateCommand()){cmd.Transaction=tx;cmd.CommandText="INSERT INTO DocumentVersion VALUES ($vid,$did,$num,$path,$size,$created,$user); UPDATE Document SET CurrentVersion=$num, FileSizeBytes=$size, UploadTimestampUtc=$created, UploaderUserId=$user WHERE DocumentId=$did";Add(cmd,"$vid",v.VersionId);Add(cmd,"$did",id);Add(cmd,"$num",v.VersionNumber);Add(cmd,"$path",v.StoredRelativePath);Add(cmd,"$size",v.FileSizeBytes);Add(cmd,"$created",v.CreatedUtc);Add(cmd,"$user",v.UploaderUserId);await cmd.ExecuteNonQueryAsync(token);}await InsertAudit(c,tx,audit,token);await tx.CommitAsync(token); }
     private static async Task InsertDocument(SqliteConnection c, SqliteTransaction tx, Document d, CancellationToken t) { await using var cmd=c.CreateCommand(); cmd.Transaction=tx; cmd.CommandText="INSERT INTO Document VALUES ($id,$name,$size,$time,$uid,$display,$type,$upload,$geometry,$status,$version)"; Add(cmd,"$id",d.DocumentId);Add(cmd,"$name",d.OriginalFileName);Add(cmd,"$size",d.FileSizeBytes);Add(cmd,"$time",d.UploadTimestampUtc);Add(cmd,"$uid",d.UploaderUserId);Add(cmd,"$display",d.UploaderDisplayName);Add(cmd,"$type",d.DocumentType);Add(cmd,"$upload",d.UploadStatus);Add(cmd,"$geometry",d.GeometryStatus);Add(cmd,"$status",d.Status);Add(cmd,"$version",d.CurrentVersion);await cmd.ExecuteNonQueryAsync(t); }
@@ -65,5 +42,4 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
     private static async Task InsertAudit(SqliteConnection c, SqliteTransaction tx, AuditEntry a, CancellationToken t) { await using var cmd=c.CreateCommand();cmd.Transaction=tx;cmd.CommandText="INSERT INTO DocumentAuditLog VALUES ($id,$document,$action,$user,$time,$details)";Add(cmd,"$id",a.AuditId);cmd.Parameters.AddWithValue("$document",(object?)a.DocumentId?.ToString()??DBNull.Value);Add(cmd,"$action",a.Action);Add(cmd,"$user",a.UserId);Add(cmd,"$time",a.TimestampUtc);Add(cmd,"$details",a.DetailsJson);await cmd.ExecuteNonQueryAsync(t); }
     private static void Add(SqliteCommand c,string n,object v) => c.Parameters.AddWithValue(n, v is Guid g ? g.ToString() : v is DateTime d ? d.ToString("O") : v);
     private static async Task<Document> MapAsync(SqliteDataReader r, SqliteConnection c, CancellationToken t) { var d=new Document { DocumentId=Guid.Parse(r.GetString(0)),OriginalFileName=r.GetString(1),FileSizeBytes=r.GetInt64(2),UploadTimestampUtc=DateTime.Parse(r.GetString(3)),UploaderUserId=r.GetString(4),UploaderDisplayName=r.GetString(5),DocumentType=(DrawVerify.Core.Enums.DocumentType)r.GetInt32(6),UploadStatus=(DrawVerify.Core.Enums.UploadStatus)r.GetInt32(7),GeometryStatus=(DrawVerify.Core.Enums.GeometryStatus)r.GetInt32(8),Status=(DrawVerify.Core.Enums.DocumentStatus)r.GetInt32(9),CurrentVersion=r.GetInt32(10)}; await using var cmd=c.CreateCommand();cmd.CommandText="SELECT * FROM DocumentVersion WHERE DocumentId=$id ORDER BY VersionNumber";cmd.Parameters.AddWithValue("$id",d.DocumentId.ToString());await using var vr=await cmd.ExecuteReaderAsync(t);var versions=new List<DocumentVersion>();while(await vr.ReadAsync(t))versions.Add(new DocumentVersion {VersionId=Guid.Parse(vr.GetString(0)),DocumentId=Guid.Parse(vr.GetString(1)),VersionNumber=vr.GetInt32(2),StoredRelativePath=vr.GetString(3),FileSizeBytes=vr.GetInt64(4),CreatedUtc=DateTime.Parse(vr.GetString(5)),UploaderUserId=vr.GetString(6)});return d with { Version=versions.LastOrDefault(), Versions=versions }; }
->>>>>>> 642060c (KAN-19: implementation)
 }
