@@ -1,3 +1,4 @@
+using DrawVerify.Geometry.Models;
 namespace DrawVerify.Geometry;
 
 /// <summary>
@@ -7,4 +8,5 @@ namespace DrawVerify.Geometry;
 /// </summary>
 public interface IGeometryService
 {
+    MeasurementExtractionResult ExtractMeasurements(MeasurementExtractionRequest request, CancellationToken cancellationToken = default);
 }

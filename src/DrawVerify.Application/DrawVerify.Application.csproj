@@ -7,6 +7,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DrawVerify.Core\DrawVerify.Core.csproj" />
+    <ProjectReference Include="..\DrawVerify.Geometry\DrawVerify.Geometry.csproj" />
+    <ProjectReference Include="..\DrawVerify.OcctWorker\DrawVerify.OcctWorker.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

@@ -10,6 +10,7 @@ namespace DrawVerify.Infrastructure.Persistence;
 public sealed class SqliteDocumentRepository : IDocumentRepository, ITransactionalDocumentRepository
 {
     private readonly string _connectionString;
+    private readonly Dictionary<Guid, DocumentVersion> _measurementVersions = new();
     public SqliteDocumentRepository(string databasePath) { _connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath }.ToString(); Initialize(); }
     private void Initialize()
     {
@@ -21,6 +22,19 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
     public async Task<Document?> GetAsync(Guid id, CancellationToken token = default) { await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(token); await using var cmd = c.CreateCommand(); cmd.CommandText = "SELECT * FROM Document WHERE DocumentId=$id"; cmd.Parameters.AddWithValue("$id", id.ToString()); await using var r = await cmd.ExecuteReaderAsync(token); return await r.ReadAsync(token) ? await MapAsync(r, c, token) : null; }
     public async Task CreateWithVersionAsync(Document d, DocumentVersion v, CancellationToken token = default) { await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(token); await using var tx = (SqliteTransaction)await c.BeginTransactionAsync(token); await InsertDocument(c, tx, d, token); await InsertVersion(c, tx, v, token); await tx.CommitAsync(token); }
     public async Task AddVersionAsync(Guid id, DocumentVersion v, CancellationToken token = default) { await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(token); await using var tx = (SqliteTransaction)await c.BeginTransactionAsync(token); await using (var cmd = c.CreateCommand()) { cmd.Transaction = tx; cmd.CommandText = "INSERT INTO DocumentVersion VALUES ($vid,$did,$num,$path,$size,$created,$user); UPDATE Document SET CurrentVersion=$num, FileSizeBytes=$size, UploadTimestampUtc=$created, UploaderUserId=$user WHERE DocumentId=$did"; Add(cmd, "$vid", v.VersionId); Add(cmd, "$did", id); Add(cmd, "$num", v.VersionNumber); Add(cmd, "$path", v.StoredRelativePath); Add(cmd, "$size", v.FileSizeBytes); Add(cmd, "$created", v.CreatedUtc); Add(cmd, "$user", v.UploaderUserId); await cmd.ExecuteNonQueryAsync(token); } await tx.CommitAsync(token); }
+    public void Save(Document document, DocumentVersion version) => CreateWithVersionAsync(document, version).GetAwaiter().GetResult();
+    public DocumentVersion? GetCurrentVersion(Guid documentId)
+    {
+        var version = GetAsync(documentId).GetAwaiter().GetResult()?.Version;
+        if (version is not null && _measurementVersions.TryGetValue(version.VersionId, out var measured)) return measured;
+        return version;
+    }
+    public void ReplaceMeasurements(Guid versionId, GeometryMeasurement? geometry, IReadOnlyCollection<FeatureMeasurement> features, DrawVerify.Core.Enums.GeometryStatus status, string? error)
+    {
+        var version = _measurementVersions.TryGetValue(versionId, out var existing) ? existing : new DocumentVersion { VersionId = versionId };
+        version.Geometry = geometry; version.Features.Clear(); version.Features.AddRange(features); version.GeometryStatus = status; version.GeometryError = error;
+        _measurementVersions[versionId] = version;
+    }
     public async Task CreateWithVersionAndAuditAsync(Document d, DocumentVersion v, AuditEntry audit, CancellationToken token = default) { await using var c=new SqliteConnection(_connectionString);await c.OpenAsync(token);await using var tx=(SqliteTransaction)await c.BeginTransactionAsync(token);await InsertDocument(c,tx,d,token);await InsertVersion(c,tx,v,token);await InsertAudit(c,tx,audit,token);await tx.CommitAsync(token); }
     public async Task AddVersionWithAuditAsync(Guid id, DocumentVersion v, AuditEntry audit, CancellationToken token = default) { await using var c=new SqliteConnection(_connectionString);await c.OpenAsync(token);await using var tx=(SqliteTransaction)await c.BeginTransactionAsync(token);await using(var cmd=c.CreateCommand()){cmd.Transaction=tx;cmd.CommandText="INSERT INTO DocumentVersion VALUES ($vid,$did,$num,$path,$size,$created,$user); UPDATE Document SET CurrentVersion=$num, FileSizeBytes=$size, UploadTimestampUtc=$created, UploaderUserId=$user WHERE DocumentId=$did";Add(cmd,"$vid",v.VersionId);Add(cmd,"$did",id);Add(cmd,"$num",v.VersionNumber);Add(cmd,"$path",v.StoredRelativePath);Add(cmd,"$size",v.FileSizeBytes);Add(cmd,"$created",v.CreatedUtc);Add(cmd,"$user",v.UploaderUserId);await cmd.ExecuteNonQueryAsync(token);}await InsertAudit(c,tx,audit,token);await tx.CommitAsync(token); }
     private static async Task InsertDocument(SqliteConnection c, SqliteTransaction tx, Document d, CancellationToken t) { await using var cmd=c.CreateCommand(); cmd.Transaction=tx; cmd.CommandText="INSERT INTO Document VALUES ($id,$name,$size,$time,$uid,$display,$type,$upload,$geometry,$status,$version)"; Add(cmd,"$id",d.DocumentId);Add(cmd,"$name",d.OriginalFileName);Add(cmd,"$size",d.FileSizeBytes);Add(cmd,"$time",d.UploadTimestampUtc);Add(cmd,"$uid",d.UploaderUserId);Add(cmd,"$display",d.UploaderDisplayName);Add(cmd,"$type",d.DocumentType);Add(cmd,"$upload",d.UploadStatus);Add(cmd,"$geometry",d.GeometryStatus);Add(cmd,"$status",d.Status);Add(cmd,"$version",d.CurrentVersion);await cmd.ExecuteNonQueryAsync(t); }

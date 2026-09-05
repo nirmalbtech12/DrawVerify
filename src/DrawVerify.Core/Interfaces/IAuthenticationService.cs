@@ -8,6 +8,6 @@ namespace DrawVerify.Core.Interfaces;
 public interface IAuthenticationService
 {
     User? CurrentUser { get; }
-    bool IsAuthenticated { get; }
-    bool IsMaker { get; }
+    bool IsAuthenticated => CurrentUser is not null;
+    bool IsMaker => CurrentUser?.IsMaker == true;
 }

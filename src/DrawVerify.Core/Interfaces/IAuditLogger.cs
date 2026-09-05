@@ -7,5 +7,6 @@ namespace DrawVerify.Core.Interfaces;
 /// </summary>
 public interface IAuditLogger
 {
-    Task WriteAsync(AuditEntry entry, CancellationToken cancellationToken = default);
+    Task WriteAsync(AuditEntry entry, CancellationToken cancellationToken = default) { Append(entry); return Task.CompletedTask; }
+    void Append(AuditEntry entry) => WriteAsync(entry).GetAwaiter().GetResult();
 }

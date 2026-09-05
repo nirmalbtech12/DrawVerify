@@ -6,6 +6,9 @@ using DrawVerify.Core.Enums;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
 using Xunit;
+using DocumentType = DrawVerify.Core.Enums.DocumentType;
+using UploadStatus = DrawVerify.Core.Enums.UploadStatus;
+using GeometryStatus = DrawVerify.Core.Enums.GeometryStatus;
 
 namespace DrawVerify.Application.Tests;
 
