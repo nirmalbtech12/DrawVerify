@@ -2,7 +2,7 @@ using DrawVerify.App.ViewModels;
 using DrawVerify.Core.Models;
 using Xunit;
 
-namespace DrawVerify.Application.Tests;
+namespace DrawVerify.App.Tests;
 
 public sealed class DocumentDetailViewModelTests
 {

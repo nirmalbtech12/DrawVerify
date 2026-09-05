@@ -1,8 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0-windows</TargetFramework>
-    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <TargetFramework>net9.0</TargetFramework>
     <RootNamespace>DrawVerify.Application.Tests</RootNamespace>
     <AssemblyName>DrawVerify.Application.Tests</AssemblyName>
     <IsPackable>false</IsPackable>
@@ -18,7 +17,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\DrawVerify.Core\DrawVerify.Core.csproj" />
     <ProjectReference Include="..\..\src\DrawVerify.Application\DrawVerify.Application.csproj" />
-    <ProjectReference Include="..\..\src\DrawVerify.App\DrawVerify.App.csproj" />
   </ItemGroup>
 
 </Project>
