@@ -12,44 +12,78 @@ public sealed class UserAdministrationViewModel : INotifyPropertyChanged
 {
     private readonly UserAdministrationService _service;
     private string _username = string.Empty, _displayName = string.Empty, _password = string.Empty, _selectedUsername = string.Empty;
+    private UserAccount? _selectedUser;
     public UserAdministrationViewModel(UserAdministrationService service)
     {
-        _service = service; RoleCatalog = new(SystemRoles.Catalog); AssignedRoles = new(service.CurrentUserRoles); CanEditRoles = service.CanEditRoles;
+        _service = service; RoleCatalog = new(SystemRoles.Catalog); CanEditRoles = service.CanEditRoles;
+        RoleOptions = new(RoleCatalog.Select(role => new RoleSelectionOption(role, false, ToggleRole)));
+        AssignedRoles = new(service.CurrentUserRoles);
         CreateCommand = new Command(async _ => await CreateAsync(), _ => !IsBusy && CanEditRoles);
-        SetRolesCommand = new Command(async _ => await SetRolesAsync(), _ => !IsBusy && CanEditRoles && !string.IsNullOrWhiteSpace(SelectedUsername));
+        SetRolesCommand = new Command(async _ => await SetRolesAsync(), _ => !IsBusy && CanEditRoles && SelectedUser is not null);
         ToggleRoleCommand = new Command(role => ToggleRole(role as string), _ => CanEditRoles);
     }
     public event PropertyChangedEventHandler? PropertyChanged;
     public string Username { get => _username; set { _username = value; Changed(); } }
     public string DisplayName { get => _displayName; set { _displayName = value; Changed(); } }
     public string InitialPassword { get => _password; set { _password = value; Changed(); } }
-    public string SelectedUsername { get => _selectedUsername; set { _selectedUsername = value; var target = Users.FirstOrDefault(x => string.Equals(x.Username, value, StringComparison.OrdinalIgnoreCase)); if (target is not null) { AssignedRoles.Clear(); foreach (var role in target.Roles) AssignedRoles.Add(role); } Changed(); ((Command)SetRolesCommand).Raise(); } }
+    public string SelectedUsername { get => _selectedUsername; set { _selectedUsername = value; SelectUser(Users.FirstOrDefault(x => string.Equals(x.Username, value, StringComparison.OrdinalIgnoreCase))); Changed(); } }
+    public UserAccount? SelectedUser { get => _selectedUser; set { _selectedUser = value; _selectedUsername = value?.Username ?? string.Empty; AssignedRoles.Clear(); foreach (var role in value?.Roles ?? Array.Empty<string>()) if (SystemRoles.TryCanonicalize(role, out var canonical)) AssignedRoles.Add(canonical); foreach (var option in RoleOptions) option.SetSelected(AssignedRoles.Contains(option.Role.Id, StringComparer.OrdinalIgnoreCase)); Changed(); Changed(nameof(SelectedUsername)); ((Command)SetRolesCommand).Raise(); } }
     public string Message { get; private set; } = string.Empty;
     public bool IsBusy { get; private set; }
     public bool CanEditRoles { get; }
     public ObservableCollection<RoleDefinition> RoleCatalog { get; }
+    public ObservableCollection<RoleSelectionOption> RoleOptions { get; }
     public ObservableCollection<string> AssignedRoles { get; }
     public ObservableCollection<UserAccount> Users { get; } = new();
     public ICommand CreateCommand { get; }
     public ICommand SetRolesCommand { get; }
     public ICommand ToggleRoleCommand { get; }
-    public void ToggleRole(string? role) { if (!CanEditRoles || !SystemRoles.TryCanonicalize(role, out var canonical)) return; if (AssignedRoles.Contains(canonical)) AssignedRoles.Remove(canonical); else AssignedRoles.Add(canonical); }
-    public async Task LoadUsersAsync() { if (!CanEditRoles) return; try { Users.Clear(); foreach (var user in await _service.ListUsersAsync()) Users.Add(user); } catch (Exception ex) { Message = ex.Message; Changed(nameof(Message)); } }
+
+    public async Task LoadUsersAsync()
+    {
+        if (!CanEditRoles) return;
+        try
+        {
+            var users = await _service.ListUsersAsync(); Users.Clear(); foreach (var user in users) Users.Add(user);
+            if (SelectedUser is not null) SelectUser(Users.FirstOrDefault(x => x.Id == SelectedUser.Id));
+        }
+        catch (Exception ex) { Message = ex.Message; Changed(nameof(Message)); }
+    }
     public async Task CreateAsync()
     {
         if (IsBusy) return; IsBusy = true; Changed(nameof(IsBusy));
-        try { var result = await _service.CreateUserAsync(new(Username, DisplayName, InitialPassword)); Message = result.Message; Changed(nameof(Message)); if (result.Succeeded) { Username = string.Empty; DisplayName = string.Empty; } }
+        try { var result = await _service.CreateUserAsync(new(Username, DisplayName, InitialPassword)); Message = result.Message; Changed(nameof(Message)); if (result.Succeeded) { Username = string.Empty; DisplayName = string.Empty; await LoadUsersAsync(); } }
         catch (Exception ex) { Message = ex.Message; Changed(nameof(Message)); }
         finally { InitialPassword = string.Empty; IsBusy = false; Changed(nameof(IsBusy)); ((Command)CreateCommand).Raise(); }
     }
     public async Task SetRolesAsync()
     {
-        if (!CanEditRoles || string.IsNullOrWhiteSpace(SelectedUsername)) { Message = "Only an administrator can change user roles."; Changed(nameof(Message)); return; }
+        if (!CanEditRoles || SelectedUser is null) { Message = "Only an administrator can change user roles."; Changed(nameof(Message)); return; }
         IsBusy = true; Changed(nameof(IsBusy));
-        try { var result = await _service.SetUserRolesAsync(SelectedUsername, AssignedRoles); Message = result.Message; Changed(nameof(Message)); if (result.Succeeded) await LoadUsersAsync(); }
+        try { var result = await _service.SetUserRolesAsync(SelectedUser.Username, AssignedRoles); Message = result.Message; Changed(nameof(Message)); if (result.Succeeded) await LoadUsersAsync(); }
         catch (Exception ex) { Message = ex.Message; Changed(nameof(Message)); }
         finally { IsBusy = false; Changed(nameof(IsBusy)); ((Command)SetRolesCommand).Raise(); }
     }
+    public void ToggleRole(string? role) { if (!CanEditRoles || !SystemRoles.TryCanonicalize(role, out var canonical)) return; var option = RoleOptions.FirstOrDefault(x => x.Role.Id == canonical); if (option is not null) option.IsSelected = !option.IsSelected; }
+    private void SelectUser(UserAccount? user)
+    {
+        SelectedUser = user;
+    }
+    private void ToggleRole(RoleSelectionOption option) { if (!CanEditRoles) return; if (option.IsSelected && !AssignedRoles.Contains(option.Role.Id)) AssignedRoles.Add(option.Role.Id); else if (!option.IsSelected) AssignedRoles.Remove(option.Role.Id); }
     private void Changed([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     private sealed class Command(Action<object?> execute, Predicate<object?>? can = null) : ICommand { public event EventHandler? CanExecuteChanged; public bool CanExecute(object? p) => can?.Invoke(p) ?? true; public void Execute(object? p) => execute(p); public void Raise() => CanExecuteChanged?.Invoke(this, EventArgs.Empty); }
+}
+
+public sealed class RoleSelectionOption : INotifyPropertyChanged
+{
+    private readonly Action<RoleSelectionOption> _changed;
+    private bool _isSelected;
+    public RoleSelectionOption(RoleDefinition role, bool isSelected, Action<RoleSelectionOption> changed) { Role = role; _isSelected = isSelected; _changed = changed; }
+    public RoleDefinition Role { get; }
+    public string Id => Role.Id;
+    public string Name => Role.Name;
+    public string Description => Role.Description;
+    public bool IsSelected { get => _isSelected; set { if (_isSelected == value) return; _isSelected = value; PropertyChanged?.Invoke(this, new(nameof(IsSelected))); _changed(this); } }
+    internal void SetSelected(bool value) { if (_isSelected == value) return; _isSelected = value; PropertyChanged?.Invoke(this, new(nameof(IsSelected))); }
+    public event PropertyChangedEventHandler? PropertyChanged;
 }

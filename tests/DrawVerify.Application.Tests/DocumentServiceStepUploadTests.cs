@@ -183,12 +183,24 @@ public sealed class DocumentServiceStepUploadTests
         Assert.Equal(StepUploadResultKind.Success, result.Kind);
     }
 
+    [Fact]
+    public async Task Null_session_is_rejected_before_downstream_interactions()
+    {
+        var fakes = new Fakes(null, unauthenticated: true);
+        var result = await fakes.Service.UploadStepAsync(new StepUploadRequest("part.step", new MemoryStream(Encoding.UTF8.GetBytes(ValidStep))));
+        Assert.Equal(StepUploadResultKind.Rejected, result.Kind);
+        Assert.Contains("Maker", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(fakes.Documents.Writes);
+        Assert.Empty(fakes.Store.Created);
+    }
+
     private sealed class Fakes
     {
         public Fakes(StepUploadConfiguration? configuration = null, bool cancelAfterFirstWrite = false, Action? cancelUpload = null)
             : this(null, configuration, cancelAfterFirstWrite, cancelUpload) { }
-        public Fakes(ISessionAuthenticationService? session, StepUploadConfiguration? configuration = null, bool cancelAfterFirstWrite = false, Action? cancelUpload = null)
+        public Fakes(ISessionAuthenticationService? session, StepUploadConfiguration? configuration = null, bool cancelAfterFirstWrite = false, Action? cancelUpload = null, bool unauthenticated = false)
         {
+            if (session is null && !unauthenticated) { session = new SessionAuthenticationService(); session.SignIn(new AuthenticatedUser("MAKER", new[] { "Maker" })); }
             Documents = new DocumentRepository(Audit);
             Store = new FileStore { CancelAfterFirstWrite = cancelAfterFirstWrite, CancelUpload = cancelUpload };
             Service = new DocumentService(Documents, Audit, Store, configuration ?? new StepUploadConfiguration(), session: session);

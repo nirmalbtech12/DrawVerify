@@ -22,14 +22,17 @@ public sealed class DocumentService
     private readonly IStepUploadFileStore _files;
     private readonly StepUploadConfiguration _configuration;
     private readonly ICentralizedLogger? _logger;
-    private readonly ISessionAuthenticationService? _session;
+    private readonly ISessionAuthenticationService _session;
     private readonly RoleAuthorization _authorization;
     private readonly Dictionary<string, StepUploadPreparation> _preparedDuplicates = new(StringComparer.Ordinal);
-    public bool CanUploadStep => _session is null || _authorization.IsAllowed(_session.CurrentUser, RolePermission.Upload);
+    public bool CanUploadStep => _session.IsAuthenticated && _authorization.IsAllowed(_session.CurrentUser, RolePermission.Upload);
 
-    public DocumentService(IDocumentRepository documents, IAuditLogger audit, IStepUploadFileStore files, StepUploadConfiguration configuration, ICentralizedLogger? logger = null, ISessionAuthenticationService? session = null, RoleAuthorization? authorization = null)
+    public DocumentService(IDocumentRepository documents, IAuditLogger audit, IStepUploadFileStore files, StepUploadConfiguration configuration, ICentralizedLogger? logger = null)
+        : this(documents, audit, files, configuration, new SessionAuthenticationService(), logger, new RoleAuthorization()) { }
+
+    public DocumentService(IDocumentRepository documents, IAuditLogger audit, IStepUploadFileStore files, StepUploadConfiguration configuration, ISessionAuthenticationService? session, ICentralizedLogger? logger = null, RoleAuthorization? authorization = null)
     {
-        _documents = documents; _transactionalDocuments = documents as ITransactionalDocumentRepository ?? throw new ArgumentException("The document repository must support transactional document, version, and audit persistence.", nameof(documents)); _audit = audit; _files = files; _configuration = configuration; _logger = logger; _session = session; _authorization = authorization ?? new RoleAuthorization(); _configuration.Validate();
+        _documents = documents; _transactionalDocuments = documents as ITransactionalDocumentRepository ?? throw new ArgumentException("The document repository must support transactional document, version, and audit persistence.", nameof(documents)); _audit = audit; _files = files; _configuration = configuration; _logger = logger; _session = session ?? new SessionAuthenticationService(); _authorization = authorization ?? new RoleAuthorization(); _configuration.Validate();
     }
 
     public async Task<StepUploadResult> PrepareStepUploadAsync(StepUploadRequest request)

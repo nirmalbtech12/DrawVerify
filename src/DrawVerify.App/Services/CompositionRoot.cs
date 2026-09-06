@@ -39,7 +39,7 @@ public static class CompositionRoot
         var config=StepUploadConfiguration;
         var database=Path.Combine(AppContext.BaseDirectory,"drawverify.db");
         var logger = new CentralizedLogger();
-        return new StepUploadViewModel(new DocumentService(new SqliteDocumentRepository(database, logger),new SqliteAuditRepository(database),new DocumentFileStore(AppContext.BaseDirectory,config),config,logger,Session,Authorization));
+        return new StepUploadViewModel(new DocumentService(new SqliteDocumentRepository(database, logger),new SqliteAuditRepository(database),new DocumentFileStore(AppContext.BaseDirectory,config),config,Session,logger,Authorization));
     }
     private static StepUploadConfiguration LoadStepUploadConfiguration()
     {
