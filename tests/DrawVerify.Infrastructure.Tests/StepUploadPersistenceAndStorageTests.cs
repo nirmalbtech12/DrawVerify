@@ -71,22 +71,24 @@ public sealed class StepUploadPersistenceAndStorageTests
             var audit = new SqliteAuditRepository(database);
             foreach (var action in Enum.GetValues<DocumentAuditAction>())
                 await audit.WriteAsync(new AuditEntry { DocumentId = action == DocumentAuditAction.Cancelled ? null : id, Action = action, DetailsJson = "{\"fileName\":\"part.step\"}" });
-            await using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={database}");
-            await connection.OpenAsync();
-            await using var command = connection.CreateCommand();
-            command.CommandText = "SELECT Action, DocumentId, TimestampUtc, DetailsJson FROM DocumentAuditLog ORDER BY rowid";
-            await using var reader = await command.ExecuteReaderAsync();
-            var rows = 0;
-            while (await reader.ReadAsync())
+            await using (var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={database}"))
             {
-                rows++;
-                Assert.False(string.IsNullOrWhiteSpace(reader.GetString(2)));
-                Assert.Contains("fileName", reader.GetString(3));
-                if ((DocumentAuditAction)reader.GetInt32(0) == DocumentAuditAction.Cancelled) Assert.True(reader.IsDBNull(1));
+                await connection.OpenAsync();
+                await using var command = connection.CreateCommand();
+                command.CommandText = "SELECT Action, DocumentId, TimestampUtc, DetailsJson FROM DocumentAuditLog ORDER BY rowid";
+                await using var reader = await command.ExecuteReaderAsync();
+                var rows = 0;
+                while (await reader.ReadAsync())
+                {
+                    rows++;
+                    Assert.False(string.IsNullOrWhiteSpace(reader.GetString(2)));
+                    Assert.Contains("fileName", reader.GetString(3));
+                    if ((DocumentAuditAction)reader.GetInt32(0) == DocumentAuditAction.Cancelled) Assert.True(reader.IsDBNull(1));
+                }
+                Assert.Equal(Enum.GetValues<DocumentAuditAction>().Length, rows);
             }
-            Assert.Equal(Enum.GetValues<DocumentAuditAction>().Length, rows);
         }
-        finally { Directory.Delete(root, recursive: true); }
+        finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); Directory.Delete(root, recursive: true); }
     }
 
     [Fact(DisplayName = "TD-KAN116-INF-001 migrates legacy user provenance schema idempotently")]
@@ -153,7 +155,7 @@ public sealed class StepUploadPersistenceAndStorageTests
             Assert.NotNull(reloaded);
             Assert.Single(reloaded.Versions);
         }
-        finally { Directory.Delete(root, recursive: true); }
+        finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); Directory.Delete(root, recursive: true); }
     }
 
     private static string NewDirectory()
