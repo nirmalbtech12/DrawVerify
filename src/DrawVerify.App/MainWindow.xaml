@@ -5,6 +5,5 @@
         Height="800"
         Width="1200"
         WindowStartupLocation="CenterScreen">
-    <Grid>
-    </Grid>
+    <ContentControl x:Name="MainContent" />
 </Window>

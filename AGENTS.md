@@ -86,6 +86,32 @@ dotnet build DrawVerify.sln
 dotnet test
 ```
 
+Test execution must respect project platform requirements:
+
+- `src/DrawVerify.Application` targets `net9.0` and is cross-platform.
+- `src/DrawVerify.App` targets `net9.0-windows` and uses WPF.
+- `tests/DrawVerify.Application.Tests` targets `net9.0`, references only the
+  cross-platform Application dependencies, and is eligible on Linux, macOS,
+  and Windows.
+- `tests/DrawVerify.App.Tests` targets `net9.0-windows`, tests WPF/ViewModel
+  behavior, and is Windows-only.
+
+Pipeline agents must select eligible test projects from the runner operating
+system rather than blindly launching every test assembly:
+
+- On Linux or macOS, run `DrawVerify.Core.Tests`,
+  `DrawVerify.Geometry.Tests`, `DrawVerify.OcctService.Tests`,
+  `DrawVerify.Application.Tests`, and `DrawVerify.Infrastructure.Tests`.
+  Explicitly report `DrawVerify.App.Tests` as skipped because it requires the
+  Windows Desktop runtime.
+- On Windows, run the full test suite, including `DrawVerify.App.Tests`.
+
+An eligible test failure must fail the pipeline. Do not suppress test-host
+startup errors or treat an aborted Windows-only test run as a passing result.
+When moving tests, keep Application-layer tests in `Application.Tests` and
+WPF/ViewModel tests in `App.Tests` so target frameworks and CI eligibility
+remain aligned.
+
 ### Rebuild / clean rebuild
 
 Incremental rebuild:
@@ -103,15 +129,18 @@ dotnet build DrawVerify.sln -t:Rebuild
 
 ### Publish and run the Windows app
 
-`DrawVerify.App` is Windows-only (WPF). From WSL, publish self-contained to the path configured in `src/DrawVerify.App/appsettings.json` under `Publish.Path`, then launch it from Windows:
+`DrawVerify.App` is Windows-only (WPF). From WSL, run [`run.sh`](/home/nirmal/projects/DrawVerify/run.sh) to publish self-contained to the path configured in `src/DrawVerify.App/appsettings.json` under `Publish.Path`, then launch it from Windows:
 
 ```bash
-PUB=$(python3 -c "import json,re;p=json.load(open('src/DrawVerify.App/appsettings.json'))['Publish']['Path'];d,r=re.match(r'^([A-Za-z]):\\\\(.*)$',p).groups();print('/mnt/'+d.lower()+'/'+r.replace('\\\\','/'))") \
-&& rm -rf "$PUB" \
-&& dotnet restore src/DrawVerify.App -r win-x64 \
-&& dotnet publish src/DrawVerify.App -c Debug -r win-x64 --self-contained true --no-restore -o "$PUB" \
-&& cmd.exe /c "C:\Users\nirma\Documents\Product\DrawVerify\Published\DrawVerify.App.exe"
+./run.sh
 ```
+
+The script must be run from the repository root. It reads the Windows publish
+path from `src/DrawVerify.App/appsettings.json`, clears that publish directory,
+restores for `win-x64`, publishes the self-contained application, and launches
+the resulting executable through Windows. The restore step must remain
+separate from `dotnet publish --no-restore` so the runtime-specific assets are
+present.
 
 The publish destination is read from `appsettings.json` (`Publish.Path`), so changing it there changes the target.
 
@@ -120,6 +149,8 @@ Note: the separate `dotnet restore -r win-x64` before `--no-restore` is required
 ---
 
 This is a production system.
+
+KAN-116 removed the legacy user-management and authentication module. Future User & Role Management work belongs to Epic 13; no replacement identity, roles, or authorization are provided by this removal.
 
 Prefer **clear, visible failure over silent or misleading success**.
 
@@ -162,80 +193,3 @@ Do not log sensitive information.
 **Visible failure + useful centralized logging is preferable to silent fallback.**
 
 ---
-
-## Graphify
-
-`graphify-out/` is the primary codebase reference.
-
-The code graph must be generated **only from the DrawVerify source project**:
-
-```bash
-graphify extract ./DrawVerify/src --code-only
-```
-
-Do not run Graphify against the repository root.
-
-The graph must recursively include:
-
-```text
-./DrawVerify/src
-```
-
-and its subfolders.
-
-When `graphify-out/graph.json` exists, use Graphify first for codebase questions:
-
-```bash
-graphify query "<question>"
-graphify path "<A>" "<B>"
-graphify explain "<concept>"
-```
-
-Regenerate the graph when source-code changes materially affect the code structure or dependencies.
-
-Do not regenerate the graph unnecessarily for every agent call.
-
----
-
-## Security Checks
-
-For relevant code changes, run **Semgrep** and **Gitleaks**.
-
-### Semgrep
-
-```bash
-mkdir -p security-reports
-
-semgrep scan \
-  --config p/default \
-  --json \
-  --output security-reports/semgrep.json \
-  --exclude .git \
-  --exclude bin \
-  --exclude obj \
-  --exclude node_modules \
-  --exclude security-reports \
-  --exclude graphify-out
-```
-
-### Gitleaks
-
-```bash
-gitleaks detect \
-  --source . \
-  --report-format json \
-  --report-path security-reports/gitleaks.json \
-  --verbose
-```
-
-The `.gitleaks.toml` config in the repo root excludes `graphify-out/` from scans (auto-discovered from `--source`). It extends the default rules so all other detections still apply.
-
-### Security Rules
-* Review all findings.
-* Fix genuine code vulnerabilities, insecure patterns, and exposed secrets.
-* Do not suppress findings just to make the scan pass.
-* Do not expose actual secrets in agent output.
-* After fixing findings, **run the scanner again**.
-* Scanner execution errors must be reported clearly; never treat a failed scan as a clean scan.
-* Keep reports under `security-reports/` and do not commit them.
-* Use the scanner results for security decisions; do not replace them with LLM-only analysis.

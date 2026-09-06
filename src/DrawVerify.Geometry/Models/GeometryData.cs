@@ -5,4 +5,11 @@ namespace DrawVerify.Geometry.Models;
 /// </summary>
 public sealed class GeometryData
 {
+    public double? Volume { get; init; }
+    public BoundingBox? BoundingBox { get; init; }
+    public int FaceCount { get; init; }
+    public int EdgeCount { get; init; }
+    public int VertexCount { get; init; }
+    public string Unit { get; init; } = "mm";
+    public string? Uncertainty { get; set; }
 }

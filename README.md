@@ -36,7 +36,7 @@ See `docs/architecture.md` and `docs/engineering-rules.md` for the full record.
 
 ## Build notes
 
-- The `DrawVerify.App` WPF project targets `net8.0-windows` and requires a Windows build host.
+- The `DrawVerify.App` WPF project targets `net9.0-windows` and requires a Windows build host.
 - OCCT native DLLs are built via `native/scripts/build-occt.ps1` and the C# wrapper is
   regenerated via `native/scripts/generate-wrapper.ps1` (SWIG output lands in
   `src/DrawVerify.OcctWrapper/Generated`). See `docs/deployment.md`.

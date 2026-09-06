@@ -29,6 +29,7 @@
 
   <ItemGroup>
     <None Include="Fixtures\invalid.step" Link="Fixtures\invalid.step" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\non-solid.step" Link="Fixtures\non-solid.step" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\native\occt\data\step\screw.step" Condition="Exists('..\..\native\occt\data\step\screw.step')" Link="Fixtures\screw.step" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\native\build\drawverify-occt\fixtures\*.step" Condition="Exists('..\..\native\build\drawverify-occt\fixtures')" Link="Fixtures\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\data\eccv2026-cad-challenge-data\train\sample-000000\000000.dxf" Condition="Exists('..\..\data\eccv2026-cad-challenge-data\train\sample-000000\000000.dxf')" Link="Dataset\sample-000000\000000.dxf" CopyToOutputDirectory="PreserveNewest" />
