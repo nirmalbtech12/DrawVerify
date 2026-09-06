@@ -43,6 +43,7 @@ public sealed class UserAdministrationServiceTests
     public async Task Admin_can_assign_any_combination_and_audit_before_after_values()
     {
         var users = new UsersFake();
+        users.Accounts.Add(Account("ADMIN", new[] { "Admin" }));
         users.Accounts.Add(Account("TARGET", new[] { "Maker" }));
         var audit = new AuditFake();
         var session = new SessionAuthenticationService();

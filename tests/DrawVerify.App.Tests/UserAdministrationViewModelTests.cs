@@ -16,7 +16,8 @@ public sealed class UserAdministrationViewModelTests
         var session=new SessionAuthenticationService(); session.SignIn(new AuthenticatedUser("ADMIN",new[]{"Admin"})); var users=new UsersFake();
         var vm=new UserAdministrationViewModel(new UserAdministrationService(users,new AuditFake(),session,new AuthenticationConfiguration(),new LoggerFake()));
         vm.Username="new.user"; vm.DisplayName="New User"; vm.InitialPassword="GoodPassword1!"; await vm.CreateAsync();
-        Assert.Equal("User created.",vm.Message); Assert.Single(users.Accounts); Assert.Empty(users.Accounts[0].Roles); Assert.Equal(string.Empty,vm.InitialPassword);
+        var created = users.Accounts.First(x => x.Username == "NEW.USER");
+        Assert.Equal("User created.",vm.Message); Assert.Empty(created.Roles); Assert.Equal(string.Empty,vm.InitialPassword);
     }
     [Fact]
     public async Task Administration_view_model_clears_password_after_validation_failure()
@@ -24,7 +25,7 @@ public sealed class UserAdministrationViewModelTests
         var session=new SessionAuthenticationService(); session.SignIn(new AuthenticatedUser("ADMIN",new[]{"Admin"}));
         var vm=new UserAdministrationViewModel(new UserAdministrationService(new UsersFake(),new AuditFake(),session,new AuthenticationConfiguration(),new LoggerFake())) { InitialPassword="weak" };
         await vm.CreateAsync();
-        Assert.Equal(string.Empty,vm.InitialPassword); Assert.Contains("at least",vm.Message,StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(string.Empty,vm.InitialPassword); Assert.Equal("Username is required.",vm.Message);
     }
     [Fact]
     public async Task Administration_view_model_rejects_non_admin_without_persisting()
@@ -38,13 +39,27 @@ public sealed class UserAdministrationViewModelTests
     public async Task Admin_can_edit_selected_roles_and_refresh_after_success()
     {
         var session=new SessionAuthenticationService(); session.SignIn(new AuthenticatedUser("ADMIN",new[]{SystemRoles.Admin}));
-        var target=Account("TARGET",SystemRoles.Viewer); var users=new UsersFake(target);
+        var target=Account("TARGET",SystemRoles.Viewer); var users=new UsersFake(Account("ADMIN",SystemRoles.Admin),target);
         var vm=new UserAdministrationViewModel(new UserAdministrationService(users,new AuditFake(),session,new AuthenticationConfiguration(),new LoggerFake()));
-        await vm.LoadUsersAsync(); vm.SelectedUser=vm.Users.Single();
+        await vm.LoadUsersAsync(); vm.SelectedUser=vm.Users.First(x=>x.Username=="TARGET");
         Assert.Equal(new[]{SystemRoles.Viewer},vm.AssignedRoles);
         vm.ToggleRole(SystemRoles.Maker); await vm.SetRolesAsync();
-        Assert.Equal(new[]{SystemRoles.Viewer,SystemRoles.Maker},users.Accounts.Single().Roles);
+        Assert.Equal(new[]{SystemRoles.Viewer,SystemRoles.Maker},users.Accounts.First(x=>x.Username=="TARGET").Roles);
         Assert.Contains(SystemRoles.Maker,vm.AssignedRoles);
+    }
+
+    [Fact(DisplayName = "TD-10 refreshes authoritative roles and preserves the save error")]
+    public async Task Save_failure_refreshes_authoritative_roles()
+    {
+        var session=new SessionAuthenticationService(); session.SignIn(new AuthenticatedUser("ADMIN",new[]{SystemRoles.Admin}));
+        var users=new UsersFake(Account("ADMIN",SystemRoles.Admin),Account("TARGET",SystemRoles.Viewer)) { FailAfterPersist=true };
+        var vm=new UserAdministrationViewModel(new UserAdministrationService(users,new AuditFake(),session,new AuthenticationConfiguration(),new LoggerFake()));
+        await vm.LoadUsersAsync(); vm.SelectedUser=vm.Users.First(x=>x.Username=="TARGET"); vm.ToggleRole(SystemRoles.Maker);
+
+        await vm.SetRolesAsync();
+
+        Assert.Equal("role persistence failed",vm.Message);
+        Assert.Equal(new[]{SystemRoles.Viewer,SystemRoles.Maker},vm.AssignedRoles);
     }
     [Fact(DisplayName = "TD-APPUI-001 non-admin self profile is read-only")]
     public void Non_admin_sees_own_roles_without_editing()
@@ -57,11 +72,12 @@ public sealed class UserAdministrationViewModelTests
     private sealed class UsersFake : IUserRepository
     {
         public List<UserAccount> Accounts { get; } = [];
+        public bool FailAfterPersist { get; init; }
         public UsersFake(params UserAccount[] accounts) => Accounts.AddRange(accounts);
         public Task<UserAccount?> FindByUsernameAsync(string n,CancellationToken t=default)=>Task.FromResult(Accounts.FirstOrDefault(x=>x.Username==n));
         public Task CreateAsync(UserAccount a,AuthenticationAuditEntry e,CancellationToken t=default){Accounts.Add(a);return Task.CompletedTask;}
         public Task<IReadOnlyList<UserAccount>> ListAsync(CancellationToken t=default)=>Task.FromResult<IReadOnlyList<UserAccount>>(Accounts);
-        public Task ReplaceRolesAsync(string n,IReadOnlyList<string> roles,RoleAssignmentAuditEntry audit,CancellationToken t=default){var index=Accounts.FindIndex(x=>x.Username==n); var account=Accounts[index]; Accounts[index]=new UserAccount { Id=account.Id,Username=account.Username,DisplayName=account.DisplayName,PasswordSalt=account.PasswordSalt,PasswordHash=account.PasswordHash,PasswordAlgorithm=account.PasswordAlgorithm,PasswordIterations=account.PasswordIterations,Roles=roles }; return Task.CompletedTask;}
+        public Task ReplaceRolesAsync(string n,IReadOnlyList<string> roles,RoleAssignmentAuditEntry audit,CancellationToken t=default){var index=Accounts.FindIndex(x=>x.Username==n); var account=Accounts[index]; Accounts[index]=new UserAccount { Id=account.Id,Username=account.Username,DisplayName=account.DisplayName,PasswordSalt=account.PasswordSalt,PasswordHash=account.PasswordHash,PasswordAlgorithm=account.PasswordAlgorithm,PasswordIterations=account.PasswordIterations,Roles=roles }; return FailAfterPersist ? Task.FromException(new InvalidOperationException("role persistence failed")) : Task.CompletedTask;}
         public Task<LoginAttemptState> RecordLoginAttemptAsync(string n,bool s,int th,TimeSpan d,DateTimeOffset now,CancellationToken t=default)=>Task.FromResult(new LoginAttemptState(null,false,null));
         public Task<LoginAttemptState> VerifyAndRecordLoginAttemptAsync(string n,Func<UserAccount,bool> verifier,int th,TimeSpan d,DateTimeOffset now,CancellationToken t=default)=>Task.FromResult(new LoginAttemptState(null,false,"InvalidUsername"));
     }
