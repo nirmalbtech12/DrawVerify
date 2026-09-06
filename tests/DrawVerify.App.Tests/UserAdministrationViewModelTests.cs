@@ -4,6 +4,7 @@ using DrawVerify.Core.Configuration;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
 using Xunit;
+using System.Reflection;
 
 namespace DrawVerify.App.Tests;
 
@@ -31,6 +32,15 @@ public sealed class UserAdministrationViewModelTests
         var session=new SessionAuthenticationService(); session.SignIn(new AuthenticatedUser("VIEWER",new[]{"Viewer"})); var users=new UsersFake();
         var vm=new UserAdministrationViewModel(new UserAdministrationService(users,new AuditFake(),session,new AuthenticationConfiguration(),new LoggerFake())) { Username="new",DisplayName="New",InitialPassword="GoodPassword1!" };
         await vm.CreateAsync(); Assert.Empty(users.Accounts); Assert.Equal(string.Empty,vm.InitialPassword);
+    }
+
+    [Fact(DisplayName = "TD-APPUI-001 exposes assigned-role display and Admin edit controls")]
+    public void Administration_view_model_contract_includes_role_visibility_and_editability()
+    {
+        Assert.NotNull(typeof(UserAdministrationViewModel).GetProperty("AssignedRoles"));
+        Assert.NotNull(typeof(UserAdministrationViewModel).GetProperty("RoleCatalog"));
+        Assert.NotNull(typeof(UserAdministrationViewModel).GetProperty("CanEditRoles"));
+        Assert.NotNull(typeof(UserAdministrationViewModel).GetMethod("SetRolesAsync"));
     }
     private sealed class UsersFake : IUserRepository { public List<UserAccount> Accounts{get;}=[]; public Task<UserAccount?> FindByUsernameAsync(string n,CancellationToken t=default)=>Task.FromResult<UserAccount?>(null); public Task CreateAsync(UserAccount a,AuthenticationAuditEntry e,CancellationToken t=default){Accounts.Add(a);return Task.CompletedTask;} public Task<LoginAttemptState> RecordLoginAttemptAsync(string n,bool s,int th,TimeSpan d,DateTimeOffset now,CancellationToken t=default)=>Task.FromResult(new LoginAttemptState(null,false,null)); public Task<LoginAttemptState> VerifyAndRecordLoginAttemptAsync(string n,Func<UserAccount,bool> verifier,int th,TimeSpan d,DateTimeOffset now,CancellationToken t=default)=>Task.FromResult(new LoginAttemptState(null,false,"InvalidUsername")); }
     private sealed class AuditFake : IAuthenticationAuditRepository { public Task WriteAsync(AuthenticationAuditEntry e,CancellationToken t=default)=>Task.CompletedTask; }

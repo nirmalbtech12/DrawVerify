@@ -36,4 +36,19 @@ public sealed class AuthenticationConfigurationTests
         Assert.Equal("Password must contain a non-alphanumeric character.", configuration.ValidatePassword("Abcdefghijkl1"));
     }
 
+    [Fact(DisplayName = "TD-CORE-001 validates configurable canonical default roles")]
+    public void Default_roles_are_empty_or_canonical_and_invalid_values_fail()
+    {
+        var empty = new AuthenticationConfiguration { DefaultRoles = Array.Empty<string>() };
+        empty.Validate();
+        Assert.Empty(empty.CanonicalDefaultRoles);
+
+        var viewer = new AuthenticationConfiguration { DefaultRoles = new[] { "viewer" } };
+        viewer.Validate();
+        Assert.Equal(new[] { "Viewer" }, viewer.CanonicalDefaultRoles);
+
+        Assert.Throws<InvalidOperationException>(() => new AuthenticationConfiguration { DefaultRoles = new[] { "Viewer", "viewer" } }.Validate());
+        Assert.Throws<InvalidOperationException>(() => new AuthenticationConfiguration { DefaultRoles = new[] { "Unknown" } }.Validate());
+    }
+
 }

@@ -2,6 +2,7 @@ using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
 using DrawVerify.Application.Services;
 using Microsoft.Data.Sqlite;
+using System.Text.Json;
 
 namespace DrawVerify.Infrastructure.Persistence;
 
@@ -17,7 +18,31 @@ public sealed class SqliteUserRepository : IUserRepository
     private void Initialize()
     {
         using var c = new SqliteConnection(_connectionString); c.Open();
-        using var cmd = c.CreateCommand(); cmd.CommandText = "CREATE TABLE IF NOT EXISTS UserAccount (UserId TEXT PRIMARY KEY, NormalizedUsername TEXT NOT NULL UNIQUE, DisplayName TEXT NOT NULL, PasswordSalt BLOB NOT NULL, PasswordHash BLOB NOT NULL, PasswordAlgorithm TEXT NOT NULL, PasswordIterations INTEGER NOT NULL, FailedAttempts INTEGER NOT NULL DEFAULT 0, LockedUntilUtc TEXT NULL); CREATE TABLE IF NOT EXISTS UserAccountRole (UserId TEXT NOT NULL, RoleName TEXT NOT NULL, PRIMARY KEY(UserId, RoleName), FOREIGN KEY(UserId) REFERENCES UserAccount(UserId)); CREATE TABLE IF NOT EXISTS AuthenticationAuditLog (AuditId TEXT PRIMARY KEY, ActorUsername TEXT NULL, Username TEXT NOT NULL, TimestampUtc TEXT NOT NULL, Action TEXT NOT NULL, Result TEXT NOT NULL, FailureReason TEXT NULL);"; cmd.ExecuteNonQuery();
+        using var cmd = c.CreateCommand(); cmd.CommandText = "CREATE TABLE IF NOT EXISTS UserAccount (UserId TEXT PRIMARY KEY, NormalizedUsername TEXT NOT NULL UNIQUE, DisplayName TEXT NOT NULL, PasswordSalt BLOB NOT NULL, PasswordHash BLOB NOT NULL, PasswordAlgorithm TEXT NOT NULL, PasswordIterations INTEGER NOT NULL, FailedAttempts INTEGER NOT NULL DEFAULT 0, LockedUntilUtc TEXT NULL); CREATE TABLE IF NOT EXISTS UserAccountRole (UserId TEXT NOT NULL, RoleName TEXT NOT NULL, PRIMARY KEY(UserId, RoleName), FOREIGN KEY(UserId) REFERENCES UserAccount(UserId)); CREATE TABLE IF NOT EXISTS AuthenticationAuditLog (AuditId TEXT PRIMARY KEY, ActorUsername TEXT NULL, Username TEXT NOT NULL, TimestampUtc TEXT NOT NULL, Action TEXT NOT NULL, Result TEXT NOT NULL, FailureReason TEXT NULL, RolesBefore TEXT NULL, RolesAfter TEXT NULL);"; cmd.ExecuteNonQuery();
+        AddColumnIfMissing(c, "AuthenticationAuditLog", "RolesBefore", "TEXT NULL");
+        AddColumnIfMissing(c, "AuthenticationAuditLog", "RolesAfter", "TEXT NULL");
+    }
+    public async Task<IReadOnlyList<UserAccount>> ListAsync(CancellationToken cancellationToken = default)
+    {
+        await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(cancellationToken);
+        await using var q = c.CreateCommand(); q.CommandText = "SELECT NormalizedUsername FROM UserAccount ORDER BY NormalizedUsername";
+        await using var r = await q.ExecuteReaderAsync(cancellationToken); var result = new List<UserAccount>();
+        while (await r.ReadAsync(cancellationToken)) { var account = await FindByUsernameAsync(r.GetString(0), cancellationToken); if (account is not null) result.Add(account); }
+        return result;
+    }
+    public async Task ReplaceRolesAsync(string normalizedUsername, IReadOnlyList<string> roles, RoleAssignmentAuditEntry audit, CancellationToken cancellationToken = default)
+    {
+        await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(cancellationToken); await using var tx = (SqliteTransaction)await c.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            await using var find = c.CreateCommand(); find.Transaction = tx; find.CommandText = "SELECT UserId FROM UserAccount WHERE NormalizedUsername=$u"; find.Parameters.AddWithValue("$u", normalizedUsername); var id = await find.ExecuteScalarAsync(cancellationToken);
+            if (id is null) throw new KeyNotFoundException($"User '{normalizedUsername}' was not found.");
+            await Execute(c, tx, "DELETE FROM UserAccountRole WHERE UserId=$id", cancellationToken, ("$id", id));
+            foreach (var role in roles) await Execute(c, tx, "INSERT INTO UserAccountRole (UserId,RoleName) VALUES ($id,$r)", cancellationToken, ("$id", id), ("$r", role));
+            var entry = new AuthenticationAuditEntry(audit.ActorUsername, audit.AffectedUsername, audit.TimestampUtc, audit.ActionType, "Success", null, JsonSerializer.Serialize(audit.RolesBefore), JsonSerializer.Serialize(audit.RolesAfter));
+            await SqliteAuthenticationAuditRepository.InsertAsync(c, tx, entry, cancellationToken); await tx.CommitAsync(cancellationToken);
+        }
+        catch { try { await tx.RollbackAsync(cancellationToken); } catch { } throw; }
     }
     public async Task<UserAccount?> FindByUsernameAsync(string normalizedUsername, CancellationToken cancellationToken = default)
     {
@@ -61,4 +86,8 @@ public sealed class SqliteUserRepository : IUserRepository
     }
     private static bool IsNormalizedUsernameConflict(SqliteException ex) => ex.SqliteErrorCode == 19 && ex.Message.Contains("UserAccount.NormalizedUsername",StringComparison.OrdinalIgnoreCase);
     private static async Task Execute(SqliteConnection c, SqliteTransaction tx, string sql, CancellationToken token, params (string,object)[] values) { await using var q=c.CreateCommand(); q.Transaction=tx; q.CommandText=sql; foreach(var (name,value) in values) q.Parameters.AddWithValue(name,value); await q.ExecuteNonQueryAsync(token); }
+    private static void AddColumnIfMissing(SqliteConnection c, string table, string column, string definition)
+    {
+        using var q = c.CreateCommand(); q.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition}"; try { q.ExecuteNonQuery(); } catch (SqliteException ex) when (ex.Message.Contains("duplicate column", StringComparison.OrdinalIgnoreCase)) { }
+    }
 }

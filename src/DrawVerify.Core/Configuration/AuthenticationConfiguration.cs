@@ -1,5 +1,7 @@
 namespace DrawVerify.Core.Configuration;
 
+using DrawVerify.Core.Authorization;
+
 public sealed class AuthenticationConfiguration
 {
     public int PasswordMinimumLength { get; init; } = 12;
@@ -18,7 +20,9 @@ public sealed class AuthenticationConfiguration
         if (LockoutThreshold < 0) throw new InvalidOperationException("Authentication lockout threshold cannot be negative.");
         if (LockoutEnabled && LockoutDuration <= TimeSpan.Zero) throw new InvalidOperationException("Authentication lockout duration must be positive when lockout is enabled.");
         if (DefaultRoles.Any(string.IsNullOrWhiteSpace)) throw new InvalidOperationException("Authentication default roles cannot contain blank values.");
+        _ = SystemRoles.ValidateAndCanonicalize(DefaultRoles);
     }
+    public IReadOnlyList<string> CanonicalDefaultRoles => SystemRoles.ValidateAndCanonicalize(DefaultRoles);
 
     public string? ValidatePassword(string password)
     {

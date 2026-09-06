@@ -3,6 +3,7 @@ using System.Text.Json;
 using DrawVerify.Application.Services;
 using DrawVerify.Core.Configuration;
 using DrawVerify.Core.Interfaces;
+using DrawVerify.Core.Authorization;
 using DrawVerify.Infrastructure.FileStorage;
 using DrawVerify.Infrastructure.Persistence;
 using DrawVerify.Infrastructure.Logging;
@@ -19,8 +20,10 @@ public static class CompositionRoot
     private static readonly StepUploadConfiguration StepUploadConfiguration = LoadStepUploadConfiguration();
     private static readonly AuthenticationConfiguration AuthenticationConfiguration = LoadAuthenticationConfiguration();
     private static readonly SessionAuthenticationService Session = new();
+    private static readonly RoleAuthorization Authorization = new();
     public static void Initialize() { }
     public static ISessionAuthenticationService SessionAuthentication => Session;
+    public static RoleAuthorization RoleAuthorization => Authorization;
     public static UsernamePasswordAuthenticationService CreateAuthenticationService()
     {
         var logger=new CentralizedLogger(); var database=DatabasePath();
@@ -36,7 +39,7 @@ public static class CompositionRoot
         var config=StepUploadConfiguration;
         var database=Path.Combine(AppContext.BaseDirectory,"drawverify.db");
         var logger = new CentralizedLogger();
-        return new StepUploadViewModel(new DocumentService(new SqliteDocumentRepository(database, logger),new SqliteAuditRepository(database),new DocumentFileStore(AppContext.BaseDirectory,config),config,logger));
+        return new StepUploadViewModel(new DocumentService(new SqliteDocumentRepository(database, logger),new SqliteAuditRepository(database),new DocumentFileStore(AppContext.BaseDirectory,config),config,logger,Session,Authorization));
     }
     private static StepUploadConfiguration LoadStepUploadConfiguration()
     {
@@ -58,6 +61,6 @@ public static class CompositionRoot
     private static string DatabasePath() => Path.Combine(AppContext.BaseDirectory,"drawverify.db");
     private static AuthenticationConfiguration LoadAuthenticationConfiguration()
     {
-        var logger=new CentralizedLogger(); try { using var document=JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"appsettings.json"))); var section=document.RootElement.GetProperty("Authentication"); var config=new AuthenticationConfiguration { PasswordMinimumLength=section.GetProperty("PasswordMinimumLength").GetInt32(), RequireUppercase=section.GetProperty("RequireUppercase").GetBoolean(), RequireLowercase=section.GetProperty("RequireLowercase").GetBoolean(), RequireDigit=section.GetProperty("RequireDigit").GetBoolean(), RequireNonAlphanumeric=section.GetProperty("RequireNonAlphanumeric").GetBoolean(), LockoutThreshold=section.GetProperty("LockoutThreshold").GetInt32(), LockoutDuration=TimeSpan.FromMinutes(section.GetProperty("LockoutDurationMinutes").GetDouble()) }; config.Validate(); return config; } catch(Exception ex) { logger.Log(ex,"Authentication configuration startup","Unable to load or validate Authentication settings"); throw; }
+        var logger=new CentralizedLogger(); try { using var document=JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"appsettings.json"))); var section=document.RootElement.GetProperty("Authentication"); var defaults=section.TryGetProperty("DefaultRoles", out var values) ? values.EnumerateArray().Select(x=>x.GetString() ?? string.Empty).ToArray() : Array.Empty<string>(); var config=new AuthenticationConfiguration { PasswordMinimumLength=section.GetProperty("PasswordMinimumLength").GetInt32(), RequireUppercase=section.GetProperty("RequireUppercase").GetBoolean(), RequireLowercase=section.GetProperty("RequireLowercase").GetBoolean(), RequireDigit=section.GetProperty("RequireDigit").GetBoolean(), RequireNonAlphanumeric=section.GetProperty("RequireNonAlphanumeric").GetBoolean(), LockoutThreshold=section.GetProperty("LockoutThreshold").GetInt32(), LockoutDuration=TimeSpan.FromMinutes(section.GetProperty("LockoutDurationMinutes").GetDouble()), DefaultRoles=defaults }; config.Validate(); return config; } catch(Exception ex) { logger.Log(ex,"Authentication configuration startup","Unable to load or validate Authentication settings"); throw; }
     }
 }

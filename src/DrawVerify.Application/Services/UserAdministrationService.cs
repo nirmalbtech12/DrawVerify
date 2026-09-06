@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using DrawVerify.Core.Configuration;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
+using DrawVerify.Core.Authorization;
 
 namespace DrawVerify.Application.Services;
 
@@ -31,12 +32,30 @@ public sealed class UserAdministrationService
         {
             var salt = RandomNumberGenerator.GetBytes(16);
             var hash = Rfc2898DeriveBytes.Pbkdf2(request.InitialPassword, salt, PasswordIterations, HashAlgorithmName.SHA256, 32);
-            var account = new UserAccount { Username = username, DisplayName = request.DisplayName.Trim(), PasswordSalt = salt, PasswordHash = hash, PasswordIterations = PasswordIterations, Roles = _configuration.DefaultRoles.ToArray() };
+            var account = new UserAccount { Username = username, DisplayName = request.DisplayName.Trim(), PasswordSalt = salt, PasswordHash = hash, PasswordIterations = PasswordIterations, Roles = _configuration.CanonicalDefaultRoles };
             await _users.CreateAsync(account, new(_session.CurrentUser.Username, username, DateTimeOffset.UtcNow, "UserCreated", "Success"), cancellationToken);
             return new(AuthenticationResultKind.Success, "User created.");
         }
         catch (DuplicateUsernameException) { return new(AuthenticationResultKind.DuplicateUsername, "Username is already in use."); }
         catch (Exception ex) { _logger.Log(ex, "User creation", $"Unable to create user '{username}'."); throw; }
+    }
+    public async Task<IReadOnlyList<UserAccount>> ListUsersAsync(CancellationToken cancellationToken = default)
+    {
+        if (!_session.IsAuthenticated || !_session.CurrentUser!.HasRole(SystemRoles.Admin)) throw new UnauthorizedAccessException("Only an administrator can view user roles.");
+        return await _users.ListAsync(cancellationToken);
+    }
+    public async Task<AuthenticationResult> SetUserRolesAsync(string username, IEnumerable<string> roles, CancellationToken cancellationToken = default)
+    {
+        if (!_session.IsAuthenticated || !_session.CurrentUser!.HasRole(SystemRoles.Admin)) return new(AuthenticationResultKind.ValidationFailure, "Only an administrator can change user roles.");
+        var normalized = Normalize(username);
+        IReadOnlyList<string> canonical;
+        try { canonical = SystemRoles.ValidateAndCanonicalize(roles); } catch (InvalidOperationException ex) { return new(AuthenticationResultKind.ValidationFailure, ex.Message); }
+        var target = await _users.FindByUsernameAsync(normalized, cancellationToken);
+        if (target is null) return new(AuthenticationResultKind.ValidationFailure, "The target user was not found.");
+        var before = SystemRoles.ValidateAndCanonicalize(target.Roles);
+        var action = before.Count == 0 && canonical.Count > 0 ? "RoleAssigned" : canonical.Count == 0 && before.Count > 0 ? "RoleRemoved" : "RolesUpdated";
+        try { await _users.ReplaceRolesAsync(normalized, canonical, new(_session.CurrentUser.Username, normalized, before, canonical, DateTimeOffset.UtcNow, action), cancellationToken); return new(AuthenticationResultKind.Success, "User roles updated."); }
+        catch (Exception ex) { _logger.Log(ex, "Role assignment", $"Unable to update roles for '{normalized}'."); throw; }
     }
     public static string Normalize(string username) => username.Trim().ToUpperInvariant();
 }

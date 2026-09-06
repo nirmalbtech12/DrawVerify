@@ -60,6 +60,43 @@ public sealed class SqliteUserRepositoryTests
         finally { if(File.Exists(path))File.Delete(path); }
     }
 
+    [Fact(DisplayName = "TD-INF-001 replaces roles and durably records the complete audit")]
+    public async Task Role_replacement_is_atomic_and_migration_is_idempotent()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-roles-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteUserRepository(path);
+            await repository.CreateAsync(Account("TARGET"), Audit("TARGET"));
+            _ = new SqliteUserRepository(path);
+            var now = DateTimeOffset.UtcNow;
+            await repository.ReplaceRolesAsync("TARGET", new[] { "Checker", "Viewer" }, new("ADMIN", "TARGET", new[] { "Maker" }, new[] { "Checker", "Viewer" }, now, "RolesUpdated"));
+            var loaded = await repository.FindByUsernameAsync("TARGET");
+            Assert.Equal(new[] { "Checker", "Viewer" }, loaded!.Roles);
+            await using var connection = new SqliteConnection($"Data Source={path}"); await connection.OpenAsync();
+            await using var command = connection.CreateCommand(); command.CommandText = "SELECT ActorUsername,Username,TimestampUtc,Action,RolesBefore,RolesAfter FROM AuthenticationAuditLog WHERE Action='RolesUpdated'";
+            await using var reader = await command.ExecuteReaderAsync(); Assert.True(await reader.ReadAsync());
+            Assert.Equal("ADMIN", reader.GetString(0)); Assert.Equal("TARGET", reader.GetString(1)); Assert.Equal("RolesUpdated", reader.GetString(3));
+            Assert.Contains("Maker", reader.GetString(4)); Assert.Contains("Checker", reader.GetString(5)); Assert.True(DateTimeOffset.TryParse(reader.GetString(2), out _));
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task Role_audit_failure_rolls_back_role_replacement()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-roles-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteUserRepository(path);
+            await repository.CreateAsync(Account("TARGET"), Audit("TARGET"));
+            await using (var connection = new SqliteConnection($"Data Source={path}")) { await connection.OpenAsync(); await using var command = connection.CreateCommand(); command.CommandText = "CREATE TRIGGER BlockRoleAudit BEFORE INSERT ON AuthenticationAuditLog WHEN NEW.Action='RolesUpdated' BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END;"; await command.ExecuteNonQueryAsync(); }
+            await Assert.ThrowsAnyAsync<Exception>(() => repository.ReplaceRolesAsync("TARGET", new[] { "Checker" }, new("ADMIN", "TARGET", Array.Empty<string>(), new[] { "Checker" }, DateTimeOffset.UtcNow, "RolesUpdated")));
+            Assert.Empty((await repository.FindByUsernameAsync("TARGET"))!.Roles);
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
     private static UserAccount Account(string username) { var salt=RandomNumberGenerator.GetBytes(16); return new UserAccount { Username=username,DisplayName=username,PasswordSalt=salt,PasswordHash=Rfc2898DeriveBytes.Pbkdf2("GoodPassword1!",salt,600000,HashAlgorithmName.SHA256,32) }; }
     private static AuthenticationAuditEntry Audit(string username) => new("ADMIN",username,DateTimeOffset.UtcNow,"UserCreated","Success");
 }

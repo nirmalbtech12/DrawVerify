@@ -3,6 +3,8 @@ using System.Windows.Controls;
 using System.Windows.Threading;
 using DrawVerify.App.Services;
 using DrawVerify.App.Views;
+using DrawVerify.App.ViewModels;
+using DrawVerify.Core.Models;
 using Xunit;
 
 namespace DrawVerify.App.Tests;
@@ -35,6 +37,30 @@ public sealed class MainWindowAuthenticationNavigationTests
     public void Authenticated_content_is_guarded_after_session_ends()
     {
         Exception? failure=null; var thread=new Thread(()=>{try{CompositionRoot.SessionAuthentication.SignIn(new DrawVerify.Core.Models.AuthenticatedUser("ADMIN",new[]{"Admin"})); var window=new MainWindow(); typeof(MainWindow).GetMethod("ShowAuthenticatedContent",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(window,null); CompositionRoot.SessionAuthentication.SignOut(); typeof(MainWindow).GetMethod("ShowUpload",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(window,null); Assert.IsType<LoginView>(Content(window).Content); window.Close(); Dispatcher.CurrentDispatcher.InvokeShutdown();}catch(Exception ex){failure=ex;}}); thread.SetApartmentState(ApartmentState.STA);thread.Start();thread.Join();if(failure is not null)throw new Xunit.Sdk.XunitException("Post-logout protected navigation assertion failed.",failure);
+    }
+
+    [Theory(DisplayName = "TD-APPUI-002 upload navigation exposes Maker authorization state")]
+    [InlineData("Maker", true)]
+    [InlineData("Viewer", false)]
+    [InlineData("Admin", false)]
+    public void Upload_view_model_reflects_maker_permission(string role, bool expected)
+    {
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                CompositionRoot.SessionAuthentication.SignIn(new AuthenticatedUser("USER", new[] { role }));
+                var window = new MainWindow();
+                typeof(MainWindow).GetMethod("ShowUpload", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null);
+                var view = Assert.IsType<StepUploadView>(Content(window).Content);
+                Assert.Equal(expected, Assert.IsType<StepUploadViewModel>(view.DataContext).IsAuthorized);
+                window.Close(); Dispatcher.CurrentDispatcher.InvokeShutdown();
+            }
+            catch (Exception ex) { failure = ex; }
+        });
+        thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
+        if (failure is not null) throw new Xunit.Sdk.XunitException("Upload authorization navigation assertion failed.", failure);
     }
 
     private static ContentControl Content(MainWindow window) => (ContentControl)typeof(MainWindow).GetField("MainContent", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
