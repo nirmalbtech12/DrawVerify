@@ -1,5 +1,6 @@
 using DrawVerify.Core.Models;
 using DrawVerify.Infrastructure.Persistence;
+using Microsoft.Data.Sqlite;
 using Xunit;
 
 namespace DrawVerify.Infrastructure.Tests;
@@ -27,7 +28,7 @@ public sealed class SqliteMeasurementRepositoryTests
             Assert.Equal("non-solid", stored.GeometryError);
             Assert.Equal(version.Id, geometry.DocumentVersionId);
         }
-        finally { File.Delete(path); }
+        finally { SqliteConnection.ClearAllPools(); if (File.Exists(path)) File.Delete(path); }
     }
 
     [Fact(DisplayName = "TD-INF-001 accepts null volume for partial errors")]
