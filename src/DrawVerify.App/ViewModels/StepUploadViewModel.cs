@@ -13,13 +13,14 @@ public sealed class StepUploadViewModel : INotifyPropertyChanged
     private CancellationTokenSource? _cancellation;
     private string? _fileName;
     private Stream? _content;
-    public StepUploadViewModel(DocumentService service) { _service=service; SelectCommand=new RelayCommand(_=>SelectRequested?.Invoke(), _=>!IsBusy); UploadCommand=new RelayCommand(async _=>await UploadAsync(), _=>_content is not null&&!IsBusy); CancelCommand=new RelayCommand(_=>_cancellation?.Cancel(), _=>IsBusy); }
+    public StepUploadViewModel(DocumentService service) { _service=service; IsAuthorized=service.CanUploadStep; SelectCommand=new RelayCommand(_=>SelectRequested?.Invoke(), _=>IsAuthorized&&!IsBusy); UploadCommand=new RelayCommand(async _=>await UploadAsync(), _=>IsAuthorized&&_content is not null&&!IsBusy); CancelCommand=new RelayCommand(_=>_cancellation?.Cancel(), _=>IsBusy); }
     public event PropertyChangedEventHandler? PropertyChanged;
     public event Action? SelectRequested;
     public string? FileName { get=>_fileName; set { _fileName=value; OnChanged(); } }
     public string Message { get; private set; }=string.Empty;
     public double Progress { get; private set; }
     public bool IsBusy { get; private set; }
+    public bool IsAuthorized { get; }
     public ICommand SelectCommand { get; }
     public event Action<DrawVerify.Core.Models.Document>? DocumentUploaded;
     public ICommand UploadCommand { get; }

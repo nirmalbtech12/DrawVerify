@@ -4,6 +4,7 @@ using DrawVerify.Core.Configuration;
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
+using DrawVerify.Core.Authorization;
 
 namespace DrawVerify.Application.Services;
 
@@ -21,16 +22,22 @@ public sealed class DocumentService
     private readonly IStepUploadFileStore _files;
     private readonly StepUploadConfiguration _configuration;
     private readonly ICentralizedLogger? _logger;
+    private readonly ISessionAuthenticationService _session;
+    private readonly RoleAuthorization _authorization;
     private readonly Dictionary<string, StepUploadPreparation> _preparedDuplicates = new(StringComparer.Ordinal);
-    public bool CanUploadStep => true;
+    public bool CanUploadStep => _session.IsAuthenticated && _authorization.IsAllowed(_session.CurrentUser, RolePermission.Upload);
 
     public DocumentService(IDocumentRepository documents, IAuditLogger audit, IStepUploadFileStore files, StepUploadConfiguration configuration, ICentralizedLogger? logger = null)
+        : this(documents, audit, files, configuration, new SessionAuthenticationService(), logger, new RoleAuthorization()) { }
+
+    public DocumentService(IDocumentRepository documents, IAuditLogger audit, IStepUploadFileStore files, StepUploadConfiguration configuration, ISessionAuthenticationService? session, ICentralizedLogger? logger = null, RoleAuthorization? authorization = null)
     {
-        _documents = documents; _transactionalDocuments = documents as ITransactionalDocumentRepository ?? throw new ArgumentException("The document repository must support transactional document, version, and audit persistence.", nameof(documents)); _audit = audit; _files = files; _configuration = configuration; _logger = logger; _configuration.Validate();
+        _documents = documents; _transactionalDocuments = documents as ITransactionalDocumentRepository ?? throw new ArgumentException("The document repository must support transactional document, version, and audit persistence.", nameof(documents)); _audit = audit; _files = files; _configuration = configuration; _logger = logger; _session = session ?? new SessionAuthenticationService(); _authorization = authorization ?? new RoleAuthorization(); _configuration.Validate();
     }
 
     public async Task<StepUploadResult> PrepareStepUploadAsync(StepUploadRequest request)
     {
+        if (!CanUploadStep) return StepUploadResult.Rejected("The Maker role is required to upload files.");
         var validation = await ValidateAsync(request).ConfigureAwait(false);
         if (validation is not null) return validation;
         var duplicate = await _documents.FindByOriginalNameAndSizeAsync(Path.GetFileName(request.OriginalFileName), GetSize(request), request.CancellationToken).ConfigureAwait(false);
@@ -48,6 +55,7 @@ public sealed class DocumentService
 
     public async Task<StepUploadResult> CancelDuplicateAsync(StepUploadRequest request, Guid documentId)
     {
+        if (!CanUploadStep) return StepUploadResult.Rejected("The Maker role is required to cancel an upload.");
         var name = Path.GetFileName(request.OriginalFileName);
         var size = GetSize(request);
         lock (_preparedDuplicates)
@@ -61,6 +69,7 @@ public sealed class DocumentService
 
     private async Task<StepUploadResult> UploadStepCoreAsync(StepUploadRequest request, bool confirmDuplicate)
     {
+        if (!CanUploadStep) return StepUploadResult.Rejected("The Maker role is required to upload files.");
         var validation = await ValidateAsync(request).ConfigureAwait(false);
         if (validation is not null) return validation;
         var name = Path.GetFileName(request.OriginalFileName);
