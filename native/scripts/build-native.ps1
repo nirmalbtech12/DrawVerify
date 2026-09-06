@@ -11,6 +11,8 @@ $ErrorActionPreference='Stop'
     -Configuration $Configuration `
     -ParallelJobs $ParallelJobs
 & "$PSScriptRoot/generate-wrapper.ps1"
+dotnet restore native/DrawVerifyOcct/tests/ManagedSmoke.csproj
+if($LASTEXITCODE){throw 'BUILD_FAILED: managed smoke test restore failed.'}
 cmake -S native -B native/build/drawverify-occt -DOCCT_INSTALL_DIR="$PWD/native/out/occt"
 if($LASTEXITCODE){throw 'BUILD_FAILED: native façade configuration failed.'}
 cmake --build native/build/drawverify-occt `

@@ -34,14 +34,34 @@ if (-not (Test-Path $fixture)) { Fail 'BUILD_FAILED' "Deterministic fixture is a
 
 $bridge = if ($IsWindows) { Join-Path $nativeBuild "$Configuration/DrawVerifyOcctNative.dll" } else { Join-Path $nativeBuild 'libDrawVerifyOcctNative.so' }
 if (-not (Test-Path $bridge)) { Fail 'NATIVE_LOAD_FAILED' "Native bridge is absent: $bridge" }
-$runtimeDirectory = if ($IsWindows) { Join-Path $occtInstall 'bin' } else { Join-Path $occtInstall 'lib' }
+$runtimeDirectory = if ($IsWindows) {
+  $flatBin = Join-Path $occtInstall 'bin'
+  if (Test-Path $flatBin) { $flatBin } else {
+    Get-ChildItem (Join-Path $occtInstall 'win64') -Directory -ErrorAction SilentlyContinue |
+      ForEach-Object { Join-Path $_.FullName 'bin' } |
+      Where-Object { Test-Path $_ } | Select-Object -First 1
+  }
+} else { Join-Path $occtInstall 'lib' }
 if (-not (Test-Path $runtimeDirectory)) { Fail 'NATIVE_LOAD_FAILED' "OCCT runtime libraries are absent: $runtimeDirectory" }
 
 if ($RunTests) {
-  ctest --test-dir $nativeBuild --output-on-failure
+  ctest --test-dir $nativeBuild -C $Configuration --output-on-failure
   if ($LASTEXITCODE) { Fail 'PROJECTION_FAILED' 'Native managed smoke test failed.' }
-  dotnet test (Join-Path $repositoryRoot 'tests/DrawVerify.OcctService.Tests/DrawVerify.OcctService.Tests.csproj') -c $Configuration --no-restore -m:1
-  if ($LASTEXITCODE) { Fail 'STEP_READ_FAILED' 'Managed OCCT integration tests failed.' }
+  $runtimeId = if ($IsWindows) { 'win-x64' } elseif ($IsMacOS) { 'osx-x64' } else { 'linux-x64' }
+  $nativeRuntime = Join-Path $repositoryRoot "native/out/runtime/$runtimeId/native"
+  if (-not (Test-Path $nativeRuntime)) { Fail 'NATIVE_LOAD_FAILED' "Staged native runtime is absent: $nativeRuntime" }
+  $testOutput = Join-Path $repositoryRoot "tests/DrawVerify.OcctService.Tests/bin/$Configuration/net9.0"
+  New-Item -ItemType Directory -Force -Path $testOutput | Out-Null
+  Get-ChildItem -LiteralPath $nativeRuntime -Force | Copy-Item -Destination $testOutput -Recurse -Force
+  $previousPath = $env:Path
+  try {
+    $env:Path = "$nativeRuntime$([IO.Path]::PathSeparator)$previousPath"
+    dotnet test (Join-Path $repositoryRoot 'tests/DrawVerify.OcctService.Tests/DrawVerify.OcctService.Tests.csproj') -c $Configuration --no-restore -m:1
+    if ($LASTEXITCODE) { Fail 'STEP_READ_FAILED' 'Managed OCCT integration tests failed.' }
+  }
+  finally {
+    $env:Path = $previousPath
+  }
 }
 
 Write-Host READY

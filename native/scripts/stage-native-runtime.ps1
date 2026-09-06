@@ -17,7 +17,16 @@ $bridge = Get-ChildItem -Path $nativeBuild -Filter $bridgeName -Recurse | Select
 if ($null -eq $bridge) { throw "BUILD_FAILED: native bridge was not produced: $bridgeName" }
 Copy-Item -Force $bridge.FullName $destination
 
-$libraryDirectory = if ($IsWindows) { Join-Path $occtInstall 'bin' } else { Join-Path $occtInstall 'lib' }
+$libraryDirectory = if ($IsWindows) {
+  $flatBin = Join-Path $occtInstall 'bin'
+  if (Test-Path $flatBin) { $flatBin } else {
+    $windowsBin = Get-ChildItem (Join-Path $occtInstall 'win64') -Directory -ErrorAction SilentlyContinue |
+      ForEach-Object { Join-Path $_.FullName 'bin' } |
+      Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $windowsBin) { throw "BUILD_FAILED: OCCT Windows runtime directory is absent under $occtInstall" }
+    $windowsBin
+  }
+} else { Join-Path $occtInstall 'lib' }
 if (-not (Test-Path $libraryDirectory)) { throw "BUILD_FAILED: OCCT runtime library directory is absent: $libraryDirectory" }
 $pattern = if ($IsWindows) { '*.dll' } elseif ($IsMacOS) { '*.dylib' } else { '*.so*' }
 $libraries = Get-ChildItem -Path $libraryDirectory -Filter $pattern

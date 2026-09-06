@@ -40,3 +40,70 @@ See `docs/architecture.md` and `docs/engineering-rules.md` for the full record.
 - OCCT native DLLs are built via `native/scripts/build-occt.ps1` and the C# wrapper is
   regenerated via `native/scripts/generate-wrapper.ps1` (SWIG output lands in
   `src/DrawVerify.OcctWrapper/Generated`). See `docs/deployment.md`.
+
+## Run on Windows
+
+DrawVerify is a Windows WPF application. Run these commands from the repository
+root in PowerShell.
+
+### Prerequisites
+
+Install:
+
+- .NET 9 SDK
+- Visual Studio 2022 with Desktop development with C++ and a Windows SDK
+- CMake
+- SWIG 4.x
+- Git
+
+### Initialize OCCT
+
+OCCT is pinned as a Git submodule. If the PowerShell Git wrapper cannot find
+Git's Unix helper tools, initialize it through Git Bash:
+
+```powershell
+$repo = (Get-Location).Path.Replace('\', '/')
+& 'C:\Program Files\Git\bin\bash.exe' -lc "cd '$repo' && git submodule update --init --recursive"
+```
+
+Verify that `native/occt/CMakeLists.txt` exists before continuing.
+
+### Build the native pipeline
+
+```powershell
+.\native\scripts\build-native.ps1 -Configuration Release -ParallelJobs 2
+```
+
+This builds and installs OCCT, generates the SWIG C# and C++ wrappers, builds
+`DrawVerifyOcctNative.dll`, generates native fixtures, and stages the Windows
+runtime under `native/out/runtime/win-x64/native`.
+
+### Verify the native pipeline
+
+```powershell
+.\native\scripts\preflight-native.ps1 -Configuration Release -RunTests
+```
+
+The command must finish with `READY`. It validates the native bridge, OCCT
+runtime DLLs, fixtures, CTest smoke tests, and managed OCCT integration tests.
+
+### Publish and launch the application
+
+```powershell
+.\run.ps1 -Configuration Release
+```
+
+`run.ps1` restores and publishes the self-contained `win-x64` WPF application,
+copies the native OCCT runtime beside it, and launches `DrawVerify.App.exe`.
+The publish destination is read from `src/DrawVerify.App/appsettings.json`
+under `Publish.Path`.
+
+The Git Bash compatibility entry point is also available:
+
+```bash
+./run.sh
+```
+
+After the initial native build, repeat the native build and preflight commands
+when native or wrapper inputs change. For managed-only changes, rerun
+`run.ps1` to republish and launch the application.
