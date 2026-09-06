@@ -87,9 +87,6 @@ appsettings.local.json
 *.coveragexml
 coverage/
 
-# Graphify generated cache
-graphify-out/cache/
-
 # Pipeline Web - local DB and state (control-plane is outside src)
 pipeline.db
 pipeline.db-shm
