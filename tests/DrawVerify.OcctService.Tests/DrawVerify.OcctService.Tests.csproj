@@ -23,8 +23,7 @@
   </ItemGroup>
 
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
-    <None Include="..\..\native\build\drawverify-occt\$(Configuration)\DrawVerifyOcctNative.dll" Link="DrawVerifyOcctNative.dll" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\..\native\out\occt\bin\*.dll" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\native\out\runtime\win-x64\native\*.dll" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
@@ -41,7 +40,7 @@
   <Target Name="ValidateOcctIntegrationPrerequisites" BeforeTargets="VSTest">
     <Error Condition="!Exists('..\..\native\occt\data\step\screw.step')" Text="OCCT integration fixture is missing. Run git submodule update --init --recursive." />
     <Error Condition="$([MSBuild]::IsOSPlatform('Linux')) and !Exists('..\..\native\out\runtime\linux-x64\native\libDrawVerifyOcctNative.so')" Text="DrawVerifyOcctNative native artifact is unavailable. Run native/scripts/manage-native-artifact.ps1 -Mode Restore." />
-    <Error Condition="$([MSBuild]::IsOSPlatform('Windows')) and !Exists('..\..\native\build\drawverify-occt\$(Configuration)\DrawVerifyOcctNative.dll')" Text="DrawVerifyOcctNative native artifact is unavailable. Run native/scripts/manage-native-artifact.ps1 -Mode Restore." />
+    <Error Condition="$([MSBuild]::IsOSPlatform('Windows')) and !Exists('..\..\native\out\runtime\win-x64\native\DrawVerifyOcctNative.dll')" Text="DrawVerifyOcctNative native artifact is unavailable. Run native/scripts/manage-native-artifact.ps1 -Mode Restore." />
     <Error Condition="!Exists('..\..\native\build\drawverify-occt\fixtures\cube.step')" Text="DrawVerify OCCT fixtures have not been generated. Build native/DrawVerifyOcctFixtures first." />
     <Error Condition="!Exists('..\..\data\eccv2026-cad-challenge-data\train\sample-000000\000000.step')" Text="Dataset sample 000000 STEP fixture is missing." />
     <Error Condition="!Exists('..\..\data\eccv2026-cad-challenge-data\train\sample-000001\000001.step')" Text="Dataset sample 000001 STEP fixture is missing." />
