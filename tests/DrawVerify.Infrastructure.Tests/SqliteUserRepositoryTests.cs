@@ -67,7 +67,7 @@ public sealed class SqliteUserRepositoryTests
         try
         {
             var repository = new SqliteUserRepository(path);
-            await repository.CreateAsync(Account("TARGET"), Audit("TARGET"));
+            await repository.CreateAsync(Account("TARGET", new[] { "Maker" }), Audit("TARGET"));
             _ = new SqliteUserRepository(path);
             var now = DateTimeOffset.UtcNow;
             await repository.ReplaceRolesAsync("TARGET", new[] { "Checker", "Viewer" }, new("ADMIN", "TARGET", new[] { "Maker" }, new[] { "Checker", "Viewer" }, now, "RolesUpdated"));
@@ -89,14 +89,14 @@ public sealed class SqliteUserRepositoryTests
         try
         {
             var repository = new SqliteUserRepository(path);
-            await repository.CreateAsync(Account("TARGET"), Audit("TARGET"));
+            await repository.CreateAsync(Account("TARGET", new[] { "Maker" }), Audit("TARGET"));
             await using (var connection = new SqliteConnection($"Data Source={path}")) { await connection.OpenAsync(); await using var command = connection.CreateCommand(); command.CommandText = "CREATE TRIGGER BlockRoleAudit BEFORE INSERT ON AuthenticationAuditLog WHEN NEW.Action='RolesUpdated' BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END;"; await command.ExecuteNonQueryAsync(); }
             await Assert.ThrowsAnyAsync<Exception>(() => repository.ReplaceRolesAsync("TARGET", new[] { "Checker" }, new("ADMIN", "TARGET", Array.Empty<string>(), new[] { "Checker" }, DateTimeOffset.UtcNow, "RolesUpdated")));
-            Assert.Empty((await repository.FindByUsernameAsync("TARGET"))!.Roles);
+            Assert.Equal(new[] { "Maker" }, (await repository.FindByUsernameAsync("TARGET"))!.Roles);
         }
         finally { if (File.Exists(path)) File.Delete(path); }
     }
 
-    private static UserAccount Account(string username) { var salt=RandomNumberGenerator.GetBytes(16); return new UserAccount { Username=username,DisplayName=username,PasswordSalt=salt,PasswordHash=Rfc2898DeriveBytes.Pbkdf2("GoodPassword1!",salt,600000,HashAlgorithmName.SHA256,32) }; }
+    private static UserAccount Account(string username, IReadOnlyList<string>? roles = null) { var salt=RandomNumberGenerator.GetBytes(16); return new UserAccount { Username=username,DisplayName=username,PasswordSalt=salt,PasswordHash=Rfc2898DeriveBytes.Pbkdf2("GoodPassword1!",salt,600000,HashAlgorithmName.SHA256,32),Roles=roles ?? Array.Empty<string>() }; }
     private static AuthenticationAuditEntry Audit(string username) => new("ADMIN",username,DateTimeOffset.UtcNow,"UserCreated","Success");
 }

@@ -37,9 +37,12 @@ public sealed class SqliteUserRepository : IUserRepository
         {
             await using var find = c.CreateCommand(); find.Transaction = tx; find.CommandText = "SELECT UserId FROM UserAccount WHERE NormalizedUsername=$u"; find.Parameters.AddWithValue("$u", normalizedUsername); var id = await find.ExecuteScalarAsync(cancellationToken);
             if (id is null) throw new KeyNotFoundException($"User '{normalizedUsername}' was not found.");
+            var before = new List<string>();
+            await using (var readRoles = c.CreateCommand()) { readRoles.Transaction = tx; readRoles.CommandText = "SELECT RoleName FROM UserAccountRole WHERE UserId=$id ORDER BY RoleName"; readRoles.Parameters.AddWithValue("$id", id); await using var reader = await readRoles.ExecuteReaderAsync(cancellationToken); while (await reader.ReadAsync(cancellationToken)) before.Add(reader.GetString(0)); }
             await Execute(c, tx, "DELETE FROM UserAccountRole WHERE UserId=$id", cancellationToken, ("$id", id));
             foreach (var role in roles) await Execute(c, tx, "INSERT INTO UserAccountRole (UserId,RoleName) VALUES ($id,$r)", cancellationToken, ("$id", id), ("$r", role));
-            var entry = new AuthenticationAuditEntry(audit.ActorUsername, audit.AffectedUsername, audit.TimestampUtc, audit.ActionType, "Success", null, JsonSerializer.Serialize(audit.RolesBefore), JsonSerializer.Serialize(audit.RolesAfter));
+            var action = before.Count == 0 && roles.Count > 0 ? "RoleAssigned" : roles.Count == 0 && before.Count > 0 ? "RoleRemoved" : "RolesUpdated";
+            var entry = new AuthenticationAuditEntry(audit.ActorUsername, audit.AffectedUsername, audit.TimestampUtc, action, "Success", null, JsonSerializer.Serialize(before), JsonSerializer.Serialize(roles));
             await SqliteAuthenticationAuditRepository.InsertAsync(c, tx, entry, cancellationToken); await tx.CommitAsync(cancellationToken);
         }
         catch { try { await tx.RollbackAsync(cancellationToken); } catch { } throw; }

@@ -32,7 +32,7 @@ public static class CompositionRoot
     public static UserAdministrationService CreateUserAdministrationService()
     {
         var logger=new CentralizedLogger(); var database=DatabasePath();
-        return new(new SqliteUserRepository(database,logger),new SqliteAuthenticationAuditRepository(database,logger),Session,AuthenticationConfiguration,logger);
+        return new(new SqliteUserRepository(database,logger),new SqliteAuthenticationAuditRepository(database,logger),Session,AuthenticationConfiguration,logger,Authorization);
     }
     public static StepUploadViewModel CreateStepUploadViewModel()
     {
