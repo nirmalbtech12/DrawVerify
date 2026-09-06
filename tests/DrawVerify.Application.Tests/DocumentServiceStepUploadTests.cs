@@ -6,6 +6,7 @@ using DrawVerify.Core.Enums;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
 using DrawVerify.Core.Authorization;
+using DrawVerify.Geometry;
 using Xunit;
 using DocumentType = DrawVerify.Core.Enums.DocumentType;
 using UploadStatus = DrawVerify.Core.Enums.UploadStatus;
@@ -75,14 +76,11 @@ public sealed class DocumentServiceStepUploadTests
         Assert.Empty(over.Documents.Writes);
     }
 
-    [Theory]
-    [InlineData("not a step")]
-    [InlineData("ISO-10303-21;END-ISO-10303-21;")]
-    [InlineData("HEADER;END-ISO-10303-21;")]
-    public async Task Malformed_step_content_is_rejected_without_persistence(string content)
+    [Fact]
+    public async Task Model_validation_rejection_does_not_persist_the_upload()
     {
-        var fakes = new Fakes();
-        var result = await fakes.Service.UploadStepAsync(new StepUploadRequest("broken.step", new MemoryStream(Encoding.UTF8.GetBytes(content))));
+        var fakes = new Fakes(rejectModel: true);
+        var result = await fakes.Service.UploadStepAsync(new StepUploadRequest("broken.step", new MemoryStream(new byte[] { 0, 1, 2 })));
 
         Assert.Equal(StepUploadResultKind.Rejected, result.Kind);
         Assert.Equal(StepFileValidator.InvalidMessage, result.Message);
@@ -196,14 +194,14 @@ public sealed class DocumentServiceStepUploadTests
 
     private sealed class Fakes
     {
-        public Fakes(StepUploadConfiguration? configuration = null, bool cancelAfterFirstWrite = false, Action? cancelUpload = null)
-            : this(null, configuration, cancelAfterFirstWrite, cancelUpload) { }
-        public Fakes(ISessionAuthenticationService? session, StepUploadConfiguration? configuration = null, bool cancelAfterFirstWrite = false, Action? cancelUpload = null, bool unauthenticated = false)
+        public Fakes(StepUploadConfiguration? configuration = null, bool cancelAfterFirstWrite = false, Action? cancelUpload = null, bool rejectModel = false)
+            : this(null, configuration, cancelAfterFirstWrite, cancelUpload, false, rejectModel) { }
+        public Fakes(ISessionAuthenticationService? session, StepUploadConfiguration? configuration = null, bool cancelAfterFirstWrite = false, Action? cancelUpload = null, bool unauthenticated = false, bool rejectModel = false)
         {
             if (session is null && !unauthenticated) { session = new SessionAuthenticationService(); session.SignIn(new AuthenticatedUser("MAKER", new[] { "Maker" })); }
             Documents = new DocumentRepository(Audit);
             Store = new FileStore { CancelAfterFirstWrite = cancelAfterFirstWrite, CancelUpload = cancelUpload };
-            Service = new DocumentService(Documents, Audit, Store, configuration ?? new StepUploadConfiguration(), session: session);
+            Service = new DocumentService(Documents, Audit, Store, configuration ?? new StepUploadConfiguration(), session: session, stepModelValidator: new FakeStepModelValidator(rejectModel));
         }
         public Document? Duplicate { get => Documents.Duplicate; set => Documents.Duplicate = value; }
         public bool CancelAfterFirstWrite { get; set; }
@@ -245,6 +243,11 @@ public sealed class DocumentServiceStepUploadTests
         private bool _flushed;
         public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default) => await base.WriteAsync(buffer, cancellationToken);
         public override async Task FlushAsync(CancellationToken cancellationToken = default) { await base.FlushAsync(cancellationToken); if (cancel && !_flushed) { _flushed = true; cancelUpload?.Invoke(); throw new OperationCanceledException(cancellationToken); } }
+    }
+    private sealed class FakeStepModelValidator(bool reject) : IStepModelValidator
+    {
+        public Task<StepModelValidationResult> ValidateAsync(Stream content, CancellationToken cancellationToken = default) =>
+            Task.FromResult(reject ? new StepModelValidationResult(false, "StepReadFailed", "invalid") : new StepModelValidationResult(true));
     }
     private sealed class ThrowingStream : MemoryStream { public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) => ValueTask.FromException<int>(new InvalidOperationException("stream must not be read")); }
 }

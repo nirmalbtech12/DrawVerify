@@ -5,6 +5,7 @@ using DrawVerify.Core.Enums;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
 using DrawVerify.Core.Authorization;
+using DrawVerify.Geometry;
 
 namespace DrawVerify.Application.Services;
 
@@ -24,15 +25,16 @@ public sealed class DocumentService
     private readonly ICentralizedLogger? _logger;
     private readonly ISessionAuthenticationService _session;
     private readonly RoleAuthorization _authorization;
+    private readonly IStepModelValidator _stepModelValidator;
     private readonly Dictionary<string, StepUploadPreparation> _preparedDuplicates = new(StringComparer.Ordinal);
     public bool CanUploadStep => _session.IsAuthenticated && _authorization.IsAllowed(_session.CurrentUser, RolePermission.Upload);
 
-    public DocumentService(IDocumentRepository documents, IAuditLogger audit, IStepUploadFileStore files, StepUploadConfiguration configuration, ICentralizedLogger? logger = null)
-        : this(documents, audit, files, configuration, new SessionAuthenticationService(), logger, new RoleAuthorization()) { }
+    public DocumentService(IDocumentRepository documents, IAuditLogger audit, IStepUploadFileStore files, StepUploadConfiguration configuration, ICentralizedLogger? logger = null, IStepModelValidator? stepModelValidator = null)
+        : this(documents, audit, files, configuration, new SessionAuthenticationService(), logger, new RoleAuthorization(), stepModelValidator) { }
 
-    public DocumentService(IDocumentRepository documents, IAuditLogger audit, IStepUploadFileStore files, StepUploadConfiguration configuration, ISessionAuthenticationService? session, ICentralizedLogger? logger = null, RoleAuthorization? authorization = null)
+    public DocumentService(IDocumentRepository documents, IAuditLogger audit, IStepUploadFileStore files, StepUploadConfiguration configuration, ISessionAuthenticationService? session, ICentralizedLogger? logger = null, RoleAuthorization? authorization = null, IStepModelValidator? stepModelValidator = null)
     {
-        _documents = documents; _transactionalDocuments = documents as ITransactionalDocumentRepository ?? throw new ArgumentException("The document repository must support transactional document, version, and audit persistence.", nameof(documents)); _audit = audit; _files = files; _configuration = configuration; _logger = logger; _session = session ?? new SessionAuthenticationService(); _authorization = authorization ?? new RoleAuthorization(); _configuration.Validate();
+        _documents = documents; _transactionalDocuments = documents as ITransactionalDocumentRepository ?? throw new ArgumentException("The document repository must support transactional document, version, and audit persistence.", nameof(documents)); _audit = audit; _files = files; _configuration = configuration; _logger = logger; _session = session ?? new SessionAuthenticationService(); _authorization = authorization ?? new RoleAuthorization(); _stepModelValidator = stepModelValidator ?? throw new ArgumentNullException(nameof(stepModelValidator)); _configuration.Validate();
     }
 
     public async Task<StepUploadResult> PrepareStepUploadAsync(StepUploadRequest request)
@@ -140,8 +142,14 @@ public sealed class DocumentService
         var name = Path.GetFileName(request.OriginalFileName);
         if (!StepFileValidator.HasValidExtension(name)) return StepUploadResult.Rejected(TypeMessage);
         var size = GetSize(request);
-        if (size > (long)_configuration.MaxFileSizeMb * 1024 * 1024) return StepUploadResult.Rejected($"File exceeds the maximum allowed size of {_configuration.MaxFileSizeMb} MB.");
+        if (!StepFileValidator.IsWithinSizeLimit(size, _configuration.MaxFileSizeMb)) return StepUploadResult.Rejected($"File exceeds the maximum allowed size of {_configuration.MaxFileSizeMb} MB.");
         if (!await StepFileValidator.IsValidAsync(request.Content, request.CancellationToken).ConfigureAwait(false)) return StepUploadResult.Rejected(StepFileValidator.InvalidMessage);
+        var modelValidation = await _stepModelValidator.ValidateAsync(request.Content, request.CancellationToken).ConfigureAwait(false);
+        if (!modelValidation.IsValid)
+        {
+            _logger?.Log(new InvalidDataException(modelValidation.ErrorMessage ?? "OCCT rejected the STEP model."), "STEP upload validation", $"fileName={name}; errorCode={modelValidation.ErrorCode ?? "unknown"}");
+            return StepUploadResult.Rejected(StepFileValidator.InvalidMessage);
+        }
         return null;
     }
 

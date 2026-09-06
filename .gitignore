@@ -100,3 +100,5 @@ control-plane/AgenticWeb/pipeline.db-wal
 
 /$InstallDir/include/opencascade/
 /$InstallDir/
+*:Zone.Identifier
+*:Zone.Identifier
