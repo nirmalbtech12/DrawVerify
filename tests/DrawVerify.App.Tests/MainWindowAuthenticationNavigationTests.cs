@@ -39,6 +39,20 @@ public sealed class MainWindowAuthenticationNavigationTests
         Exception? failure=null; var thread=new Thread(()=>{try{CompositionRoot.SessionAuthentication.SignIn(new DrawVerify.Core.Models.AuthenticatedUser("ADMIN",new[]{"Admin"})); var window=new MainWindow(); typeof(MainWindow).GetMethod("ShowAuthenticatedContent",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(window,null); CompositionRoot.SessionAuthentication.SignOut(); typeof(MainWindow).GetMethod("ShowUpload",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(window,null); Assert.IsType<LoginView>(Content(window).Content); window.Close(); Dispatcher.CurrentDispatcher.InvokeShutdown();}catch(Exception ex){failure=ex;}}); thread.SetApartmentState(ApartmentState.STA);thread.Start();thread.Join();if(failure is not null)throw new Xunit.Sdk.XunitException("Post-logout protected navigation assertion failed.",failure);
     }
 
+    [Fact(DisplayName = "TD-APPUI-001 self-profile navigation displays roles for non-admin users")]
+    public void Non_admin_can_reach_self_profile_without_admin_controls()
+    {
+        Exception? failure=null; var thread=new Thread(()=>{try{CompositionRoot.SessionAuthentication.SignIn(new AuthenticatedUser("VIEWER",new[]{"Viewer"})); var window=new MainWindow(); typeof(MainWindow).GetMethod("ShowAuthenticatedContent",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(window,null); var panel=Assert.IsType<StackPanel>(Content(window).Content); var profile=panel.Children.OfType<Button>().Single(x=>Equals(x.Content,"My profile")); profile.RaiseEvent(new System.Windows.RoutedEventArgs(Button.ClickEvent)); var vm=Assert.IsType<UserAdministrationViewModel>(Assert.IsType<UserAdministrationView>(Content(window).Content).DataContext); Assert.Contains("Viewer",vm.AssignedRoles); Assert.False(vm.CanEditRoles); window.Close(); Dispatcher.CurrentDispatcher.InvokeShutdown();}catch(Exception ex){failure=ex;}}); thread.SetApartmentState(ApartmentState.STA);thread.Start();thread.Join();if(failure is not null)throw new Xunit.Sdk.XunitException("Self-profile navigation assertion failed.",failure);
+    }
+
+    [Theory(DisplayName = "TD-APPUI-002 review navigation state follows shared authorization")]
+    [InlineData("Checker", true)]
+    [InlineData("Viewer", false)]
+    public void Review_navigation_reflects_role_permission(string role, bool expected)
+    {
+        Exception? failure=null; var thread=new Thread(()=>{try{CompositionRoot.SessionAuthentication.SignIn(new AuthenticatedUser("USER",new[]{role})); var window=new MainWindow(); typeof(MainWindow).GetMethod("ShowAuthenticatedContent",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(window,null); var panel=Assert.IsType<StackPanel>(Content(window).Content); var review=panel.Children.OfType<Button>().Single(x=>Equals(x.Content,"Review verification")); Assert.Equal(expected,review.IsEnabled); window.Close(); Dispatcher.CurrentDispatcher.InvokeShutdown();}catch(Exception ex){failure=ex;}}); thread.SetApartmentState(ApartmentState.STA);thread.Start();thread.Join();if(failure is not null)throw new Xunit.Sdk.XunitException("Review navigation assertion failed.",failure);
+    }
+
     [Theory(DisplayName = "TD-APPUI-002 upload navigation exposes Maker authorization state")]
     [InlineData("Maker", true)]
     [InlineData("Viewer", false)]

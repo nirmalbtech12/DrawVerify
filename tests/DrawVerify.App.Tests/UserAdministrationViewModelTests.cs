@@ -4,7 +4,7 @@ using DrawVerify.Core.Configuration;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
 using Xunit;
-using System.Reflection;
+using DrawVerify.Core.Authorization;
 
 namespace DrawVerify.App.Tests;
 
@@ -34,15 +34,37 @@ public sealed class UserAdministrationViewModelTests
         await vm.CreateAsync(); Assert.Empty(users.Accounts); Assert.Equal(string.Empty,vm.InitialPassword);
     }
 
-    [Fact(DisplayName = "TD-APPUI-001 exposes assigned-role display and Admin edit controls")]
-    public void Administration_view_model_contract_includes_role_visibility_and_editability()
+    [Fact(DisplayName = "TD-APPUI-001 Admin edits selected roles and refreshes after persistence")]
+    public async Task Admin_can_edit_selected_roles_and_refresh_after_success()
     {
-        Assert.NotNull(typeof(UserAdministrationViewModel).GetProperty("AssignedRoles"));
-        Assert.NotNull(typeof(UserAdministrationViewModel).GetProperty("RoleCatalog"));
-        Assert.NotNull(typeof(UserAdministrationViewModel).GetProperty("CanEditRoles"));
-        Assert.NotNull(typeof(UserAdministrationViewModel).GetMethod("SetRolesAsync"));
+        var session=new SessionAuthenticationService(); session.SignIn(new AuthenticatedUser("ADMIN",new[]{SystemRoles.Admin}));
+        var target=Account("TARGET",SystemRoles.Viewer); var users=new UsersFake(target);
+        var vm=new UserAdministrationViewModel(new UserAdministrationService(users,new AuditFake(),session,new AuthenticationConfiguration(),new LoggerFake()));
+        await vm.LoadUsersAsync(); vm.SelectedUser=vm.Users.Single();
+        Assert.Equal(new[]{SystemRoles.Viewer},vm.AssignedRoles);
+        vm.ToggleRole(SystemRoles.Maker); await vm.SetRolesAsync();
+        Assert.Equal(new[]{SystemRoles.Viewer,SystemRoles.Maker},users.Accounts.Single().Roles);
+        Assert.Contains(SystemRoles.Maker,vm.AssignedRoles);
     }
-    private sealed class UsersFake : IUserRepository { public List<UserAccount> Accounts{get;}=[]; public Task<UserAccount?> FindByUsernameAsync(string n,CancellationToken t=default)=>Task.FromResult<UserAccount?>(null); public Task CreateAsync(UserAccount a,AuthenticationAuditEntry e,CancellationToken t=default){Accounts.Add(a);return Task.CompletedTask;} public Task<LoginAttemptState> RecordLoginAttemptAsync(string n,bool s,int th,TimeSpan d,DateTimeOffset now,CancellationToken t=default)=>Task.FromResult(new LoginAttemptState(null,false,null)); public Task<LoginAttemptState> VerifyAndRecordLoginAttemptAsync(string n,Func<UserAccount,bool> verifier,int th,TimeSpan d,DateTimeOffset now,CancellationToken t=default)=>Task.FromResult(new LoginAttemptState(null,false,"InvalidUsername")); }
+    [Fact(DisplayName = "TD-APPUI-001 non-admin self profile is read-only")]
+    public void Non_admin_sees_own_roles_without_editing()
+    {
+        var session=new SessionAuthenticationService(); session.SignIn(new AuthenticatedUser("VIEWER",new[]{SystemRoles.Viewer}));
+        var vm=new UserAdministrationViewModel(new UserAdministrationService(new UsersFake(),new AuditFake(),session,new AuthenticationConfiguration(),new LoggerFake()));
+        Assert.Equal(new[]{SystemRoles.Viewer},vm.AssignedRoles); Assert.False(vm.CanEditRoles); Assert.False(vm.CreateCommand.CanExecute(null)); Assert.False(vm.SetRolesCommand.CanExecute(null));
+    }
+    private static UserAccount Account(string username, params string[] roles) => new() { Username=username,DisplayName=username,PasswordSalt=[1],PasswordHash=[1],Roles=roles };
+    private sealed class UsersFake : IUserRepository
+    {
+        public List<UserAccount> Accounts { get; } = [];
+        public UsersFake(params UserAccount[] accounts) => Accounts.AddRange(accounts);
+        public Task<UserAccount?> FindByUsernameAsync(string n,CancellationToken t=default)=>Task.FromResult(Accounts.FirstOrDefault(x=>x.Username==n));
+        public Task CreateAsync(UserAccount a,AuthenticationAuditEntry e,CancellationToken t=default){Accounts.Add(a);return Task.CompletedTask;}
+        public Task<IReadOnlyList<UserAccount>> ListAsync(CancellationToken t=default)=>Task.FromResult<IReadOnlyList<UserAccount>>(Accounts);
+        public Task ReplaceRolesAsync(string n,IReadOnlyList<string> roles,RoleAssignmentAuditEntry audit,CancellationToken t=default){var index=Accounts.FindIndex(x=>x.Username==n); var account=Accounts[index]; Accounts[index]=new UserAccount { Id=account.Id,Username=account.Username,DisplayName=account.DisplayName,PasswordSalt=account.PasswordSalt,PasswordHash=account.PasswordHash,PasswordAlgorithm=account.PasswordAlgorithm,PasswordIterations=account.PasswordIterations,Roles=roles }; return Task.CompletedTask;}
+        public Task<LoginAttemptState> RecordLoginAttemptAsync(string n,bool s,int th,TimeSpan d,DateTimeOffset now,CancellationToken t=default)=>Task.FromResult(new LoginAttemptState(null,false,null));
+        public Task<LoginAttemptState> VerifyAndRecordLoginAttemptAsync(string n,Func<UserAccount,bool> verifier,int th,TimeSpan d,DateTimeOffset now,CancellationToken t=default)=>Task.FromResult(new LoginAttemptState(null,false,"InvalidUsername"));
+    }
     private sealed class AuditFake : IAuthenticationAuditRepository { public Task WriteAsync(AuthenticationAuditEntry e,CancellationToken t=default)=>Task.CompletedTask; }
     private sealed class LoggerFake : ICentralizedLogger { public void Log(Exception e,string o,string c){} }
 }

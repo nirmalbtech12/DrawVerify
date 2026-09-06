@@ -1,18 +1,24 @@
-using System.Reflection;
 using DrawVerify.App.ViewModels;
+using DrawVerify.Core.Authorization;
+using DrawVerify.Core.Models;
+using DrawVerify.Application.Services;
 using Xunit;
 
 namespace DrawVerify.App.Tests;
 
 public sealed class VerificationViewModelTests
 {
-    [Fact(DisplayName = "TD-APPUI-002 exposes a centralized verification-review authorization guard")]
-    public void Verification_view_model_has_review_entry_guard()
+    [Theory(DisplayName = "TD-APPUI-002 review guard follows Checker-or-Approver authorization")]
+    [InlineData("Checker", true)]
+    [InlineData("Approver", true)]
+    [InlineData("Viewer", false)]
+    [InlineData("Maker", false)]
+    public void Review_guard_returns_behavioral_result(string role, bool expected)
     {
-        var type = typeof(VerificationViewModel);
-        var guard = type.GetProperty("CanReview") ?? type.GetProperty("CanEnterReview");
-        Assert.NotNull(guard);
-        Assert.Equal(typeof(bool), guard!.PropertyType);
-        Assert.NotNull(type.GetMethod("TryEnterReview") ?? type.GetMethod("EnterReview"));
+        var session = new SessionAuthenticationService(); session.SignIn(new AuthenticatedUser("USER", new[] { role }));
+        var vm = new VerificationViewModel(session, new RoleAuthorization());
+        Assert.Equal(expected, vm.CanReview); Assert.Equal(expected, vm.CanEnterReview);
+        var entered = vm.TryEnterReview(out var message); Assert.Equal(expected, entered);
+        if (expected) Assert.Empty(message); else Assert.Contains("Checker or Approver", message);
     }
 }
