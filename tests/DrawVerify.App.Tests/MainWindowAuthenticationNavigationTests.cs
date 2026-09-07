@@ -11,7 +11,31 @@ namespace DrawVerify.App.Tests;
 
 public sealed class MainWindowAuthenticationNavigationTests
 {
-    [Fact(DisplayName = "TD-WPF-NAV-01 starts at login and guards protected routes")]
+    [Fact(DisplayName = "T-UX-01 clean Cancel returns from user creation to authenticated content")]
+    public void Clean_user_creation_cancel_returns_to_authenticated_content()
+    {
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                CompositionRoot.SessionAuthentication.SignIn(new AuthenticatedUser("ADMIN", new[] { "Admin" }));
+                var window = new MainWindow();
+                typeof(MainWindow).GetMethod("ShowUserAdministration", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null);
+                var view = Assert.IsType<UserAdministrationView>(Content(window).Content);
+                var vm = Assert.IsType<UserAdministrationViewModel>(view.DataContext);
+                vm.CancelCommand.Execute(null);
+                Assert.IsType<StackPanel>(Content(window).Content);
+                window.Close();
+                Dispatcher.CurrentDispatcher.InvokeShutdown();
+            }
+            catch (Exception ex) { failure = ex; }
+        });
+        thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
+        if (failure is not null) throw new Xunit.Sdk.XunitException("Clean creation cancellation navigation assertion failed.", failure);
+    }
+
+    [Fact(DisplayName = "T-UX-05 starts at login and guards protected routes")]
     public void Unauthenticated_window_routes_protected_content_to_login()
     {
         Exception? failure = null;
@@ -33,7 +57,7 @@ public sealed class MainWindowAuthenticationNavigationTests
         if (failure is not null) throw new Xunit.Sdk.XunitException("WPF navigation assertion failed.", failure);
     }
 
-    [Fact(DisplayName = "TD-WPF-NAV-01 blocks protected content after logout")]
+    [Fact(DisplayName = "T-UX-05 blocks protected content after logout")]
     public void Authenticated_content_is_guarded_after_session_ends()
     {
         Exception? failure=null; var thread=new Thread(()=>{try{CompositionRoot.SessionAuthentication.SignIn(new DrawVerify.Core.Models.AuthenticatedUser("ADMIN",new[]{"Admin"})); var window=new MainWindow(); typeof(MainWindow).GetMethod("ShowAuthenticatedContent",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(window,null); CompositionRoot.SessionAuthentication.SignOut(); typeof(MainWindow).GetMethod("ShowUpload",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(window,null); Assert.IsType<LoginView>(Content(window).Content); window.Close(); Dispatcher.CurrentDispatcher.InvokeShutdown();}catch(Exception ex){failure=ex;}}); thread.SetApartmentState(ApartmentState.STA);thread.Start();thread.Join();if(failure is not null)throw new Xunit.Sdk.XunitException("Post-logout protected navigation assertion failed.",failure);

@@ -11,6 +11,93 @@ namespace DrawVerify.App.Tests;
 
 public sealed class UserAdministrationViewModelTests
 {
+    [Fact(DisplayName = "T-UX-01 clean and dirty cancellation follows the discard contract")]
+    public async Task Creation_cancel_is_clean_or_dirty_and_discard_clears_state()
+    {
+        await using var seed = await AuthenticationAuthorizationTestSeed.CreateAsync();
+        var session = new SessionAuthenticationService();
+        var audit = new SqliteAuthenticationAuditRepository(seed.DatabasePath);
+        Assert.True((await new UsernamePasswordAuthenticationService(seed.Repository, audit, session, new AuthenticationConfiguration(), new LoggerFake()).LoginAsync("admin", AuthenticationAuthorizationTestSeed.Password)).Succeeded);
+        var vm = new UserAdministrationViewModel(new UserAdministrationService(seed.Repository, audit, session, new AuthenticationConfiguration(), new LoggerFake()));
+
+        Assert.False(vm.IsCreationDirty);
+        var cancelRequests = 0;
+        vm.CancelRequested += () => cancelRequests++;
+        vm.Username = "pending.user";
+        vm.DisplayName = "Pending User";
+        vm.InitialPassword = "GoodPassword1!";
+        Assert.True(vm.IsCreationDirty);
+        vm.CancelCommand.Execute(null);
+        Assert.Equal(1, cancelRequests);
+
+        vm.DiscardCreation();
+        Assert.False(vm.IsCreationDirty);
+        Assert.Equal(string.Empty, vm.Username);
+        Assert.Equal(string.Empty, vm.DisplayName);
+        Assert.Equal(string.Empty, vm.InitialPassword);
+    }
+
+    [Fact(DisplayName = "T-UX-02 validation maps errors while retaining entered values")]
+    public async Task Creation_validation_preserves_values_and_maps_only_invalid_fields()
+    {
+        await using var seed = await AuthenticationAuthorizationTestSeed.CreateAsync();
+        var session = new SessionAuthenticationService();
+        var audit = new SqliteAuthenticationAuditRepository(seed.DatabasePath);
+        Assert.True((await new UsernamePasswordAuthenticationService(seed.Repository, audit, session, new AuthenticationConfiguration(), new LoggerFake()).LoginAsync("admin", AuthenticationAuthorizationTestSeed.Password)).Succeeded);
+        var vm = new UserAdministrationViewModel(new UserAdministrationService(seed.Repository, audit, session, new AuthenticationConfiguration(), new LoggerFake()))
+        {
+            Username = "valid.user",
+            DisplayName = "Valid User",
+            InitialPassword = "too-short"
+        };
+
+        await vm.CreateAsync();
+
+        Assert.Equal("valid.user", vm.Username);
+        Assert.Equal("Valid User", vm.DisplayName);
+        Assert.True(string.Equals("too-short", vm.InitialPassword, StringComparison.Ordinal), "The entered password should be retained for correction.");
+        Assert.Empty(vm.UsernameError);
+        Assert.Empty(vm.DisplayNameError);
+        Assert.Contains("password", vm.InitialPasswordError, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("successfully", vm.Message, StringComparison.OrdinalIgnoreCase);
+
+        vm.Username = "admin";
+        vm.InitialPassword = AuthenticationAuthorizationTestSeed.Password;
+        await vm.CreateAsync();
+
+        Assert.Equal("admin", vm.Username);
+        Assert.Equal("Valid User", vm.DisplayName);
+        Assert.True(string.Equals(AuthenticationAuthorizationTestSeed.Password, vm.InitialPassword, StringComparison.Ordinal), "The valid password should be retained for correction.");
+        Assert.Contains("already", vm.UsernameError, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(vm.DisplayNameError);
+        Assert.Empty(vm.InitialPasswordError);
+    }
+
+    [Fact(DisplayName = "T-UX-03 successful creation refreshes users and supports Create Another")]
+    public async Task Successful_creation_reports_normalized_user_and_resets_form()
+    {
+        await using var seed = await AuthenticationAuthorizationTestSeed.CreateAsync();
+        var session = new SessionAuthenticationService();
+        var audit = new SqliteAuthenticationAuditRepository(seed.DatabasePath);
+        Assert.True((await new UsernamePasswordAuthenticationService(seed.Repository, audit, session, new AuthenticationConfiguration(), new LoggerFake()).LoginAsync("admin", AuthenticationAuthorizationTestSeed.Password)).Succeeded);
+        var vm = new UserAdministrationViewModel(new UserAdministrationService(seed.Repository, audit, session, new AuthenticationConfiguration(), new LoggerFake()))
+        {
+            Username = " created.user ", DisplayName = "Created User", InitialPassword = AuthenticationAuthorizationTestSeed.Password
+        };
+
+        await vm.CreateAsync();
+
+        Assert.Equal("User 'CREATED.USER' created successfully", vm.Message);
+        Assert.True(vm.Users.Any(user => user.Username == "CREATED.USER"));
+        Assert.Equal(string.Empty, vm.Username);
+        Assert.Equal(string.Empty, vm.DisplayName);
+        Assert.Equal(string.Empty, vm.InitialPassword);
+        var countBeforeCreateAnother = vm.Users.Count;
+        vm.CreateAnotherCommand.Execute(null);
+        Assert.Equal(countBeforeCreateAnother, vm.Users.Count);
+        Assert.True(vm.CreateCommand.CanExecute(null));
+    }
+
     [Fact(DisplayName = "TD-WPF-ROLE-003 displays the five roles, preselects, saves, and prevents duplicate selection")]
     public async Task Admin_role_editor_uses_persisted_seed_and_confirms_success()
     {
