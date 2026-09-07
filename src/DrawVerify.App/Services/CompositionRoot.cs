@@ -39,9 +39,9 @@ public static class CompositionRoot
     public static AuditLogService CreateAuditLogService()
     {
         var logger = new CentralizedLogger(); var database = DatabasePath();
-        return new(new SqliteAuthenticationAuditRepository(database, logger), Session, Authorization);
+        return new(new SqliteAuthenticationAuditRepository(database, logger), Session, Authorization, logger);
     }
-    public static AuditRetentionService CreateAuditRetentionService() => new(new SqliteAuditRetentionRepository(DatabasePath(), new CentralizedLogger()), Session, AuditLogConfiguration, Authorization);
+    internal static AuditRetentionService CreateAuditRetentionService() => new(new SqliteAuditRetentionRepository(DatabasePath(), new CentralizedLogger()), AuditLogConfiguration);
     public static StepUploadViewModel CreateStepUploadViewModel()
     {
         var config=StepUploadConfiguration;

@@ -11,7 +11,7 @@ namespace DrawVerify.App.ViewModels;
 public sealed class UserAdministrationViewModel : INotifyPropertyChanged
 {
     private readonly UserAdministrationService _service;
-    private string _username = string.Empty, _displayName = string.Empty, _password = string.Empty, _selectedUsername = string.Empty;
+    private string _username = string.Empty, _displayName = string.Empty, _email = string.Empty, _password = string.Empty, _resetPassword = string.Empty, _selectedUsername = string.Empty;
     private UserAccount? _selectedUser;
     private bool _canEditRoles;
     public UserAdministrationViewModel(UserAdministrationService service)
@@ -21,15 +21,20 @@ public sealed class UserAdministrationViewModel : INotifyPropertyChanged
         AssignedRoles = new(service.CurrentUserRoles);
         CreateCommand = new Command(async _ => await CreateAsync(), _ => !IsBusy && CanEditRoles);
         SetRolesCommand = new Command(async _ => await SetRolesAsync(), _ => !IsBusy && CanEditRoles && SelectedUser is not null);
+        UpdateProfileCommand = new Command(async _ => await UpdateProfileAsync(), _ => !IsBusy && CanEditRoles && SelectedUser is not null);
+        ResetPasswordCommand = new Command(async _ => await ResetPasswordAsync(), _ => !IsBusy && CanEditRoles && SelectedUser is not null);
+        DeactivateCommand = new Command(async _ => await DeactivateAsync(), _ => !IsBusy && CanEditRoles && SelectedUser is not null);
         ToggleRoleCommand = new Command(role => ToggleRole(role as string), _ => CanEditRoles);
     }
     public event PropertyChangedEventHandler? PropertyChanged;
     public event Action? AuthorizationStateChanged;
     public string Username { get => _username; set { _username = value; Changed(); } }
     public string DisplayName { get => _displayName; set { _displayName = value; Changed(); } }
+    public string Email { get => _email; set { _email = value; Changed(); } }
     public string InitialPassword { get => _password; set { _password = value; Changed(); } }
+    public string ResetPassword { get => _resetPassword; set { _resetPassword = value; Changed(); } }
     public string SelectedUsername { get => _selectedUsername; set { _selectedUsername = value; SelectUser(Users.FirstOrDefault(x => string.Equals(x.Username, value, StringComparison.OrdinalIgnoreCase))); Changed(); } }
-    public UserAccount? SelectedUser { get => _selectedUser; set { _selectedUser = value; _selectedUsername = value?.Username ?? string.Empty; AssignedRoles.Clear(); foreach (var role in value?.Roles ?? Array.Empty<string>()) if (SystemRoles.TryCanonicalize(role, out var canonical)) AssignedRoles.Add(canonical); foreach (var option in RoleOptions) option.SetSelected(AssignedRoles.Contains(option.Role.Id, StringComparer.OrdinalIgnoreCase)); Changed(); Changed(nameof(SelectedUsername)); ((Command)SetRolesCommand).Raise(); } }
+    public UserAccount? SelectedUser { get => _selectedUser; set { _selectedUser = value; _selectedUsername = value?.Username ?? string.Empty; if (value is not null) { DisplayName = value.DisplayName; Email = value.Email ?? string.Empty; } AssignedRoles.Clear(); foreach (var role in value?.Roles ?? Array.Empty<string>()) if (SystemRoles.TryCanonicalize(role, out var canonical)) AssignedRoles.Add(canonical); foreach (var option in RoleOptions) option.SetSelected(AssignedRoles.Contains(option.Role.Id, StringComparer.OrdinalIgnoreCase)); Changed(); Changed(nameof(SelectedUsername)); ((Command)SetRolesCommand).Raise(); ((Command)UpdateProfileCommand).Raise(); ((Command)ResetPasswordCommand).Raise(); ((Command)DeactivateCommand).Raise(); } }
     public string Message { get; private set; } = string.Empty;
     public bool IsBusy { get; private set; }
     public bool CanEditRoles => _canEditRoles;
@@ -39,6 +44,9 @@ public sealed class UserAdministrationViewModel : INotifyPropertyChanged
     public ObservableCollection<UserAccount> Users { get; } = new();
     public ICommand CreateCommand { get; }
     public ICommand SetRolesCommand { get; }
+    public ICommand UpdateProfileCommand { get; }
+    public ICommand ResetPasswordCommand { get; }
+    public ICommand DeactivateCommand { get; }
     public ICommand ToggleRoleCommand { get; }
 
     public async Task LoadUsersAsync()
@@ -50,6 +58,29 @@ public sealed class UserAdministrationViewModel : INotifyPropertyChanged
             if (SelectedUser is not null) SelectUser(Users.FirstOrDefault(x => x.Id == SelectedUser.Id));
         }
         catch (Exception ex) { Message = ex.Message; Changed(nameof(Message)); }
+    }
+    public async Task UpdateProfileAsync()
+    {
+        if (SelectedUser is null) { Message = "Select a user before editing the profile."; Changed(nameof(Message)); return; }
+        await RunOperationAsync(() => _service.UpdateProfileAsync(new UserProfileUpdateRequest(SelectedUser.Username, DisplayName, Email)), "Unable to update the user profile.");
+    }
+    public async Task ResetPasswordAsync()
+    {
+        if (SelectedUser is null) { Message = "Select a user before resetting the password."; Changed(nameof(Message)); return; }
+        await RunOperationAsync(() => _service.UpdateProfileAsync(new UserProfileUpdateRequest(SelectedUser.Username, PasswordReset: true, NewPassword: ResetPassword)), "Unable to reset the user password.");
+        if (string.IsNullOrEmpty(Message) || Message == "User profile updated.") ResetPassword = string.Empty;
+    }
+    public async Task DeactivateAsync()
+    {
+        if (SelectedUser is null) { Message = "Select a user before deactivating the account."; Changed(nameof(Message)); return; }
+        await RunOperationAsync(() => _service.DeactivateUserAsync(new UserDeactivationRequest(SelectedUser.Username)), "Unable to deactivate the user account.");
+    }
+    private async Task RunOperationAsync(Func<Task<AuthenticationResult>> operation, string failureMessage)
+    {
+        if (IsBusy) return; IsBusy = true; Changed(nameof(IsBusy));
+        try { var result = await operation(); Message = result.Message; Changed(nameof(Message)); if (result.Succeeded) await LoadUsersAsync(); }
+        catch (Exception) { Message = failureMessage; Changed(nameof(Message)); }
+        finally { IsBusy = false; Changed(nameof(IsBusy)); ((Command)UpdateProfileCommand).Raise(); ((Command)ResetPasswordCommand).Raise(); ((Command)DeactivateCommand).Raise(); }
     }
     public async Task CreateAsync()
     {
@@ -98,6 +129,7 @@ public sealed class UserAdministrationViewModel : INotifyPropertyChanged
         ((Command)CreateCommand).Raise();
         ((Command)SetRolesCommand).Raise();
         ((Command)ToggleRoleCommand).Raise();
+        ((Command)UpdateProfileCommand).Raise(); ((Command)ResetPasswordCommand).Raise(); ((Command)DeactivateCommand).Raise();
         AuthorizationStateChanged?.Invoke();
     }
     public void ToggleRole(string? role) { if (!CanEditRoles || !SystemRoles.TryCanonicalize(role, out var canonical)) return; var option = RoleOptions.FirstOrDefault(x => x.Role.Id == canonical); if (option is not null) option.IsSelected = !option.IsSelected; }

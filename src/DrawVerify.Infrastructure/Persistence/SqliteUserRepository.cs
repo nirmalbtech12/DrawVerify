@@ -96,12 +96,14 @@ public sealed class SqliteUserRepository : IUserRepository
         }
         catch(Exception ex) { try { await tx.RollbackAsync(cancellationToken); } catch { } _logger?.Log(ex,"SQLite login state mutation",$"Unable to update login state for '{normalizedUsername}'."); throw; }
     }
-    public async Task UpdateProfileAsync(string normalizedUsername, string? displayName, string? email, bool passwordReset, AuthenticationAuditEntry audit, CancellationToken cancellationToken = default)
+    public async Task UpdateProfileAsync(string normalizedUsername, string? displayName, string? email, bool passwordReset, byte[]? passwordSalt, byte[]? passwordHash, int passwordIterations, AuthenticationAuditEntry audit, CancellationToken cancellationToken = default)
     {
         await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(cancellationToken); await using var tx = (SqliteTransaction)await c.BeginTransactionAsync(cancellationToken);
-        try { await Execute(c, tx, "UPDATE UserAccount SET DisplayName=$d,Email=$e WHERE NormalizedUsername=$u AND IsActive=1", cancellationToken, ("$d", displayName ?? string.Empty), ("$e", (object?)email ?? DBNull.Value), ("$u", normalizedUsername)); await SqliteAuthenticationAuditRepository.InsertAsync(c, tx, audit, cancellationToken); await tx.CommitAsync(cancellationToken); }
+        try { await Execute(c, tx, "UPDATE UserAccount SET DisplayName=$d,Email=$e,PasswordSalt=COALESCE($s,PasswordSalt),PasswordHash=COALESCE($h,PasswordHash),PasswordIterations=CASE WHEN $i > 0 THEN $i ELSE PasswordIterations END WHERE NormalizedUsername=$u AND IsActive=1", cancellationToken, ("$d", displayName ?? string.Empty), ("$e", (object?)email ?? DBNull.Value), ("$s", (object?)passwordSalt ?? DBNull.Value), ("$h", (object?)passwordHash ?? DBNull.Value), ("$i", passwordIterations), ("$u", normalizedUsername)); await SqliteAuthenticationAuditRepository.InsertAsync(c, tx, audit, cancellationToken); await tx.CommitAsync(cancellationToken); }
         catch (Exception ex) { try { await tx.RollbackAsync(cancellationToken); } catch { } _logger?.Log(ex, "SQLite profile update", $"Unable to update profile for '{normalizedUsername}'."); throw; }
     }
+    public Task UpdateProfileAsync(string normalizedUsername, string? displayName, string? email, bool passwordReset, AuthenticationAuditEntry audit, CancellationToken cancellationToken = default)
+        => UpdateProfileAsync(normalizedUsername, displayName, email, passwordReset, null, null, 0, audit, cancellationToken);
     public async Task DeactivateAsync(string normalizedUsername, string? reason, AuthenticationAuditEntry audit, CancellationToken cancellationToken = default)
     {
         await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(cancellationToken); await using var tx = (SqliteTransaction)await c.BeginTransactionAsync(cancellationToken);

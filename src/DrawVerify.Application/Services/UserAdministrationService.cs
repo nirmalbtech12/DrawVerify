@@ -76,7 +76,7 @@ public sealed class UserAdministrationService
     }
     public static string Normalize(string username) => username.Trim().ToUpperInvariant();
 
-    public async Task<AuthenticationResult> UpdateProfileAsync(string username, string? displayName, string? email, bool passwordReset, CancellationToken cancellationToken = default)
+    public async Task<AuthenticationResult> UpdateProfileAsync(string username, string? displayName, string? email, bool passwordReset, CancellationToken cancellationToken = default, string? newPassword = null)
     {
         var actor = _session.CurrentUser; if (actor is null || !_authorization.IsAllowed(actor, RolePermission.ManageUsersAndRoles)) return new(AuthenticationResultKind.ValidationFailure, "Only an administrator can modify users.");
         var normalized = Normalize(username); var current = await _users.FindByUsernameAsync(normalized, cancellationToken); if (current is null) return new(AuthenticationResultKind.ValidationFailure, "The target user was not found.");
@@ -84,12 +84,32 @@ public sealed class UserAdministrationService
         if (displayName is not null && !string.Equals(current.DisplayName, displayName.Trim(), StringComparison.Ordinal)) { fields.Add("DisplayName"); oldValues["DisplayName"] = current.DisplayName; newValues["DisplayName"] = displayName.Trim(); }
         if (!string.Equals(current.Email, email, StringComparison.Ordinal)) { fields.Add("Email"); oldValues["Email"] = current.Email; newValues["Email"] = email; }
         if (passwordReset) fields.Add("PasswordReset");
+        byte[]? salt = null; byte[]? hash = null;
+        if (passwordReset)
+        {
+            // The legacy overload has no password argument. Keep that API usable for
+            // existing callers while still replacing the stored password material;
+            // the UI/request overload always supplies the administrator-selected value.
+            var resetPassword = newPassword ?? $"Reset-{Convert.ToBase64String(RandomNumberGenerator.GetBytes(18))}aA1!";
+            var policyError = _configuration.ValidatePassword(resetPassword); if (policyError is not null) return new(AuthenticationResultKind.ValidationFailure, policyError);
+            salt = RandomNumberGenerator.GetBytes(16); hash = Rfc2898DeriveBytes.Pbkdf2(resetPassword, salt, PasswordIterations, HashAlgorithmName.SHA256, 32);
+        }
         if (fields.Count == 0) return new(AuthenticationResultKind.ValidationFailure, "No profile changes were supplied.");
-        await _users.UpdateProfileAsync(normalized, newValues.TryGetValue("DisplayName", out var name) ? name : current.DisplayName, newValues.TryGetValue("Email", out var mail) ? mail : current.Email, passwordReset, new(actor.Username, normalized, DateTimeOffset.UtcNow, "UserModified", "Success", ChangedFields: JsonSerializer.Serialize(fields), OldValues: JsonSerializer.Serialize(oldValues), NewValues: JsonSerializer.Serialize(newValues)), cancellationToken);
+        var audit = new AuthenticationAuditEntry(actor.Username, normalized, DateTimeOffset.UtcNow, "UserModified", "Success", ChangedFields: JsonSerializer.Serialize(fields), OldValues: JsonSerializer.Serialize(oldValues), NewValues: JsonSerializer.Serialize(newValues));
+        if (passwordReset)
+        {
+            await _users.UpdateProfileAsync(normalized, newValues.TryGetValue("DisplayName", out var name) ? name : current.DisplayName, newValues.TryGetValue("Email", out var mail) ? mail : current.Email, true, salt, hash, PasswordIterations, audit, cancellationToken);
+        }
+        else
+        {
+            // Preserve the original interface path for profile-only updates so
+            // repositories that do not need password material remain compatible.
+            await _users.UpdateProfileAsync(normalized, newValues.TryGetValue("DisplayName", out var name) ? name : current.DisplayName, newValues.TryGetValue("Email", out var mail) ? mail : current.Email, false, audit, cancellationToken);
+        }
         return new(AuthenticationResultKind.Success, "User profile updated.");
     }
     public Task<AuthenticationResult> UpdateProfileAsync(UserProfileUpdateRequest request, CancellationToken cancellationToken = default)
-        => UpdateProfileAsync(request.Username, request.DisplayName, request.Email, request.PasswordReset, cancellationToken);
+        => UpdateProfileAsync(request.Username, request.DisplayName, request.Email, request.PasswordReset, cancellationToken, request.NewPassword);
     public async Task<AuthenticationResult> DeactivateUserAsync(string username, string? reason, CancellationToken cancellationToken = default)
     {
         var actor = _session.CurrentUser; if (actor is null || !_authorization.IsAllowed(actor, RolePermission.ManageUsersAndRoles)) return new(AuthenticationResultKind.ValidationFailure, "Only an administrator can deactivate users.");
