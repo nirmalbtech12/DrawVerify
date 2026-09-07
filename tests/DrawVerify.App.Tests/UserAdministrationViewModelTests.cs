@@ -22,13 +22,17 @@ public sealed class UserAdministrationViewModelTests
 
         Assert.False(vm.IsCreationDirty);
         var cancelRequests = 0;
+        var backRequests = 0;
         vm.CancelRequested += () => cancelRequests++;
+        vm.BackRequested += () => backRequests++;
         vm.Username = "pending.user";
         vm.DisplayName = "Pending User";
         vm.InitialPassword = "GoodPassword1!";
         Assert.True(vm.IsCreationDirty);
         vm.CancelCommand.Execute(null);
         Assert.Equal(1, cancelRequests);
+        vm.BackCommand.Execute(null);
+        Assert.Equal(1, backRequests);
 
         vm.DiscardCreation();
         Assert.False(vm.IsCreationDirty);

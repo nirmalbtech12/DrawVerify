@@ -37,7 +37,7 @@ public partial class MainWindow : Window
     }
 
     private void ShowLogin() { var view=new LoginView { DataContext=new LoginViewModel(CompositionRoot.CreateAuthenticationService()) }; ((LoginViewModel)view.DataContext).LoginSucceeded += ShowAuthenticatedContent; MainContent.Content=view; }
-    private void ShowUserAdministration() { if(!CompositionRoot.SessionAuthentication.IsAuthenticated || !CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ManageUsersAndRoles)){ShowLogin();return;} var view = new UserAdministrationView { DataContext=new UserAdministrationViewModel(CompositionRoot.CreateUserAdministrationService()) }; var model = (UserAdministrationViewModel)view.DataContext; model.AuthorizationStateChanged += ShowAuthenticatedContent; model.CancelRequested += () => CancelUserCreation(model); MainContent.Content=view; }
+    private void ShowUserAdministration() { if(!CompositionRoot.SessionAuthentication.IsAuthenticated || !CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ManageUsersAndRoles)){ShowLogin();return;} var view = new UserAdministrationView { DataContext=new UserAdministrationViewModel(CompositionRoot.CreateUserAdministrationService()) }; var model = (UserAdministrationViewModel)view.DataContext; model.AuthorizationStateChanged += ShowAuthenticatedContent; model.CancelRequested += () => CancelUserCreation(model); model.BackRequested += () => CancelUserCreation(model); MainContent.Content=view; }
     private void ShowProfile() { if (!CompositionRoot.SessionAuthentication.IsAuthenticated) { ShowLogin(); return; } var view = new UserAdministrationView { DataContext = new UserAdministrationViewModel(CompositionRoot.CreateUserAdministrationService()) }; ((UserAdministrationViewModel)view.DataContext).AuthorizationStateChanged += ShowAuthenticatedContent; MainContent.Content = view; }
     private void ShowAuditLog() { if (!CompositionRoot.SessionAuthentication.IsAuthenticated || !CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ViewAuditLog)) { ShowLogin(); return; } MainContent.Content = new AuditLogView { DataContext = new AuditLogViewModel(CompositionRoot.CreateAuditLogService()) }; }
 
@@ -57,9 +57,10 @@ public partial class MainWindow : Window
         MainContent.Content = new VerificationView { DataContext = model };
     }
     private void ShowProtected(Func<UIElement> contentFactory) { if(!CompositionRoot.SessionAuthentication.IsAuthenticated){ShowLogin();return;} MainContent.Content=contentFactory(); }
+    public Func<MessageBoxResult> DiscardConfirmation { get; set; } = () => MessageBox.Show("Discard unsaved changes?", "Discard user creation", MessageBoxButton.YesNo, MessageBoxImage.Warning);
     private void CancelUserCreation(UserAdministrationViewModel model)
     {
-        if (model.IsCreationDirty && MessageBox.Show("Discard unsaved changes?", "Discard user creation", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        if (model.IsCreationDirty && DiscardConfirmation() != MessageBoxResult.Yes) return;
         model.DiscardCreation();
         ShowAuthenticatedContent();
     }

@@ -35,6 +35,47 @@ public sealed class MainWindowAuthenticationNavigationTests
         if (failure is not null) throw new Xunit.Sdk.XunitException("Clean creation cancellation navigation assertion failed.", failure);
     }
 
+    [Fact(DisplayName = "T-UX-01 dirty Cancel and Back retain on No and navigate on Yes")]
+    public void Dirty_creation_cancel_and_back_use_discard_confirmation()
+    {
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                CompositionRoot.SessionAuthentication.SignIn(new AuthenticatedUser("ADMIN", new[] { "Admin" }));
+                var window = new MainWindow();
+                typeof(MainWindow).GetMethod("ShowUserAdministration", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null);
+                var view = Assert.IsType<UserAdministrationView>(Content(window).Content);
+                var vm = Assert.IsType<UserAdministrationViewModel>(view.DataContext);
+                vm.Username = "cancel.pending"; vm.DisplayName = "Cancel Pending";
+                window.DiscardConfirmation = () => System.Windows.MessageBoxResult.No;
+                vm.CancelCommand.Execute(null);
+                Assert.Same(view, Content(window).Content);
+                Assert.Equal("cancel.pending", vm.Username);
+                window.DiscardConfirmation = () => System.Windows.MessageBoxResult.Yes;
+                vm.CancelCommand.Execute(null);
+                Assert.IsType<StackPanel>(Content(window).Content);
+                typeof(MainWindow).GetMethod("ShowUserAdministration", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null);
+                view = Assert.IsType<UserAdministrationView>(Content(window).Content);
+                vm = Assert.IsType<UserAdministrationViewModel>(view.DataContext);
+                vm.Username = "back.pending"; vm.DisplayName = "Back Pending";
+                window.DiscardConfirmation = () => System.Windows.MessageBoxResult.No;
+                vm.BackCommand.Execute(null);
+                Assert.Same(view, Content(window).Content);
+                Assert.Equal("back.pending", vm.Username);
+                window.DiscardConfirmation = () => System.Windows.MessageBoxResult.Yes;
+                vm.BackCommand.Execute(null);
+                Assert.IsType<StackPanel>(Content(window).Content);
+                window.Close();
+                Dispatcher.CurrentDispatcher.InvokeShutdown();
+            }
+            catch (Exception ex) { failure = ex; }
+        });
+        thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
+        if (failure is not null) throw new Xunit.Sdk.XunitException("Dirty Cancel/Back confirmation assertion failed.", failure);
+    }
+
     [Fact(DisplayName = "T-UX-05 starts at login and guards protected routes")]
     public void Unauthenticated_window_routes_protected_content_to_login()
     {

@@ -28,12 +28,14 @@ public sealed class UserAdministrationViewModel : INotifyPropertyChanged
         DeactivateCommand = new Command(async _ => await DeactivateAsync(), _ => !IsBusy && CanEditRoles && SelectedUser is not null);
         ToggleRoleCommand = new Command(role => ToggleRole(role as string), _ => CanEditRoles);
         CancelCommand = new Command(_ => CancelRequested?.Invoke(), _ => !IsBusy && CanEditRoles);
+        BackCommand = new Command(_ => BackRequested?.Invoke(), _ => !IsBusy && CanEditRoles);
         CreateAnotherCommand = new Command(_ => ResetCreationForm(), _ => !IsBusy && CanEditRoles);
         _creationSnapshot = CreationState;
     }
     public event PropertyChangedEventHandler? PropertyChanged;
     public event Action? AuthorizationStateChanged;
     public event Action? CancelRequested;
+    public event Action? BackRequested;
     public event Action? CreationFormReset;
     public string Username { get => _username; set { _username = value; Changed(); Changed(nameof(IsCreationDirty)); } }
     public string DisplayName { get => _displayName; set { _displayName = value; Changed(); Changed(nameof(IsCreationDirty)); } }
@@ -60,6 +62,7 @@ public sealed class UserAdministrationViewModel : INotifyPropertyChanged
     public ICommand DeactivateCommand { get; }
     public ICommand ToggleRoleCommand { get; }
     public ICommand CancelCommand { get; }
+    public ICommand BackCommand { get; }
     public ICommand CreateAnotherCommand { get; }
 
     private string CreationState => string.Join("\u001f", Username, DisplayName, InitialPassword);
