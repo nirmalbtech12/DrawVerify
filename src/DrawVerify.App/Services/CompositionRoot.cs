@@ -53,7 +53,7 @@ public static class CompositionRoot
         var config=StepUploadConfiguration;
         var database=Path.Combine(AppContext.BaseDirectory,"drawverify.db");
         var logger = new CentralizedLogger();
-        return new StepUploadViewModel(new DocumentService(new SqliteDocumentRepository(database, logger),new SqliteAuditRepository(database),new DocumentFileStore(AppContext.BaseDirectory,config),config,Session,logger,Authorization,new OcctStepModelValidator(),new SqliteUserRepository(database,logger)));
+        return new StepUploadViewModel(new DocumentService(new SqliteDocumentRepository(database, logger),new SqliteAuditRepository(database),new DocumentFileStore(AppContext.BaseDirectory,config),config,Session,logger,Authorization,users:new SqliteUserRepository(database,logger)));
     }
     private static StepUploadConfiguration LoadStepUploadConfiguration()
     {
@@ -62,7 +62,7 @@ public static class CompositionRoot
         {
             using var document=JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"appsettings.json")));
             var section=document.RootElement.GetProperty("StepUpload");
-            var config=new StepUploadConfiguration { MaxFileSizeMb=section.GetProperty("MaxFileSizeMb").GetInt32(), StorageFolder=section.GetProperty("StorageFolder").GetString() ?? string.Empty, DuplicatePolicy=section.GetProperty("DuplicatePolicy").GetString() ?? string.Empty };
+            var config=new StepUploadConfiguration { MaxFileSizeMb=section.GetProperty("MaxFileSizeMb").GetInt32(), StorageFolder=section.GetProperty("StorageFolder").GetString() ?? string.Empty, DuplicatePolicy=section.GetProperty("DuplicatePolicy").GetString() ?? string.Empty, ValidationTimeoutSeconds=section.GetProperty("ValidationTimeoutSeconds").GetInt32() };
             config.Validate();
             return config;
         }

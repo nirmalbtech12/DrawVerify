@@ -1,253 +1,140 @@
 using System.Text;
+using System.Text.Json;
 using DrawVerify.Application.Services;
 using DrawVerify.Application.StepUpload;
+using DrawVerify.Core.Authorization;
 using DrawVerify.Core.Configuration;
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
-using DrawVerify.Core.Authorization;
-using DrawVerify.Geometry;
 using Xunit;
-using DocumentType = DrawVerify.Core.Enums.DocumentType;
-using UploadStatus = DrawVerify.Core.Enums.UploadStatus;
-using GeometryStatus = DrawVerify.Core.Enums.GeometryStatus;
+using StepDocumentType = DrawVerify.Core.Enums.DocumentType;
+using StepUploadStatus = DrawVerify.Core.Enums.UploadStatus;
+using StepGeometryStatus = DrawVerify.Core.Enums.GeometryStatus;
 
 namespace DrawVerify.Application.Tests;
 
 public sealed class DocumentServiceStepUploadTests
 {
-    private const string ValidStep = "ISO-10303-21;HEADER;FILE_DESCRIPTION(('test'),'2;1');ENDSEC;END-ISO-10303-21;";
+    private const string Valid = "ISO-10303-21;HEADER;FILE_SCHEMA(('AUTOMOTIVE_DESIGN_CC2'));ENDSEC;DATA;ENDSEC;END-ISO-10303-21;";
+    private static byte[] B(string s) => Encoding.ASCII.GetBytes(s);
 
-    [Theory(DisplayName = "TD-KAN116-APP-001 upload operates without legacy user dependencies")]
-    [InlineData("part.step")]
-    [InlineData("PART.STP")]
-    public async Task Upload_accepts_both_step_extensions_with_required_metadata(string name)
+    [Theory(DisplayName = "TD-KAN21-APP-001 rejects non-STEP content and audits it")]
+    [InlineData("renamed.step", "renamed text")]
+    [InlineData("document.stp", "%PDF-1.7")]
+    public async Task Non_step_content_is_rejected(string name, string content)
     {
-        var fakes = new Fakes();
-        var request = new StepUploadRequest(name, new MemoryStream(Encoding.UTF8.GetBytes(ValidStep)));
-        var result = await fakes.Service.UploadStepAsync(request);
-
-        Assert.Equal(StepUploadResultKind.Success, result.Kind);
-        Assert.Equal($"Uploaded {name} ({Encoding.UTF8.GetByteCount(ValidStep)} bytes).", result.Message);
-        var document = fakes.Documents.Created;
-        Assert.NotNull(document);
-        Assert.Equal(name, document.OriginalFileName);
-        Assert.Equal(Encoding.UTF8.GetByteCount(ValidStep), document.FileSizeBytes);
-        Assert.Equal(DocumentType.StepModel, document.DocumentType);
-        Assert.Equal(UploadStatus.Uploaded, document.UploadStatus);
-        Assert.Equal(GeometryStatus.PendingValidation, document.GeometryStatus);
-        Assert.True(document.UploadTimestampUtc > DateTime.UtcNow.AddMinutes(-1));
-        Assert.Equal(DocumentAuditAction.Uploaded, Assert.Single(fakes.Audit.Entries).Action);
-        Assert.NotNull(document.Version);
-        Assert.Equal(1, document.Version!.VersionNumber);
+        var f = new Fakes();
+        var r = await f.Service.UploadStepAsync(new(name, new MemoryStream(B(content))));
+        Assert.Equal(StepUploadResultKind.Rejected, r.Kind);
+        Assert.Equal(StepFileValidator.NotStepMessage, r.Message);
+        AssertNoWrites(f); AssertAudit(f, name, "Not a STEP file");
     }
 
-    [Theory]
-    [InlineData("part.dxf")]
-    [InlineData("part.txt")]
-    [InlineData("part.pdf")]
-    public async Task Unsupported_extensions_are_rejected_before_any_write(string name)
+    [Fact(DisplayName = "TD-KAN21-APP-001 rejects image-like binary content")]
+    public async Task Image_content_is_rejected()
     {
-        var fakes = new Fakes();
-        var result = await fakes.Service.UploadStepAsync(new StepUploadRequest(name, new MemoryStream(Encoding.UTF8.GetBytes(ValidStep))));
-
-        Assert.Equal(StepUploadResultKind.Rejected, result.Kind);
-        Assert.Equal(DocumentService.TypeMessage, result.Message);
-        Assert.Empty(fakes.Documents.Writes);
-        Assert.Empty(fakes.Store.Created);
-        Assert.Empty(fakes.Audit.Entries);
+        var f = new Fakes();
+        var r = await f.Service.UploadStepAsync(new("image.step", new MemoryStream(new byte[] { 0x89, 0x50, 0x4e, 0x47, 0, 1 })));
+        Assert.Equal(StepFileValidator.NotStepMessage, r.Message); AssertNoWrites(f); AssertAudit(f, "image.step", "Not a STEP file");
     }
 
-    [Fact]
-    public async Task Size_boundary_is_accepted_and_one_byte_over_is_rejected()
+    [Theory(DisplayName = "TD-KAN21-APP-002 rejects malformed headers and restores stream position")]
+    [InlineData("missing-schema.step", "ISO-10303-21;HEADER;ENDSEC;END-ISO-10303-21;")]
+    [InlineData("malformed-schema.stp", "ISO-10303-21;HEADER;FILE_SCHEM(('X'));ENDSEC;END-ISO-10303-21;")]
+    public async Task Invalid_headers_are_rejected(string name, string content)
     {
-        var configuration = new StepUploadConfiguration { MaxFileSizeMb = 1 };
-        var validBytes = Encoding.UTF8.GetBytes("ISO-10303-21;HEADER;END-ISO-10303-21;");
-        var boundary = Enumerable.Repeat((byte)' ', 1024 * 1024).ToArray();
-        validBytes.CopyTo(boundary, 0);
-        var atLimit = new Fakes(configuration);
-        var accepted = await atLimit.Service.UploadStepAsync(new StepUploadRequest("limit.step", new MemoryStream(boundary), boundary.Length));
-        Assert.Equal(StepUploadResultKind.Success, accepted.Kind);
-
-        var over = new Fakes(configuration);
-        var rejected = await over.Service.UploadStepAsync(new StepUploadRequest("over.step", new MemoryStream(new byte[boundary.Length + 1]), boundary.Length + 1));
-        Assert.Equal(StepUploadResultKind.Rejected, rejected.Kind);
-        Assert.Equal("File exceeds the maximum allowed size of 1 MB.", rejected.Message);
-        Assert.Empty(over.Documents.Writes);
+        var f = new Fakes(); using var stream = new MemoryStream(B(content)); stream.Position = 3;
+        var r = await f.Service.UploadStepAsync(new(name, stream));
+        Assert.Equal(StepFileValidator.InvalidMessage, r.Message); Assert.Equal(3, stream.Position);
+        AssertNoWrites(f); AssertAudit(f, name, "Invalid header");
     }
 
-    [Fact]
-    public async Task Model_validation_rejection_does_not_persist_the_upload()
+    [Fact(DisplayName = "TD-KAN21-APP-003 classifies truncation, timeout, and read failure")]
+    public async Task Invalid_streams_are_safe()
     {
-        var fakes = new Fakes(rejectModel: true);
-        var result = await fakes.Service.UploadStepAsync(new StepUploadRequest("broken.step", new MemoryStream(new byte[] { 0, 1, 2 })));
-
-        Assert.Equal(StepUploadResultKind.Rejected, result.Kind);
-        Assert.Equal(StepFileValidator.InvalidMessage, result.Message);
-        Assert.Empty(fakes.Documents.Writes);
-        Assert.Empty(fakes.Store.Created);
+        var f = new Fakes();
+        var r = await f.Service.UploadStepAsync(new("truncated.step", new MemoryStream(B("ISO-10303-21;HEADER;FILE_SCHEMA(('X'));ENDSEC;"))));
+        Assert.Equal(StepFileValidator.TruncatedMessage, r.Message); AssertAudit(f, "truncated.step", "Truncated file"); AssertNoWrites(f);
+        var mismatch = new Fakes();
+        r = await mismatch.Service.UploadStepAsync(new("mismatch.step", new MemoryStream(B(Valid)), 1));
+        Assert.Equal(StepFileValidator.TruncatedMessage, r.Message); AssertAudit(mismatch, "mismatch.step", "Truncated file");
+        var slow = new Fakes(new StepUploadConfiguration { ValidationTimeoutSeconds = 1 });
+        r = await slow.Service.UploadStepAsync(new("slow.step", new DelayedStream(B(Valid))));
+        Assert.Equal(StepFileValidator.TimeoutMessage, r.Message); AssertAudit(slow, "slow.step", "Validation timeout");
+        var failed = new Fakes(logger: new Logger());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => failed.Service.UploadStepAsync(new("read-error.step", new ThrowingStream())));
+        Assert.Contains(failed.Logger!.Entries, x => x.Contains("STEP upload validation"));
     }
 
-    [Fact]
-    public async Task Duplicate_confirmation_creates_next_version_and_retains_existing_document()
-    {
-        var existing = new Document { DocumentId = Guid.NewGuid(), OriginalFileName = "part.step", FileSizeBytes = Encoding.UTF8.GetByteCount(ValidStep), CurrentVersion = 1, Versions = new[] { new DocumentVersion { VersionNumber = 1, DocumentId = Guid.NewGuid(), StoredRelativePath = "old.step" } } };
-        var fakes = new Fakes { Duplicate = existing };
-        var request = new StepUploadRequest("part.step", new MemoryStream(Encoding.UTF8.GetBytes(ValidStep)));
-        var prepared = await fakes.Service.PrepareStepUploadAsync(request);
-        Assert.Equal(StepUploadResultKind.Duplicate, prepared.Kind);
-        Assert.Equal(DocumentService.DuplicateMessage, prepared.Message);
-        Assert.Empty(fakes.Store.Created);
-
-        var result = await fakes.Service.UploadStepAsync(request, confirmDuplicate: true);
-        Assert.Equal(StepUploadResultKind.Success, result.Kind);
-        var version = Assert.Single(fakes.Documents.AddedVersions);
-        Assert.Equal(2, version.VersionNumber);
-        Assert.Equal(existing.DocumentId, version.DocumentId);
-        Assert.DoesNotContain("old.step", fakes.Store.Deleted);
-        Assert.Equal(new[] { DocumentAuditAction.DuplicateDetected, DocumentAuditAction.Overwritten }, fakes.Audit.Entries.Select(x => x.Action));
-    }
-
-    [Fact]
-    public async Task Duplicate_cancellation_creates_no_version_and_audits_cancelled()
-    {
-        var existing = new Document { DocumentId = Guid.NewGuid(), OriginalFileName = "part.step", FileSizeBytes = Encoding.UTF8.GetByteCount(ValidStep) };
-        var fakes = new Fakes { Duplicate = existing };
-        var request = new StepUploadRequest("part.step", new MemoryStream(Encoding.UTF8.GetBytes(ValidStep)));
-        await fakes.Service.PrepareStepUploadAsync(request);
-        var result = await fakes.Service.CancelDuplicateAsync(request, existing.DocumentId);
-
-        Assert.Equal(StepUploadResultKind.Cancelled, result.Kind);
-        Assert.Equal(DocumentService.CancelledMessage, result.Message);
-        Assert.Empty(fakes.Documents.AddedVersions);
-        Assert.Equal(new[] { DocumentAuditAction.DuplicateDetected, DocumentAuditAction.Cancelled }, fakes.Audit.Entries.Select(x => x.Action));
-    }
-
-    [Fact]
-    public async Task Cancellation_reports_progress_cleans_staging_and_creates_no_document()
-    {
-        var progress = new RecordingProgress();
-        using var cancellation = new CancellationTokenSource();
-        var fakes = new Fakes(cancelAfterFirstWrite: true, cancelUpload: cancellation.Cancel);
-        var request = new StepUploadRequest("part.step", new MemoryStream(Encoding.UTF8.GetBytes(ValidStep))) { Progress = progress, CancellationToken = cancellation.Token };
-        var result = await fakes.Service.UploadStepAsync(request);
-
-        Assert.Equal(StepUploadResultKind.Cancelled, result.Kind);
-        Assert.Equal(DocumentService.CancelledMessage, result.Message);
-        Assert.NotEmpty(progress.Values);
-        Assert.Empty(fakes.Documents.Writes);
-        Assert.Contains(fakes.Audit.Entries, x => x.Action == DocumentAuditAction.Cancelled && x.DocumentId is null);
-        Assert.Contains(fakes.Store.Deleted, x => x.Contains("staging", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public async Task Persistence_failure_compensates_by_deleting_the_completed_file()
-    {
-        var fakes = new Fakes { ThrowOnCreate = true };
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fakes.Service.UploadStepAsync(new StepUploadRequest("part.step", new MemoryStream(Encoding.UTF8.GetBytes(ValidStep)))));
-
-        Assert.Contains("uploads/step/final_part.step", fakes.Store.Deleted);
-        Assert.Empty(fakes.Audit.Entries);
-    }
-
-    [Theory(DisplayName = "TD-APP-002 denies upload boundaries without Maker authorization")]
-    [InlineData("Viewer")]
-    [InlineData("Checker")]
-    [InlineData("Approver")]
-    [InlineData("Admin")]
-    public async Task Non_makers_are_rejected_before_downstream_interactions(string role)
+    [Theory(DisplayName = "TD-KAN21-APP-004 authorization precedes processing")]
+    [InlineData(null)] [InlineData("Viewer")]
+    public async Task Unauthorized_users_do_not_read_or_write(string? role)
     {
         var session = new SessionAuthenticationService();
-        session.SignIn(new AuthenticatedUser("user", new[] { role }));
-        var fakes = new Fakes(session);
-        var request = new StepUploadRequest("part.step", new MemoryStream(Encoding.UTF8.GetBytes(ValidStep)));
-
-        Assert.Equal(StepUploadResultKind.Rejected, (await fakes.Service.PrepareStepUploadAsync(request)).Kind);
-        Assert.Equal(StepUploadResultKind.Rejected, (await fakes.Service.UploadStepAsync(request)).Kind);
-        Assert.Equal(StepUploadResultKind.Rejected, (await fakes.Service.CancelDuplicateAsync(request, Guid.NewGuid())).Kind);
-        Assert.Empty(fakes.Documents.Writes);
-        Assert.Empty(fakes.Store.Created);
-        Assert.Empty(fakes.Audit.Entries);
+        if (role is not null) session.SignIn(new AuthenticatedUser("user", new[] { role }));
+        var f = new Fakes(session: session, authenticate: false); var stream = new TrackingStream(B("not step"));
+        var r = await f.Service.UploadStepAsync(new("bad.step", stream));
+        Assert.Equal(StepUploadResultKind.Rejected, r.Kind); Assert.Equal(0, stream.Reads); AssertNoWrites(f);
     }
 
-    [Fact]
-    public async Task Maker_retains_authorized_upload_behavior()
+    [Fact(DisplayName = "TD-KAN21-APP-005 accepts valid surface/wire format and bounded reads")]
+    public async Task Valid_format_is_uploaded_without_geometry_validation()
     {
-        var session = new SessionAuthenticationService();
-        session.SignIn(new AuthenticatedUser("maker", new[] { SystemRoles.Maker }));
-        var fakes = new Fakes(session);
-        var result = await fakes.Service.UploadStepAsync(new StepUploadRequest("part.step", new MemoryStream(Encoding.UTF8.GetBytes(ValidStep))));
-        Assert.Equal(StepUploadResultKind.Success, result.Kind);
+        var f = new Fakes();
+        var r = await f.Service.UploadStepAsync(new("surface.stp", new MemoryStream(B(Valid))));
+        Assert.True(r.Kind == StepUploadResultKind.Success, $"Unexpected result: {r.Kind}; message: {r.Message}");
+        Assert.Equal(StepDocumentType.StepModel, f.Documents.Created!.DocumentType);
+        Assert.Equal(StepUploadStatus.Uploaded, f.Documents.Created.UploadStatus);
+        Assert.Equal(StepGeometryStatus.PendingValidation, f.Documents.Created.GeometryStatus);
+        var bytes = new byte[50 * 1024 * 1024]; B(Valid).CopyTo(bytes, 0); B("END-ISO-10303-21;").CopyTo(bytes, bytes.Length - 17);
+        var bounded = new Fakes(); var tracking = new TrackingStream(bytes);
+        Assert.Equal(StepUploadResultKind.Success, (await bounded.Service.UploadStepAsync(new("large.step", tracking))).Kind);
+        Assert.True(tracking.ValidationBytesRead < bytes.Length, $"Validation read {tracking.ValidationBytesRead} bytes; copy read {tracking.CopyBytesRead} bytes.");
     }
 
-    [Fact]
-    public async Task Null_session_is_rejected_before_downstream_interactions()
+    [Fact(DisplayName = "TD-KAN21-APP-006 preserves duplicate and compensation behavior")]
+    public async Task Existing_upload_boundaries_remain_intact()
     {
-        var fakes = new Fakes(null, unauthenticated: true);
-        var result = await fakes.Service.UploadStepAsync(new StepUploadRequest("part.step", new MemoryStream(Encoding.UTF8.GetBytes(ValidStep))));
-        Assert.Equal(StepUploadResultKind.Rejected, result.Kind);
-        Assert.Contains("Maker", result.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Empty(fakes.Documents.Writes);
-        Assert.Empty(fakes.Store.Created);
+        var f = new Fakes { Duplicate = new Document { DocumentId = Guid.NewGuid(), OriginalFileName = "part.step", FileSizeBytes = B(Valid).Length } };
+        var request = new StepUploadRequest("part.step", new MemoryStream(B(Valid)));
+        Assert.Equal(StepUploadResultKind.Duplicate, (await f.Service.PrepareStepUploadAsync(request)).Kind);
+        Assert.Equal(StepUploadResultKind.Cancelled, (await f.Service.CancelDuplicateAsync(request, f.Documents.Duplicate!.DocumentId)).Kind);
+        var failure = new Fakes { ThrowOnCreate = true };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => failure.Service.UploadStepAsync(new("part.step", new MemoryStream(B(Valid)))));
+        Assert.NotEmpty(failure.Store.Deleted);
+    }
+
+    private static void AssertNoWrites(Fakes f) { Assert.Empty(f.Documents.Writes); Assert.Empty(f.Store.Created); }
+    private static void AssertAudit(Fakes f, string name, string reason)
+    {
+        var a = Assert.Single(f.Audit.Entries); Assert.Equal(DocumentAuditAction.InvalidStepFileRejected, a.Action);
+        Assert.Null(a.DocumentId); Assert.NotEqual(default, a.TimestampUtc); Assert.Equal("MAKER", a.UserId);
+        using var j = JsonDocument.Parse(a.DetailsJson); Assert.Equal(name, j.RootElement.GetProperty("originalFileName").GetString());
+        Assert.Equal(reason, j.RootElement.GetProperty("reason").GetString()); Assert.True(j.RootElement.GetProperty("fileSizeBytes").GetInt64() > 0);
     }
 
     private sealed class Fakes
     {
-        public Fakes(StepUploadConfiguration? configuration = null, bool cancelAfterFirstWrite = false, Action? cancelUpload = null, bool rejectModel = false)
-            : this(null, configuration, cancelAfterFirstWrite, cancelUpload, false, rejectModel) { }
-        public Fakes(ISessionAuthenticationService? session, StepUploadConfiguration? configuration = null, bool cancelAfterFirstWrite = false, Action? cancelUpload = null, bool unauthenticated = false, bool rejectModel = false)
-        {
-            if (session is null && !unauthenticated) { session = new SessionAuthenticationService(); session.SignIn(new AuthenticatedUser("MAKER", new[] { "Maker" })); }
-            Documents = new DocumentRepository(Audit);
-            Store = new FileStore { CancelAfterFirstWrite = cancelAfterFirstWrite, CancelUpload = cancelUpload };
-            Service = new DocumentService(Documents, Audit, Store, configuration ?? new StepUploadConfiguration(), session: session, stepModelValidator: new FakeStepModelValidator(rejectModel));
-        }
-        public Document? Duplicate { get => Documents.Duplicate; set => Documents.Duplicate = value; }
-        public bool CancelAfterFirstWrite { get; set; }
-        public bool ThrowOnCreate { get => Documents.ThrowOnCreate; set => Documents.ThrowOnCreate = value; }
-        public DocumentRepository Documents { get; }
-        public AuditLogger Audit { get; } = new();
-        public FileStore Store { get; }
-        public DocumentService Service { get; }
+        public Fakes(StepUploadConfiguration? config = null, ISessionAuthenticationService? session = null, Logger? logger = null, bool authenticate = true)
+        { Audit = new(); Documents = new(Audit); Store = new(); Logger = logger; session ??= new SessionAuthenticationService(); if (authenticate && session.CurrentUser is null) session.SignIn(new AuthenticatedUser("MAKER", new[] { SystemRoles.Maker })); Service = new(Documents, Audit, Store, config ?? new(), session, logger); }
+        public readonly AuditLog Audit; public readonly DocumentRepository Documents; public readonly FileStore Store; public readonly Logger? Logger; public DocumentService Service { get; }
+        public Document? Duplicate { get => Documents.Duplicate; set => Documents.Duplicate = value; } public bool ThrowOnCreate { get => Documents.ThrowOnCreate; set => Documents.ThrowOnCreate = value; }
     }
-
-    private sealed class RecordingProgress : IProgress<long> { public List<long> Values { get; } = new(); public void Report(long value) => Values.Add(value); public int Count => Values.Count; }
-    private sealed class AuditLogger : IAuditLogger { public List<AuditEntry> Entries { get; } = new(); public Task WriteAsync(AuditEntry entry, CancellationToken cancellationToken = default) { Entries.Add(entry); return Task.CompletedTask; } }
-    private sealed class DocumentRepository(AuditLogger audit) : IDocumentRepository, ITransactionalDocumentRepository
+    private sealed class AuditLog : IAuditLogger { public List<AuditEntry> Entries { get; } = new(); public Task WriteAsync(AuditEntry e, CancellationToken t = default) { Entries.Add(e); return Task.CompletedTask; } }
+    private sealed class DocumentRepository(AuditLog audit) : IDocumentRepository, ITransactionalDocumentRepository
     {
-        public Document? Duplicate { get; set; }
-        public Document? Created { get; private set; }
-        public List<string> Writes { get; } = new();
-        public List<DocumentVersion> AddedVersions { get; } = new();
-        public bool ThrowOnCreate { get; set; }
-        public Task<Document?> FindByOriginalNameAndSizeAsync(string originalFileName, long fileSizeBytes, CancellationToken cancellationToken = default) => Task.FromResult(Duplicate);
-        public Task<Document?> GetAsync(Guid documentId, CancellationToken cancellationToken = default) => Task.FromResult(Created);
-        public Task CreateWithVersionAsync(Document document, DocumentVersion version, CancellationToken cancellationToken = default) { if (ThrowOnCreate) throw new InvalidOperationException("persistence failure"); Created = document; Writes.Add("create"); return Task.CompletedTask; }
-        public Task AddVersionAsync(Guid documentId, DocumentVersion version, CancellationToken cancellationToken = default) { AddedVersions.Add(version); Writes.Add("version"); return Task.CompletedTask; }
-        public async Task CreateWithVersionAndAuditAsync(Document document, DocumentVersion version, AuditEntry auditEntry, CancellationToken cancellationToken = default) { await CreateWithVersionAsync(document, version, cancellationToken); audit.Entries.Add(auditEntry); }
-        public async Task AddVersionWithAuditAsync(Guid documentId, DocumentVersion version, AuditEntry auditEntry, CancellationToken cancellationToken = default) { await AddVersionAsync(documentId, version, cancellationToken); audit.Entries.Add(auditEntry); }
+        public Document? Duplicate { get; set; } public Document? Created { get; private set; } public bool ThrowOnCreate { get; set; } public List<string> Writes { get; } = new();
+        public Task<Document?> FindByOriginalNameAndSizeAsync(string n, long s, CancellationToken t = default) => Task.FromResult(Duplicate);
+        public Task<Document?> GetAsync(Guid id, CancellationToken t = default) => Task.FromResult(Created);
+        public Task CreateWithVersionAsync(Document d, DocumentVersion v, CancellationToken t = default) { if (ThrowOnCreate) throw new InvalidOperationException("persistence failure"); Created = d; Writes.Add("create"); return Task.CompletedTask; }
+        public Task AddVersionAsync(Guid id, DocumentVersion v, CancellationToken t = default) { Writes.Add("version"); return Task.CompletedTask; }
+        public async Task CreateWithVersionAndAuditAsync(Document d, DocumentVersion v, AuditEntry a, CancellationToken t = default) { await CreateWithVersionAsync(d, v, t); audit.Entries.Add(a); }
+        public async Task AddVersionWithAuditAsync(Guid id, DocumentVersion v, AuditEntry a, CancellationToken t = default) { await AddVersionAsync(id, v, t); audit.Entries.Add(a); }
     }
-    private sealed class FileStore : IStepUploadFileStore
-    {
-        public bool CancelAfterFirstWrite { get; set; }
-        public Action? CancelUpload { get; set; }
-        public List<string> Created { get; } = new();
-        public List<string> Deleted { get; } = new();
-        public Task<StepUploadStagingFile> CreateStagingFileAsync(string originalFileName, CancellationToken cancellationToken = default) { Created.Add(originalFileName); return Task.FromResult(new StepUploadStagingFile("staging/part.upload", new CancellingStream(CancelAfterFirstWrite, CancelUpload))); }
-        public Task<string> MoveToFinalAsync(StepUploadStagingFile stagingFile, CancellationToken cancellationToken = default) => Task.FromResult("uploads/step/final_part.step");
-        public Task DeleteAsync(string relativePath, CancellationToken cancellationToken = default) { Deleted.Add(relativePath); return Task.CompletedTask; }
-    }
-    private sealed class CancellingStream(bool cancel, Action? cancelUpload) : MemoryStream
-    {
-        private bool _flushed;
-        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default) => await base.WriteAsync(buffer, cancellationToken);
-        public override async Task FlushAsync(CancellationToken cancellationToken = default) { await base.FlushAsync(cancellationToken); if (cancel && !_flushed) { _flushed = true; cancelUpload?.Invoke(); throw new OperationCanceledException(cancellationToken); } }
-    }
-    private sealed class FakeStepModelValidator(bool reject) : IStepModelValidator
-    {
-        public Task<StepModelValidationResult> ValidateAsync(Stream content, CancellationToken cancellationToken = default) =>
-            Task.FromResult(reject ? new StepModelValidationResult(false, "StepReadFailed", "invalid") : new StepModelValidationResult(true));
-    }
-    private sealed class ThrowingStream : MemoryStream { public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) => ValueTask.FromException<int>(new InvalidOperationException("stream must not be read")); }
+    private sealed class FileStore : IStepUploadFileStore { public List<string> Created { get; } = new(); public List<string> Deleted { get; } = new(); public Task<StepUploadStagingFile> CreateStagingFileAsync(string n, CancellationToken t = default) { Created.Add(n); return Task.FromResult(new StepUploadStagingFile("staging/test", new MemoryStream())); } public Task<string> MoveToFinalAsync(StepUploadStagingFile s, CancellationToken t = default) => Task.FromResult("uploads/step/final.step"); public Task DeleteAsync(string p, CancellationToken t = default) { Deleted.Add(p); return Task.CompletedTask; } }
+    private sealed class Logger : ICentralizedLogger { public List<string> Entries { get; } = new(); public void Log(Exception e, string op, string ctx) => Entries.Add(op + ctx + e.Message); }
+    private sealed class TrackingStream(byte[] data) : MemoryStream(data) { public int Reads { get; private set; } public long ValidationBytesRead { get; private set; } public long CopyBytesRead { get; private set; } public override ValueTask<int> ReadAsync(Memory<byte> b, CancellationToken t = default) { Reads++; return ReadTracked(b); } private async ValueTask<int> ReadTracked(Memory<byte> b) { var n = await base.ReadAsync(b); if (b.Length <= 8192) ValidationBytesRead += n; else CopyBytesRead += n; return n; } }
+    private sealed class DelayedStream(byte[] data) : MemoryStream(data) { public override async ValueTask<int> ReadAsync(Memory<byte> b, CancellationToken t = default) { await Task.Delay(TimeSpan.FromSeconds(5), t); return await base.ReadAsync(b, t); } }
+    private sealed class ThrowingStream : MemoryStream { public ThrowingStream() : base(B("non-empty")) { } public override ValueTask<int> ReadAsync(Memory<byte> b, CancellationToken t = default) => ValueTask.FromException<int>(new InvalidOperationException("read failure")); }
 }

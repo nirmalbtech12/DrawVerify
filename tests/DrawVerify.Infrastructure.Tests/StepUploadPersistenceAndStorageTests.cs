@@ -136,7 +136,8 @@ public sealed class StepUploadPersistenceAndStorageTests
                     await using var reader = await command.ExecuteReaderAsync();
                     var columns = new List<string>();
                     while (await reader.ReadAsync()) columns.Add(reader.GetString(1));
-                    Assert.DoesNotContain("UserId", columns);
+                    if (table == "DocumentAuditLog") Assert.Contains("UserId", columns);
+                    else Assert.DoesNotContain("UserId", columns);
                     Assert.DoesNotContain("UploaderUserId", columns);
                     Assert.DoesNotContain("UploaderDisplayName", columns);
                 }
