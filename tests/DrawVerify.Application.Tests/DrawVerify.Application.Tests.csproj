@@ -17,6 +17,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\DrawVerify.Core\DrawVerify.Core.csproj" />
     <ProjectReference Include="..\..\src\DrawVerify.Application\DrawVerify.Application.csproj" />
+    <ProjectReference Include="..\..\src\DrawVerify.Infrastructure\DrawVerify.Infrastructure.csproj" />
+    <Compile Include="..\DrawVerify.Infrastructure.Tests\AuthenticationAuthorizationTestSeed.cs" Link="AuthenticationAuthorizationTestSeed.cs" />
   </ItemGroup>
 
 </Project>
