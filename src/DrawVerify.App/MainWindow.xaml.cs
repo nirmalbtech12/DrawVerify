@@ -21,7 +21,7 @@ public partial class MainWindow : Window
         if (!CompositionRoot.SessionAuthentication.IsAuthenticated) { ShowLogin(); return; }
         var panel=new System.Windows.Controls.StackPanel { Margin=new Thickness(24) };
         panel.Children.Add(new System.Windows.Controls.TextBlock { Text=$"Signed in as {CompositionRoot.SessionAuthentication.CurrentUser!.Username}", FontSize=20 });
-        var upload=new System.Windows.Controls.Button { Content="Upload model", Margin=new Thickness(0,16,0,8) }; upload.Click += (_,_)=>ShowUpload(); panel.Children.Add(upload);
+        var upload=new System.Windows.Controls.Button { Content="Upload model", Margin=new Thickness(0,16,0,8), IsEnabled=CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.Upload) }; upload.Click += (_,_)=>ShowUpload(); panel.Children.Add(upload);
         var review=new System.Windows.Controls.Button { Content="Review verification", Margin=new Thickness(0,0,0,8) }; review.Click += (_,_)=>ShowVerificationReview(); review.IsEnabled=CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ReviewVerification); panel.Children.Add(review);
         var profile=new System.Windows.Controls.Button { Content="My profile", Margin=new Thickness(0,0,0,8) }; profile.Click += (_,_)=>ShowProfile(); panel.Children.Add(profile);
         if(CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ManageUsersAndRoles)) { var users=new System.Windows.Controls.Button { Content="Create user", Margin=new Thickness(0,0,0,8) }; users.Click += (_,_)=>ShowUserAdministration(); panel.Children.Add(users); }
@@ -29,8 +29,8 @@ public partial class MainWindow : Window
     }
 
     private void ShowLogin() { var view=new LoginView { DataContext=new LoginViewModel(CompositionRoot.CreateAuthenticationService()) }; ((LoginViewModel)view.DataContext).LoginSucceeded += ShowAuthenticatedContent; MainContent.Content=view; }
-    private void ShowUserAdministration() { if(!CompositionRoot.SessionAuthentication.IsAuthenticated || !CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ManageUsersAndRoles)){ShowLogin();return;} MainContent.Content=new UserAdministrationView { DataContext=new UserAdministrationViewModel(CompositionRoot.CreateUserAdministrationService()) }; }
-    private void ShowProfile() { if (!CompositionRoot.SessionAuthentication.IsAuthenticated) { ShowLogin(); return; } MainContent.Content = new UserAdministrationView { DataContext = new UserAdministrationViewModel(CompositionRoot.CreateUserAdministrationService()) }; }
+    private void ShowUserAdministration() { if(!CompositionRoot.SessionAuthentication.IsAuthenticated || !CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ManageUsersAndRoles)){ShowLogin();return;} var view = new UserAdministrationView { DataContext=new UserAdministrationViewModel(CompositionRoot.CreateUserAdministrationService()) }; ((UserAdministrationViewModel)view.DataContext).AuthorizationStateChanged += ShowAuthenticatedContent; MainContent.Content=view; }
+    private void ShowProfile() { if (!CompositionRoot.SessionAuthentication.IsAuthenticated) { ShowLogin(); return; } var view = new UserAdministrationView { DataContext = new UserAdministrationViewModel(CompositionRoot.CreateUserAdministrationService()) }; ((UserAdministrationViewModel)view.DataContext).AuthorizationStateChanged += ShowAuthenticatedContent; MainContent.Content = view; }
 
     private void ShowUpload()
     {

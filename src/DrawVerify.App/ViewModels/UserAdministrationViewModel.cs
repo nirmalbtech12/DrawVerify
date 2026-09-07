@@ -13,9 +13,10 @@ public sealed class UserAdministrationViewModel : INotifyPropertyChanged
     private readonly UserAdministrationService _service;
     private string _username = string.Empty, _displayName = string.Empty, _password = string.Empty, _selectedUsername = string.Empty;
     private UserAccount? _selectedUser;
+    private bool _canEditRoles;
     public UserAdministrationViewModel(UserAdministrationService service)
     {
-        _service = service; RoleCatalog = new(SystemRoles.Catalog); CanEditRoles = service.CanEditRoles;
+        _service = service; RoleCatalog = new(SystemRoles.Catalog); _canEditRoles = service.CanEditRoles;
         RoleOptions = new(RoleCatalog.Select(role => new RoleSelectionOption(role, false, ToggleRole)));
         AssignedRoles = new(service.CurrentUserRoles);
         CreateCommand = new Command(async _ => await CreateAsync(), _ => !IsBusy && CanEditRoles);
@@ -23,6 +24,7 @@ public sealed class UserAdministrationViewModel : INotifyPropertyChanged
         ToggleRoleCommand = new Command(role => ToggleRole(role as string), _ => CanEditRoles);
     }
     public event PropertyChangedEventHandler? PropertyChanged;
+    public event Action? AuthorizationStateChanged;
     public string Username { get => _username; set { _username = value; Changed(); } }
     public string DisplayName { get => _displayName; set { _displayName = value; Changed(); } }
     public string InitialPassword { get => _password; set { _password = value; Changed(); } }
@@ -30,7 +32,7 @@ public sealed class UserAdministrationViewModel : INotifyPropertyChanged
     public UserAccount? SelectedUser { get => _selectedUser; set { _selectedUser = value; _selectedUsername = value?.Username ?? string.Empty; AssignedRoles.Clear(); foreach (var role in value?.Roles ?? Array.Empty<string>()) if (SystemRoles.TryCanonicalize(role, out var canonical)) AssignedRoles.Add(canonical); foreach (var option in RoleOptions) option.SetSelected(AssignedRoles.Contains(option.Role.Id, StringComparer.OrdinalIgnoreCase)); Changed(); Changed(nameof(SelectedUsername)); ((Command)SetRolesCommand).Raise(); } }
     public string Message { get; private set; } = string.Empty;
     public bool IsBusy { get; private set; }
-    public bool CanEditRoles { get; }
+    public bool CanEditRoles => _canEditRoles;
     public ObservableCollection<RoleDefinition> RoleCatalog { get; }
     public ObservableCollection<RoleSelectionOption> RoleOptions { get; }
     public ObservableCollection<string> AssignedRoles { get; }
@@ -68,6 +70,7 @@ public sealed class UserAdministrationViewModel : INotifyPropertyChanged
                 Message = result.Message;
                 Changed(nameof(Message));
                 await LoadUsersAsync();
+                RefreshAuthorizationState();
             }
             else
             {
@@ -85,6 +88,16 @@ public sealed class UserAdministrationViewModel : INotifyPropertyChanged
             Changed(nameof(Message));
         }
         finally { IsBusy = false; Changed(nameof(IsBusy)); ((Command)SetRolesCommand).Raise(); }
+    }
+    private void RefreshAuthorizationState()
+    {
+        var canEditRoles = _service.CanEditRoles;
+        _canEditRoles = canEditRoles;
+        Changed(nameof(CanEditRoles));
+        ((Command)CreateCommand).Raise();
+        ((Command)SetRolesCommand).Raise();
+        ((Command)ToggleRoleCommand).Raise();
+        AuthorizationStateChanged?.Invoke();
     }
     public void ToggleRole(string? role) { if (!CanEditRoles || !SystemRoles.TryCanonicalize(role, out var canonical)) return; var option = RoleOptions.FirstOrDefault(x => x.Role.Id == canonical); if (option is not null) option.IsSelected = !option.IsSelected; }
     private void SelectUser(UserAccount? user)
