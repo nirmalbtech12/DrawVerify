@@ -104,6 +104,22 @@ public sealed class MainWindowAuthenticationNavigationTests
         Exception? failure=null; var thread=new Thread(()=>{try{CompositionRoot.SessionAuthentication.SignIn(new DrawVerify.Core.Models.AuthenticatedUser("ADMIN",new[]{"Admin"})); var window=new MainWindow(); typeof(MainWindow).GetMethod("ShowAuthenticatedContent",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(window,null); CompositionRoot.SessionAuthentication.SignOut(); typeof(MainWindow).GetMethod("ShowUpload",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(window,null); Assert.IsType<LoginView>(Content(window).Content); window.Close(); Dispatcher.CurrentDispatcher.InvokeShutdown();}catch(Exception ex){failure=ex;}}); thread.SetApartmentState(ApartmentState.STA);thread.Start();thread.Join();if(failure is not null)throw new Xunit.Sdk.XunitException("Post-logout protected navigation assertion failed.",failure);
     }
 
+    [Fact(DisplayName = "TD-KAN23-WPF-002 Maker-only Upload Drawing navigation is present")]
+    public void Maker_navigation_exposes_dxf_upload()
+    {
+        Exception? failure = null; var thread = new Thread(() => { try
+        {
+            CompositionRoot.SessionAuthentication.SignIn(new AuthenticatedUser("MAKER", new[] { "Maker" }));
+            var window = new MainWindow();
+            typeof(MainWindow).GetMethod("ShowAuthenticatedContent", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null);
+            var panel = Assert.IsType<StackPanel>(Content(window).Content);
+            var drawing = Assert.Single(panel.Children.OfType<Button>().Where(x => Equals(x.Content, "Upload Drawing")));
+            Assert.True(drawing.IsEnabled);
+            window.Close(); Dispatcher.CurrentDispatcher.InvokeShutdown();
+        } catch (Exception ex) { failure = ex; }}); thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
+        if (failure is not null) throw new Xunit.Sdk.XunitException("DXF Maker navigation assertion failed.", failure);
+    }
+
     [Fact(DisplayName = "TD-APPUI-001 self-profile navigation displays roles for non-admin users")]
     public void Non_admin_can_reach_self_profile_without_admin_controls()
     {

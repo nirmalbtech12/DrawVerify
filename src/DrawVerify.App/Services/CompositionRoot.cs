@@ -19,6 +19,7 @@ namespace DrawVerify.App.Services;
 public static class CompositionRoot
 {
     private static readonly StepUploadConfiguration StepUploadConfiguration = LoadStepUploadConfiguration();
+    private static readonly DxfUploadConfiguration DxfUploadConfiguration = LoadDxfUploadConfiguration();
     private static readonly AuthenticationConfiguration AuthenticationConfiguration = LoadAuthenticationConfiguration();
     private static readonly AuditLogConfiguration AuditLogConfiguration = LoadAuditLogConfiguration();
     private static readonly SessionAuthenticationService Session = new();
@@ -55,6 +56,13 @@ public static class CompositionRoot
         var logger = new CentralizedLogger();
         return new StepUploadViewModel(new DocumentService(new SqliteDocumentRepository(database, logger),new SqliteAuditRepository(database),new DocumentFileStore(AppContext.BaseDirectory,config),config,Session,logger,Authorization,users:new SqliteUserRepository(database,logger)));
     }
+    public static DxfUploadViewModel CreateDxfUploadViewModel()
+    {
+        var config = DxfUploadConfiguration;
+        var database = DatabasePath();
+        var logger = new CentralizedLogger();
+        return new DxfUploadViewModel(new DxfDocumentService(new SqliteDocumentRepository(database, logger), new SqliteAuditRepository(database), new DxfDocumentFileStore(AppContext.BaseDirectory, config), config, Session, logger, Authorization, new SqliteUserRepository(database, logger)));
+    }
     private static StepUploadConfiguration LoadStepUploadConfiguration()
     {
         var logger=new CentralizedLogger();
@@ -69,6 +77,29 @@ public static class CompositionRoot
         catch(Exception exception)
         {
             logger.Log(exception,"STEP configuration startup","Unable to load or validate StepUpload settings");
+            throw;
+        }
+    }
+    private static DxfUploadConfiguration LoadDxfUploadConfiguration()
+    {
+        var logger = new CentralizedLogger();
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "appsettings.json")));
+            var section = document.RootElement.GetProperty("DxfUpload");
+            var config = new DxfUploadConfiguration
+            {
+                MaxFileSizeMb = section.GetProperty("MaxFileSizeMb").GetInt32(),
+                StorageFolder = section.GetProperty("StorageFolder").GetString() ?? string.Empty,
+                DuplicatePolicy = section.GetProperty("DuplicatePolicy").GetString() ?? string.Empty,
+                ValidationTimeoutSeconds = section.GetProperty("ValidationTimeoutSeconds").GetInt32()
+            };
+            config.Validate();
+            return config;
+        }
+        catch (Exception exception)
+        {
+            logger.Log(exception, "DXF configuration startup", "Unable to load or validate DxfUpload settings");
             throw;
         }
     }

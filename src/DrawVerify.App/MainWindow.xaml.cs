@@ -29,6 +29,12 @@ public partial class MainWindow : Window
         var panel=new System.Windows.Controls.StackPanel { Margin=new Thickness(24) };
         panel.Children.Add(new System.Windows.Controls.TextBlock { Text=$"Signed in as {CompositionRoot.SessionAuthentication.CurrentUser!.Username}", FontSize=20 });
         var upload=new System.Windows.Controls.Button { Content="Upload model", Margin=new Thickness(0,16,0,8), IsEnabled=CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.Upload) }; upload.Click += (_,_)=>ShowUpload(); panel.Children.Add(upload);
+        if (CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.Upload))
+        {
+            var drawing = new System.Windows.Controls.Button { Content = "Upload Drawing", Margin = new Thickness(0, 0, 0, 8) };
+            drawing.Click += (_, _) => ShowDxfUpload();
+            panel.Children.Add(drawing);
+        }
         var review=new System.Windows.Controls.Button { Content="Review verification", Margin=new Thickness(0,0,0,8) }; review.Click += (_,_)=>ShowVerificationReview(); review.IsEnabled=CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ReviewVerification); panel.Children.Add(review);
         var profile=new System.Windows.Controls.Button { Content="My profile", Margin=new Thickness(0,0,0,8) }; profile.Click += (_,_)=>ShowProfile(); panel.Children.Add(profile);
         if(CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ManageUsersAndRoles)) { var users=new System.Windows.Controls.Button { Content="Create user", Margin=new Thickness(0,0,0,8) }; users.Click += (_,_)=>ShowUserAdministration(); panel.Children.Add(users); }
@@ -49,6 +55,16 @@ public partial class MainWindow : Window
         view.AttachFilePicker(model);
         model.DocumentUploaded += document => Dispatcher.Invoke(() => ShowProtected(() => new DocumentDetailView { DataContext = new DocumentDetailViewModel(document) }));
         MainContent.Content=view;
+    }
+    private void ShowDxfUpload()
+    {
+        if (!CompositionRoot.SessionAuthentication.IsAuthenticated) { ShowLogin(); return; }
+        if (!CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.Upload)) { ShowAuthenticatedContent(); return; }
+        var view = new DxfUploadView { DataContext = CompositionRoot.CreateDxfUploadViewModel() };
+        var model = (DxfUploadViewModel)view.DataContext;
+        view.AttachFilePicker(model);
+        model.DocumentUploaded += document => Dispatcher.Invoke(() => ShowProtected(() => new DocumentDetailView { DataContext = new DocumentDetailViewModel(document) }));
+        MainContent.Content = view;
     }
     private void ShowVerificationReview()
     {

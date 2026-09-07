@@ -11,6 +11,11 @@ public sealed class DocumentDetailViewModel
     public DateTime UploadTimestampUtc => Document?.UploadTimestampUtc ?? default;
     public DrawVerify.Core.Enums.DocumentType DocumentType => Document?.DocumentType ?? DrawVerify.Core.Enums.DocumentType.Unknown;
     public DrawVerify.Core.Enums.UploadStatus UploadStatus => Document?.UploadStatus ?? DrawVerify.Core.Enums.UploadStatus.Pending;
+    public DrawVerify.Core.Enums.VerificationStatus VerificationStatus => Document?.VerificationStatus ?? DrawVerify.Core.Enums.VerificationStatus.Unknown;
+    public string UploaderUserId => Document?.UploaderUserId ?? string.Empty;
+    public string UploaderDisplayName => Document?.UploaderDisplayName ?? string.Empty;
+    public string UploaderDisplayNameSnapshot => UploaderDisplayName;
+    public string VerificationStatusDisplay => VerificationStatus == DrawVerify.Core.Enums.VerificationStatus.PendingVerification ? "Pending Verification" : VerificationStatus.ToString();
     public DrawVerify.Core.Enums.GeometryStatus GeometryStatus => Document?.GeometryStatus ?? DrawVerify.Core.Enums.GeometryStatus.NotExtracted;
     public string? GeometryError => Document?.GeometryError;
     public int CurrentVersion => Document?.CurrentVersion ?? 0;
