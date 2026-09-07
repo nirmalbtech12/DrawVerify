@@ -9,12 +9,12 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class UsernamePasswordAuthenticationServiceTests
 {
-    [Fact(DisplayName = "TD-APP-02 authenticates, preserves roles, audits, and logs out")]
+    [Fact(DisplayName = "TD-03 and TD-07 await authentication and logout audit writes")]
     public async Task Successful_login_and_logout_update_session_and_audit()
     {
         var users = new UsersFake(Account("USER", "GoodPassword1!", "Viewer")); var audit = new AuditFake(); var session = new SessionAuthenticationService(); var service = Service(users, audit, session);
         var login = await service.LoginAsync("user", "GoodPassword1!");
-        Assert.True(login.Succeeded); Assert.Equal("USER", session.CurrentUser!.Username); Assert.True(session.CurrentUser.HasRole("viewer")); Assert.Equal("Success", Assert.Single(audit.Entries).Result);
+        Assert.True(login.Succeeded); Assert.Equal("USER", session.CurrentUser!.Username); Assert.True(session.CurrentUser.HasRole("viewer")); Assert.Equal("LoginSuccess", Assert.Single(audit.Entries).Action); Assert.False(string.IsNullOrWhiteSpace(audit.Entries[0].SourceIdentifier));
         var logout = await service.LogoutAsync(); Assert.True(logout.Succeeded); Assert.Null(session.CurrentUser); Assert.Equal("Logout", audit.Entries[1].Action);
     }
 
@@ -23,14 +23,14 @@ public sealed class UsernamePasswordAuthenticationServiceTests
     {
         var audit = new AuditFake(); var session = new SessionAuthenticationService(); var service = Service(new UsersFake(Account("USER", "GoodPassword1!")), audit, session);
         var unknown = await service.LoginAsync("missing", "wrong"); var wrong = await service.LoginAsync("user", "wrong");
-        Assert.Equal(unknown.Message, wrong.Message); Assert.Equal(AuthenticationResultKind.InvalidCredentials, unknown.Kind); Assert.Null(session.CurrentUser); Assert.Equal(new[] { "InvalidUsername", "InvalidPassword" }, audit.Entries.Select(x=>x.FailureReason));
+        Assert.Equal(unknown.Message, wrong.Message); Assert.Equal(AuthenticationResultKind.InvalidCredentials, unknown.Kind); Assert.Null(session.CurrentUser); Assert.Equal(new[] { "InvalidUsername", "InvalidPassword" }, audit.Entries.Select(x=>x.FailureReason)); Assert.All(audit.Entries, x => Assert.Equal("LoginFailure", x.Action));
     }
 
     [Fact]
     public async Task Enabled_lockout_blocks_until_expiry_and_success_resets_attempts()
     {
         var account = Account("LOCKED", "GoodPassword1!"); var users = new UsersFake(account); var audit = new AuditFake(); var session = new SessionAuthenticationService(); var service = Service(users, audit, session, new AuthenticationConfiguration { LockoutThreshold=2, LockoutDuration=TimeSpan.FromMinutes(5) });
-        Assert.Equal(AuthenticationResultKind.InvalidCredentials, (await service.LoginAsync("locked", "bad")).Kind); Assert.Equal(AuthenticationResultKind.AccountLocked, (await service.LoginAsync("locked", "bad")).Kind); Assert.Equal(AuthenticationResultKind.AccountLocked, (await service.LoginAsync("locked", "GoodPassword1!")).Kind); Assert.Contains(audit.Entries, x=>x.FailureReason=="AccountLocked");
+        Assert.Equal(AuthenticationResultKind.InvalidCredentials, (await service.LoginAsync("locked", "bad")).Kind); Assert.Equal(AuthenticationResultKind.AccountLocked, (await service.LoginAsync("locked", "bad")).Kind); Assert.Equal(AuthenticationResultKind.AccountLocked, (await service.LoginAsync("locked", "GoodPassword1!")).Kind); Assert.Single(audit.Entries, x=>x.Action=="AccountLocked"); Assert.Equal(2, audit.Entries.Single(x=>x.Action=="AccountLocked").FailedAttemptCount);
     }
 
     [Fact]

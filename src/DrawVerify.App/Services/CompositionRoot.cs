@@ -20,6 +20,7 @@ public static class CompositionRoot
 {
     private static readonly StepUploadConfiguration StepUploadConfiguration = LoadStepUploadConfiguration();
     private static readonly AuthenticationConfiguration AuthenticationConfiguration = LoadAuthenticationConfiguration();
+    private static readonly AuditLogConfiguration AuditLogConfiguration = LoadAuditLogConfiguration();
     private static readonly SessionAuthenticationService Session = new();
     private static readonly RoleAuthorization Authorization = new();
     public static void Initialize() { }
@@ -35,6 +36,12 @@ public static class CompositionRoot
         var logger=new CentralizedLogger(); var database=DatabasePath();
         return new(new SqliteUserRepository(database,logger),new SqliteAuthenticationAuditRepository(database,logger),Session,AuthenticationConfiguration,logger,Authorization);
     }
+    public static AuditLogService CreateAuditLogService()
+    {
+        var logger = new CentralizedLogger(); var database = DatabasePath();
+        return new(new SqliteAuthenticationAuditRepository(database, logger), Session, Authorization);
+    }
+    public static AuditRetentionService CreateAuditRetentionService() => new(new SqliteAuditRetentionRepository(DatabasePath(), new CentralizedLogger()), Session, AuditLogConfiguration, Authorization);
     public static StepUploadViewModel CreateStepUploadViewModel()
     {
         var config=StepUploadConfiguration;
@@ -63,5 +70,11 @@ public static class CompositionRoot
     private static AuthenticationConfiguration LoadAuthenticationConfiguration()
     {
         var logger=new CentralizedLogger(); try { using var document=JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"appsettings.json"))); var section=document.RootElement.GetProperty("Authentication"); var defaults=section.TryGetProperty("DefaultRoles", out var values) ? values.EnumerateArray().Select(x=>x.GetString() ?? string.Empty).ToArray() : Array.Empty<string>(); var config=new AuthenticationConfiguration { PasswordMinimumLength=section.GetProperty("PasswordMinimumLength").GetInt32(), RequireUppercase=section.GetProperty("RequireUppercase").GetBoolean(), RequireLowercase=section.GetProperty("RequireLowercase").GetBoolean(), RequireDigit=section.GetProperty("RequireDigit").GetBoolean(), RequireNonAlphanumeric=section.GetProperty("RequireNonAlphanumeric").GetBoolean(), LockoutThreshold=section.GetProperty("LockoutThreshold").GetInt32(), LockoutDuration=TimeSpan.FromMinutes(section.GetProperty("LockoutDurationMinutes").GetDouble()), DefaultRoles=defaults }; config.Validate(); return config; } catch(Exception ex) { logger.Log(ex,"Authentication configuration startup","Unable to load or validate Authentication settings"); throw; }
+    }
+    private static AuditLogConfiguration LoadAuditLogConfiguration()
+    {
+        var logger = new CentralizedLogger();
+        try { using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "appsettings.json"))); var section = document.RootElement.GetProperty("AuditLog"); var config = new AuditLogConfiguration { RetentionDays = section.GetProperty("RetentionDays").GetInt32() }; config.Validate(); return config; }
+        catch (Exception ex) { logger.Log(ex, "Audit log configuration startup", "Unable to load or validate AuditLog settings"); throw; }
     }
 }
