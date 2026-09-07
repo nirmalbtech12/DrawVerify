@@ -20,6 +20,7 @@ public sealed class UserAdministrationService
     public UserAdministrationService(IUserRepository users, IAuthenticationAuditRepository audit, ISessionAuthenticationService session, AuthenticationConfiguration configuration, ICentralizedLogger logger, RoleAuthorization? authorization = null)
         => (_users, _audit, _session, _configuration, _logger, _authorization) = (users, audit, session, configuration, logger, authorization ?? new RoleAuthorization());
     public IReadOnlyList<string> CurrentUserRoles => _session.CurrentUser?.Roles ?? Array.Empty<string>();
+    public string? CurrentUsername => _session.CurrentUser?.Username;
     public bool CanEditRoles => _authorization.IsAllowed(_session.CurrentUser, RolePermission.ManageUsersAndRoles);
 
     public async Task<AuthenticationResult> CreateUserAsync(UserCreationRequest request, CancellationToken cancellationToken = default)

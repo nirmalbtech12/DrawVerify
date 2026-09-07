@@ -64,13 +64,14 @@ public sealed class UserAdministrationViewModel : INotifyPropertyChanged
         IsBusy = true; Changed(nameof(IsBusy));
         try
         {
+            var isSelfUpdate = string.Equals(SelectedUser.Username, _service.CurrentUsername, StringComparison.OrdinalIgnoreCase);
             var result = await _service.SetUserRolesAsync(SelectedUser.Username, AssignedRoles, SelectedUser.RoleVersion);
             if (result.Succeeded)
             {
                 Message = result.Message;
                 Changed(nameof(Message));
                 await LoadUsersAsync();
-                RefreshAuthorizationState();
+                if (isSelfUpdate) RefreshAuthorizationState();
             }
             else
             {
