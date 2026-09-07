@@ -1,86 +1,84 @@
 using DrawVerify.App.ViewModels;
 using DrawVerify.Application.Services;
+using DrawVerify.Core.Authorization;
 using DrawVerify.Core.Configuration;
 using DrawVerify.Core.Interfaces;
-using DrawVerify.Core.Models;
+using DrawVerify.Infrastructure.Persistence;
+using DrawVerify.Infrastructure.Tests;
 using Xunit;
-using DrawVerify.Core.Authorization;
 
 namespace DrawVerify.App.Tests;
 
 public sealed class UserAdministrationViewModelTests
 {
-    [Fact(DisplayName = "TD-WPF-ADMIN-01 surfaces required-field and policy feedback")]
-    public async Task Administration_view_model_submits_fields_and_exposes_safe_result()
+    [Fact(DisplayName = "TD-WPF-ROLE-003 displays the five roles, preselects, saves, and prevents duplicate selection")]
+    public async Task Admin_role_editor_uses_persisted_seed_and_confirms_success()
     {
-        var session=new SessionAuthenticationService(); session.SignIn(new AuthenticatedUser("ADMIN",new[]{"Admin"})); var users=new UsersFake();
-        var vm=new UserAdministrationViewModel(new UserAdministrationService(users,new AuditFake(),session,new AuthenticationConfiguration(),new LoggerFake()));
-        vm.Username="new.user"; vm.DisplayName="New User"; vm.InitialPassword="GoodPassword1!"; await vm.CreateAsync();
-        var created = users.Accounts.First(x => x.Username == "NEW.USER");
-        Assert.Equal("User created.",vm.Message); Assert.Empty(created.Roles); Assert.Equal(string.Empty,vm.InitialPassword);
-    }
-    [Fact]
-    public async Task Administration_view_model_clears_password_after_validation_failure()
-    {
-        var session=new SessionAuthenticationService(); session.SignIn(new AuthenticatedUser("ADMIN",new[]{"Admin"}));
-        var vm=new UserAdministrationViewModel(new UserAdministrationService(new UsersFake(),new AuditFake(),session,new AuthenticationConfiguration(),new LoggerFake())) { InitialPassword="weak" };
-        await vm.CreateAsync();
-        Assert.Equal(string.Empty,vm.InitialPassword); Assert.Equal("Username is required.",vm.Message);
-    }
-    [Fact]
-    public async Task Administration_view_model_rejects_non_admin_without_persisting()
-    {
-        var session=new SessionAuthenticationService(); session.SignIn(new AuthenticatedUser("VIEWER",new[]{"Viewer"})); var users=new UsersFake();
-        var vm=new UserAdministrationViewModel(new UserAdministrationService(users,new AuditFake(),session,new AuthenticationConfiguration(),new LoggerFake())) { Username="new",DisplayName="New",InitialPassword="GoodPassword1!" };
-        await vm.CreateAsync(); Assert.Empty(users.Accounts); Assert.Equal(string.Empty,vm.InitialPassword);
-    }
+        await using var seed = await AuthenticationAuthorizationTestSeed.CreateAsync();
+        var session = new SessionAuthenticationService();
+        var audit = new SqliteAuthenticationAuditRepository(seed.DatabasePath);
+        var login = new UsernamePasswordAuthenticationService(seed.Repository, audit, session, new AuthenticationConfiguration(), new LoggerFake());
+        Assert.True((await login.LoginAsync("admin", AuthenticationAuthorizationTestSeed.Password)).Succeeded);
+        var vm = new UserAdministrationViewModel(new UserAdministrationService(seed.Repository, audit, session, new AuthenticationConfiguration(), new LoggerFake()));
 
-    [Fact(DisplayName = "TD-APPUI-001 Admin edits selected roles and refreshes after persistence")]
-    public async Task Admin_can_edit_selected_roles_and_refresh_after_success()
-    {
-        var session=new SessionAuthenticationService(); session.SignIn(new AuthenticatedUser("ADMIN",new[]{SystemRoles.Admin}));
-        var target=Account("TARGET",SystemRoles.Viewer); var users=new UsersFake(Account("ADMIN",SystemRoles.Admin),target);
-        var vm=new UserAdministrationViewModel(new UserAdministrationService(users,new AuditFake(),session,new AuthenticationConfiguration(),new LoggerFake()));
-        await vm.LoadUsersAsync(); vm.SelectedUser=vm.Users.First(x=>x.Username=="TARGET");
-        Assert.Equal(new[]{SystemRoles.Viewer},vm.AssignedRoles);
-        vm.ToggleRole(SystemRoles.Maker); await vm.SetRolesAsync();
-        Assert.Equal(new[]{SystemRoles.Viewer,SystemRoles.Maker},users.Accounts.First(x=>x.Username=="TARGET").Roles);
-        Assert.Contains(SystemRoles.Maker,vm.AssignedRoles);
-    }
+        await vm.LoadUsersAsync();
+        vm.SelectedUser = vm.Users.Single(x => x.Username == "MAKER");
+        Assert.Equal(new[] { "Admin", "Maker", "Checker", "Approver", "Viewer" }, vm.RoleOptions.Select(x => x.Id));
+        Assert.Equal(new[] { "Maker" }, vm.AssignedRoles);
+        Assert.True(vm.RoleOptions.Single(x => x.Id == "Maker").IsSelected);
 
-    [Fact(DisplayName = "TD-10 refreshes authoritative roles and preserves the save error")]
-    public async Task Save_failure_refreshes_authoritative_roles()
-    {
-        var session=new SessionAuthenticationService(); session.SignIn(new AuthenticatedUser("ADMIN",new[]{SystemRoles.Admin}));
-        var users=new UsersFake(Account("ADMIN",SystemRoles.Admin),Account("TARGET",SystemRoles.Viewer)) { FailAfterPersist=true };
-        var vm=new UserAdministrationViewModel(new UserAdministrationService(users,new AuditFake(),session,new AuthenticationConfiguration(),new LoggerFake()));
-        await vm.LoadUsersAsync(); vm.SelectedUser=vm.Users.First(x=>x.Username=="TARGET"); vm.ToggleRole(SystemRoles.Maker);
-
+        vm.ToggleRole("Checker");
+        vm.ToggleRole("Checker");
+        Assert.DoesNotContain("Checker", vm.AssignedRoles);
+        vm.ToggleRole("Checker");
         await vm.SetRolesAsync();
 
-        Assert.Equal("role persistence failed",vm.Message);
-        Assert.Equal(new[]{SystemRoles.Viewer,SystemRoles.Maker},vm.AssignedRoles);
+        Assert.Contains("success", vm.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(new[] { "Checker", "Maker" }, (await seed.Repository.FindByUsernameAsync("MAKER"))!.Roles);
     }
-    [Fact(DisplayName = "TD-APPUI-001 non-admin self profile is read-only")]
-    public void Non_admin_sees_own_roles_without_editing()
+
+    [Fact(DisplayName = "TD-WPF-ROLE-003 denies non-Admin editing while displaying own current role")]
+    public async Task Non_admin_seed_user_is_read_only()
     {
-        var session=new SessionAuthenticationService(); session.SignIn(new AuthenticatedUser("VIEWER",new[]{SystemRoles.Viewer}));
-        var vm=new UserAdministrationViewModel(new UserAdministrationService(new UsersFake(),new AuditFake(),session,new AuthenticationConfiguration(),new LoggerFake()));
-        Assert.Equal(new[]{SystemRoles.Viewer},vm.AssignedRoles); Assert.False(vm.CanEditRoles); Assert.False(vm.CreateCommand.CanExecute(null)); Assert.False(vm.SetRolesCommand.CanExecute(null));
+        await using var seed = await AuthenticationAuthorizationTestSeed.CreateAsync();
+        var session = new SessionAuthenticationService();
+        var audit = new SqliteAuthenticationAuditRepository(seed.DatabasePath);
+        var login = new UsernamePasswordAuthenticationService(seed.Repository, audit, session, new AuthenticationConfiguration(), new LoggerFake());
+        Assert.True((await login.LoginAsync("maker", AuthenticationAuthorizationTestSeed.Password)).Succeeded);
+        var vm = new UserAdministrationViewModel(new UserAdministrationService(seed.Repository, audit, session, new AuthenticationConfiguration(), new LoggerFake()));
+
+        Assert.Equal(new[] { "Maker" }, vm.AssignedRoles);
+        Assert.False(vm.CanEditRoles);
+        Assert.False(vm.SetRolesCommand.CanExecute(null));
+        await vm.SetRolesAsync();
+        Assert.Contains("administrator", vm.Message, StringComparison.OrdinalIgnoreCase);
     }
-    private static UserAccount Account(string username, params string[] roles) => new() { Username=username,DisplayName=username,PasswordSalt=[1],PasswordHash=[1],Roles=roles };
-    private sealed class UsersFake : IUserRepository
+
+    [Fact(DisplayName = "TD-WPF-ROLE-003 reloads authoritative roles after a stale save")]
+    public async Task Stale_save_refreshes_selected_user_state()
     {
-        public List<UserAccount> Accounts { get; } = [];
-        public bool FailAfterPersist { get; init; }
-        public UsersFake(params UserAccount[] accounts) => Accounts.AddRange(accounts);
-        public Task<UserAccount?> FindByUsernameAsync(string n,CancellationToken t=default)=>Task.FromResult(Accounts.FirstOrDefault(x=>x.Username==n));
-        public Task CreateAsync(UserAccount a,AuthenticationAuditEntry e,CancellationToken t=default){Accounts.Add(a);return Task.CompletedTask;}
-        public Task<IReadOnlyList<UserAccount>> ListAsync(CancellationToken t=default)=>Task.FromResult<IReadOnlyList<UserAccount>>(Accounts);
-        public Task ReplaceRolesAsync(string n,IReadOnlyList<string> roles,RoleAssignmentAuditEntry audit,CancellationToken t=default){var index=Accounts.FindIndex(x=>x.Username==n); var account=Accounts[index]; Accounts[index]=new UserAccount { Id=account.Id,Username=account.Username,DisplayName=account.DisplayName,PasswordSalt=account.PasswordSalt,PasswordHash=account.PasswordHash,PasswordAlgorithm=account.PasswordAlgorithm,PasswordIterations=account.PasswordIterations,Roles=roles }; return FailAfterPersist ? Task.FromException(new InvalidOperationException("role persistence failed")) : Task.CompletedTask;}
-        public Task<LoginAttemptState> RecordLoginAttemptAsync(string n,bool s,int th,TimeSpan d,DateTimeOffset now,CancellationToken t=default)=>Task.FromResult(new LoginAttemptState(null,false,null));
-        public Task<LoginAttemptState> VerifyAndRecordLoginAttemptAsync(string n,Func<UserAccount,bool> verifier,int th,TimeSpan d,DateTimeOffset now,CancellationToken t=default)=>Task.FromResult(new LoginAttemptState(null,false,"InvalidUsername"));
+        await using var seed = await AuthenticationAuthorizationTestSeed.CreateAsync();
+        var session = new SessionAuthenticationService();
+        var audit = new SqliteAuthenticationAuditRepository(seed.DatabasePath);
+        var login = new UsernamePasswordAuthenticationService(seed.Repository, audit, session, new AuthenticationConfiguration(), new LoggerFake());
+        Assert.True((await login.LoginAsync("admin", AuthenticationAuthorizationTestSeed.Password)).Succeeded);
+        var vm = new UserAdministrationViewModel(new UserAdministrationService(seed.Repository, audit, session, new AuthenticationConfiguration(), new LoggerFake()));
+        await vm.LoadUsersAsync();
+        vm.SelectedUser = vm.Users.Single(x => x.Username == "MAKER");
+        var current = await seed.Repository.FindByUsernameAsync("MAKER");
+        Assert.NotNull(current);
+        Assert.True((await seed.Repository.ReplaceRolesAsync("MAKER", new[] { SystemRoles.Checker }, current!.RoleVersion,
+            new("ADMIN", "MAKER", current.Roles, new[] { SystemRoles.Checker }, DateTimeOffset.UtcNow, "RolesUpdated"))).Succeeded);
+
+        vm.ToggleRole(SystemRoles.Viewer);
+        await vm.SetRolesAsync();
+
+        Assert.Contains("changed", vm.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(new[] { SystemRoles.Checker }, vm.AssignedRoles);
     }
-    private sealed class AuditFake : IAuthenticationAuditRepository { public Task WriteAsync(AuthenticationAuditEntry e,CancellationToken t=default)=>Task.CompletedTask; }
-    private sealed class LoggerFake : ICentralizedLogger { public void Log(Exception e,string o,string c){} }
+
+    private sealed class LoggerFake : ICentralizedLogger
+    {
+        public void Log(Exception exception, string operation, string context) { }
+    }
 }

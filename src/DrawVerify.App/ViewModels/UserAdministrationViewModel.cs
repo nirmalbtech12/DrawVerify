@@ -60,7 +60,23 @@ public sealed class UserAdministrationViewModel : INotifyPropertyChanged
     {
         if (!CanEditRoles || SelectedUser is null) { Message = "Only an administrator can change user roles."; Changed(nameof(Message)); return; }
         IsBusy = true; Changed(nameof(IsBusy));
-        try { var result = await _service.SetUserRolesAsync(SelectedUser.Username, AssignedRoles); Message = result.Message; Changed(nameof(Message)); if (result.Succeeded) await LoadUsersAsync(); }
+        try
+        {
+            var result = await _service.SetUserRolesAsync(SelectedUser.Username, AssignedRoles, SelectedUser.RoleVersion);
+            if (result.Succeeded)
+            {
+                Message = result.Message;
+                Changed(nameof(Message));
+                await LoadUsersAsync();
+            }
+            else
+            {
+                var errorMessage = result.Message;
+                await LoadUsersAsync();
+                Message = errorMessage;
+                Changed(nameof(Message));
+            }
+        }
         catch (Exception ex)
         {
             var errorMessage = ex.Message;

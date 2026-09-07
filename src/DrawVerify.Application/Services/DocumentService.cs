@@ -26,19 +26,21 @@ public sealed class DocumentService
     private readonly ISessionAuthenticationService _session;
     private readonly RoleAuthorization _authorization;
     private readonly IStepModelValidator _stepModelValidator;
+    private readonly IUserRepository? _users;
     private readonly Dictionary<string, StepUploadPreparation> _preparedDuplicates = new(StringComparer.Ordinal);
     public bool CanUploadStep => _session.IsAuthenticated && _authorization.IsAllowed(_session.CurrentUser, RolePermission.Upload);
 
     public DocumentService(IDocumentRepository documents, IAuditLogger audit, IStepUploadFileStore files, StepUploadConfiguration configuration, ICentralizedLogger? logger = null, IStepModelValidator? stepModelValidator = null)
         : this(documents, audit, files, configuration, new SessionAuthenticationService(), logger, new RoleAuthorization(), stepModelValidator) { }
 
-    public DocumentService(IDocumentRepository documents, IAuditLogger audit, IStepUploadFileStore files, StepUploadConfiguration configuration, ISessionAuthenticationService? session, ICentralizedLogger? logger = null, RoleAuthorization? authorization = null, IStepModelValidator? stepModelValidator = null)
+    public DocumentService(IDocumentRepository documents, IAuditLogger audit, IStepUploadFileStore files, StepUploadConfiguration configuration, ISessionAuthenticationService? session, ICentralizedLogger? logger = null, RoleAuthorization? authorization = null, IStepModelValidator? stepModelValidator = null, IUserRepository? users = null)
     {
-        _documents = documents; _transactionalDocuments = documents as ITransactionalDocumentRepository ?? throw new ArgumentException("The document repository must support transactional document, version, and audit persistence.", nameof(documents)); _audit = audit; _files = files; _configuration = configuration; _logger = logger; _session = session ?? new SessionAuthenticationService(); _authorization = authorization ?? new RoleAuthorization(); _stepModelValidator = stepModelValidator ?? throw new ArgumentNullException(nameof(stepModelValidator)); _configuration.Validate();
+        _documents = documents; _transactionalDocuments = documents as ITransactionalDocumentRepository ?? throw new ArgumentException("The document repository must support transactional document, version, and audit persistence.", nameof(documents)); _audit = audit; _files = files; _configuration = configuration; _logger = logger; _session = session ?? new SessionAuthenticationService(); _authorization = authorization ?? new RoleAuthorization(); _stepModelValidator = stepModelValidator ?? throw new ArgumentNullException(nameof(stepModelValidator)); _users = users; _configuration.Validate();
     }
 
     public async Task<StepUploadResult> PrepareStepUploadAsync(StepUploadRequest request)
     {
+        await RefreshAuthorizationAsync(request.CancellationToken).ConfigureAwait(false);
         if (!CanUploadStep) return StepUploadResult.Rejected("The Maker role is required to upload files.");
         var validation = await ValidateAsync(request).ConfigureAwait(false);
         if (validation is not null) return validation;
@@ -57,6 +59,7 @@ public sealed class DocumentService
 
     public async Task<StepUploadResult> CancelDuplicateAsync(StepUploadRequest request, Guid documentId)
     {
+        await RefreshAuthorizationAsync(request.CancellationToken).ConfigureAwait(false);
         if (!CanUploadStep) return StepUploadResult.Rejected("The Maker role is required to cancel an upload.");
         var name = Path.GetFileName(request.OriginalFileName);
         var size = GetSize(request);
@@ -71,6 +74,7 @@ public sealed class DocumentService
 
     private async Task<StepUploadResult> UploadStepCoreAsync(StepUploadRequest request, bool confirmDuplicate)
     {
+        await RefreshAuthorizationAsync(request.CancellationToken).ConfigureAwait(false);
         if (!CanUploadStep) return StepUploadResult.Rejected("The Maker role is required to upload files.");
         var validation = await ValidateAsync(request).ConfigureAwait(false);
         if (validation is not null) return validation;
@@ -133,6 +137,23 @@ public sealed class DocumentService
             await TryDeleteAsync(stagingPath, exception, "failure compensation").ConfigureAwait(false);
             await TryDeleteAsync(finalPath, exception, "failure compensation").ConfigureAwait(false);
             _logger?.Log(exception, "STEP upload", $"fileName={name}; documentId={duplicate?.DocumentId.ToString() ?? "none"}");
+            throw;
+        }
+    }
+
+    private async Task RefreshAuthorizationAsync(CancellationToken cancellationToken)
+    {
+        var current = _session.CurrentUser;
+        if (current is null || _users is null) return;
+        try
+        {
+            var account = await _users.FindByUsernameAsync(current.Username, cancellationToken).ConfigureAwait(false);
+            if (account is null) throw new UnauthorizedAccessException("The authenticated user no longer exists.");
+            _session.ReplaceCurrentUserRoles(current.Username, account.Roles, account.RoleVersion);
+        }
+        catch (Exception ex)
+        {
+            _logger?.Log(ex, "Authorization refresh", $"Unable to refresh persisted roles for '{current.Username}'.");
             throw;
         }
     }

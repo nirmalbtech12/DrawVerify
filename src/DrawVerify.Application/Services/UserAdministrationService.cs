@@ -52,10 +52,25 @@ public sealed class UserAdministrationService
     {
         var actor = _session.CurrentUser;
         if (!_session.IsAuthenticated || actor is null || !_authorization.IsAllowed(actor, RolePermission.ManageUsersAndRoles)) return new(AuthenticationResultKind.ValidationFailure, "Only an administrator can change user roles.");
+        var current = await _users.FindByUsernameAsync(Normalize(username), cancellationToken);
+        if (current is null) return new(AuthenticationResultKind.ValidationFailure, "The target user was not found.");
+        return await SetUserRolesAsync(username, roles, current.RoleVersion, cancellationToken);
+    }
+
+    public async Task<AuthenticationResult> SetUserRolesAsync(string username, IEnumerable<string> roles, long expectedRoleVersion, CancellationToken cancellationToken = default)
+    {
+        var actor = _session.CurrentUser;
+        if (!_session.IsAuthenticated || actor is null || !_authorization.IsAllowed(actor, RolePermission.ManageUsersAndRoles)) return new(AuthenticationResultKind.ValidationFailure, "Only an administrator can change user roles.");
         var normalized = Normalize(username);
         IReadOnlyList<string> canonical;
         try { canonical = SystemRoles.ValidateAndCanonicalize(roles); } catch (InvalidOperationException ex) { return new(AuthenticationResultKind.ValidationFailure, ex.Message); }
-        try { await _users.ReplaceRolesAsync(normalized, canonical, new(actor.Username, normalized, Array.Empty<string>(), canonical, DateTimeOffset.UtcNow, "RolesUpdated"), cancellationToken); return new(AuthenticationResultKind.Success, "User roles updated."); }
+        try
+        {
+            var result = await _users.ReplaceRolesAsync(normalized, canonical, expectedRoleVersion, new(actor.Username, normalized, Array.Empty<string>(), canonical, DateTimeOffset.UtcNow, "RolesUpdated"), cancellationToken);
+            if (!result.Succeeded) return new(AuthenticationResultKind.ValidationFailure, result.Message ?? "The role update was not saved.");
+            if (string.Equals(actor.Username, normalized, StringComparison.OrdinalIgnoreCase)) _session.ReplaceCurrentUserRoles(normalized, canonical, result.RoleVersion);
+            return new(AuthenticationResultKind.Success, "User roles updated successfully.");
+        }
         catch (KeyNotFoundException) { return new(AuthenticationResultKind.ValidationFailure, "The target user was not found."); }
         catch (Exception ex) { _logger.Log(ex, "Role assignment", $"Unable to update roles for '{normalized}'."); throw; }
     }

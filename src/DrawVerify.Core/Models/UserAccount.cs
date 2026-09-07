@@ -10,6 +10,7 @@ public sealed class UserAccount
     public string PasswordAlgorithm { get; init; } = "PBKDF2-SHA256";
     public int PasswordIterations { get; init; } = 600_000;
     public IReadOnlyList<string> Roles { get; init; } = Array.Empty<string>();
+    public long RoleVersion { get; init; }
     public int FailedAttempts { get; set; }
     public DateTimeOffset? LockedUntilUtc { get; set; }
 }
