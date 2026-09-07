@@ -63,7 +63,7 @@ public sealed class DxfDocumentService
 
     public async Task<DxfUploadResult> PrepareDxfUploadAsync(DxfUploadRequest request)
     {
-        await RefreshAuthorizationAsync(request.CancellationToken).ConfigureAwait(false);
+        await RefreshAuthorizationForUploadAsync(request).ConfigureAwait(false);
         if (!CanUploadDxf)
             return UnauthorizedResult("The Maker role is required to upload files.");
 
@@ -73,7 +73,7 @@ public sealed class DxfDocumentService
 
         var name = LeafName(request.OriginalFileName);
         var size = GetSize(request);
-        var duplicate = await FindDuplicateAsync(name, size, request.CancellationToken).ConfigureAwait(false);
+        var duplicate = await FindDuplicateAsync(name, size, request).ConfigureAwait(false);
         if (duplicate is null)
             return new DxfUploadResult { Kind = DxfUploadResultKind.Success, OriginalFileName = name, FileSizeBytes = size };
 
@@ -92,7 +92,7 @@ public sealed class DxfDocumentService
 
     public async Task<DxfUploadResult> CancelDuplicateAsync(DxfUploadRequest request, Guid documentId)
     {
-        await RefreshAuthorizationAsync(request.CancellationToken).ConfigureAwait(false);
+        await RefreshAuthorizationForUploadAsync(request).ConfigureAwait(false);
         if (!CanUploadDxf)
             return UnauthorizedResult("The Maker role is required to cancel an upload.");
 
@@ -114,7 +114,7 @@ public sealed class DxfDocumentService
         bool confirmDuplicate,
         DxfUploadPreparation? suppliedPreparation = null)
     {
-        await RefreshAuthorizationAsync(request.CancellationToken).ConfigureAwait(false);
+        await RefreshAuthorizationForUploadAsync(request).ConfigureAwait(false);
         if (!CanUploadDxf)
             return UnauthorizedResult("The Maker role is required to upload files.");
 
@@ -124,7 +124,7 @@ public sealed class DxfDocumentService
 
         var name = LeafName(request.OriginalFileName);
         var size = GetSize(request);
-        var duplicate = await FindDuplicateAsync(name, size, request.CancellationToken).ConfigureAwait(false);
+        var duplicate = await FindDuplicateAsync(name, size, request).ConfigureAwait(false);
         if (duplicate is not null && !confirmDuplicate)
         {
             await WriteAuditAsync(duplicate.DocumentId, DocumentAuditAction.DuplicateDetected, request, "duplicate").ConfigureAwait(false);
@@ -221,6 +221,19 @@ public sealed class DxfDocumentService
         }
     }
 
+    private async Task RefreshAuthorizationForUploadAsync(DxfUploadRequest request)
+    {
+        try
+        {
+            await RefreshAuthorizationAsync(request.CancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (request.CancellationToken.IsCancellationRequested)
+        {
+            await WriteCancellationAuditAsync(request, "cancelled during upload preparation", GetSafeSize(request)).ConfigureAwait(false);
+            throw;
+        }
+    }
+
     private async Task<DxfUploadResult?> ValidateAsync(DxfUploadRequest request)
     {
         var name = LeafName(request.OriginalFileName);
@@ -246,19 +259,23 @@ public sealed class DxfDocumentService
         }
         catch (Exception exception)
         {
+            if (exception is OperationCanceledException && request.CancellationToken.IsCancellationRequested)
+                await WriteCancellationAuditAsync(request, "cancelled during validation", size).ConfigureAwait(false);
             _logger?.Log(exception, "DXF upload validation", $"fileName={name}; fileSizeBytes={size}");
             throw;
         }
     }
 
-    private async Task<Document?> FindDuplicateAsync(string name, long size, CancellationToken cancellationToken)
+    private async Task<Document?> FindDuplicateAsync(string name, long size, DxfUploadRequest request)
     {
         try
         {
-            return await _documents.FindByOriginalNameAndSizeAsync(name, size, cancellationToken).ConfigureAwait(false);
+            return await _documents.FindByOriginalNameAndSizeAsync(name, size, request.CancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
+            if (exception is OperationCanceledException && request.CancellationToken.IsCancellationRequested)
+                await WriteCancellationAuditAsync(request, "cancelled during duplicate lookup", size).ConfigureAwait(false);
             _logger?.Log(exception, "DXF duplicate lookup", $"fileName={name}; fileSizeBytes={size}");
             throw;
         }
@@ -321,13 +338,16 @@ public sealed class DxfDocumentService
         new() { DocumentId = documentId, VersionNumber = number, StoredRelativePath = path, FileSizeBytes = size, CreatedUtc = timestamp ?? DateTime.UtcNow };
 
     private AuditEntry CreateAudit(Guid? documentId, DocumentAuditAction action, DxfUploadRequest request, string detail)
+        => CreateAudit(documentId, action, request, detail, GetSize(request));
+
+    private AuditEntry CreateAudit(Guid? documentId, DocumentAuditAction action, DxfUploadRequest request, string detail, long fileSizeBytes)
     {
         var current = _session.CurrentUser ?? throw new UnauthorizedAccessException("An authenticated uploader is required.");
         var name = LeafName(request.OriginalFileName);
         var details = JsonSerializer.Serialize(new
         {
             originalFileName = name,
-            fileSizeBytes = GetSize(request),
+            fileSizeBytes,
             detail,
             uploaderUserId = current.UserId
         });
@@ -348,9 +368,33 @@ public sealed class DxfDocumentService
         }
         catch (Exception exception)
         {
+            if (exception is OperationCanceledException && request.CancellationToken.IsCancellationRequested && action != DocumentAuditAction.Cancelled)
+                await WriteCancellationAuditAsync(request, $"cancelled while recording {action}", GetSafeSize(request)).ConfigureAwait(false);
             _logger?.Log(exception, "DXF audit", $"action={action}; documentId={documentId?.ToString() ?? "none"}");
             throw;
         }
+    }
+
+    private async Task WriteCancellationAuditAsync(DxfUploadRequest request, string detail, long size)
+    {
+        if (!CanUploadDxf)
+            return;
+
+        try
+        {
+            await _audit.WriteAsync(CreateAudit(null, DocumentAuditAction.Cancelled, request, detail, size), CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            _logger?.Log(exception, "DXF cancellation audit", $"fileName={LeafName(request.OriginalFileName)}; fileSizeBytes={size}");
+            throw;
+        }
+    }
+
+    private static long GetSafeSize(DxfUploadRequest request)
+    {
+        try { return GetSize(request); }
+        catch { return 0; }
     }
 
     private async Task<bool> TryDeleteAsync(string? relativePath, Exception originalException, string operation)
