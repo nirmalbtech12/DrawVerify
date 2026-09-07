@@ -37,8 +37,8 @@ public partial class MainWindow : Window
     }
 
     private void ShowLogin() { var view=new LoginView { DataContext=new LoginViewModel(CompositionRoot.CreateAuthenticationService()) }; ((LoginViewModel)view.DataContext).LoginSucceeded += ShowAuthenticatedContent; MainContent.Content=view; }
-    private void ShowUserAdministration() { if(!CompositionRoot.SessionAuthentication.IsAuthenticated || !CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ManageUsersAndRoles)){ShowLogin();return;} var view = new UserAdministrationView { DataContext=new UserAdministrationViewModel(CompositionRoot.CreateUserAdministrationService()) }; var model = (UserAdministrationViewModel)view.DataContext; model.AuthorizationStateChanged += ShowAuthenticatedContent; model.CancelRequested += () => CancelUserCreation(model); model.BackRequested += () => CancelUserCreation(model); MainContent.Content=view; }
-    private void ShowProfile() { if (!CompositionRoot.SessionAuthentication.IsAuthenticated) { ShowLogin(); return; } var view = new UserAdministrationView { DataContext = new UserAdministrationViewModel(CompositionRoot.CreateUserAdministrationService()) }; ((UserAdministrationViewModel)view.DataContext).AuthorizationStateChanged += ShowAuthenticatedContent; MainContent.Content = view; }
+    private void ShowUserAdministration() { if(!CompositionRoot.SessionAuthentication.IsAuthenticated || !CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ManageUsersAndRoles)){ShowLogin();return;} var view = new UserAdministrationView { DataContext=new UserAdministrationViewModel(CompositionRoot.CreateUserAdministrationService()) }; var model = (UserAdministrationViewModel)view.DataContext; model.AuthorizationStateChanged += ShowAuthenticatedContent; model.CancelRequested += () => CancelUserCreation(model); model.BackRequested += () => CancelUserCreation(model); model.RoleCancelRequested += () => NavigateFromRoleEditor(model); model.RoleBackRequested += () => NavigateFromRoleEditor(model); model.RoleConfirmation = message => MessageBox.Show(message, "Confirm role changes", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes; MainContent.Content=view; }
+    private void ShowProfile() { if (!CompositionRoot.SessionAuthentication.IsAuthenticated) { ShowLogin(); return; } var view = new UserAdministrationView { DataContext = new UserAdministrationViewModel(CompositionRoot.CreateUserAdministrationService()) }; var model = (UserAdministrationViewModel)view.DataContext; model.AuthorizationStateChanged += ShowAuthenticatedContent; model.RoleCancelRequested += () => NavigateFromRoleEditor(model); model.RoleBackRequested += () => NavigateFromRoleEditor(model); model.RoleConfirmation = message => MessageBox.Show(message, "Confirm role changes", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes; MainContent.Content = view; }
     private void ShowAuditLog() { if (!CompositionRoot.SessionAuthentication.IsAuthenticated || !CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ViewAuditLog)) { ShowLogin(); return; } MainContent.Content = new AuditLogView { DataContext = new AuditLogViewModel(CompositionRoot.CreateAuditLogService()) }; }
 
     private void ShowUpload()
@@ -62,6 +62,12 @@ public partial class MainWindow : Window
     {
         if (model.IsCreationDirty && DiscardConfirmation() != MessageBoxResult.Yes) return;
         model.DiscardCreation();
+        ShowAuthenticatedContent();
+    }
+    private void NavigateFromRoleEditor(UserAdministrationViewModel model)
+    {
+        if (model.IsRoleDirty && MessageBox.Show("Discard unsaved role changes?", "Discard role changes", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        model.DiscardRoles();
         ShowAuthenticatedContent();
     }
 }
