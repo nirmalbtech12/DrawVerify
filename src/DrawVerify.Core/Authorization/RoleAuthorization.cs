@@ -6,7 +6,7 @@ public sealed class RoleAuthorization
 {
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<RolePermission>> Permissions = new Dictionary<string, IReadOnlySet<RolePermission>>(StringComparer.Ordinal)
     {
-        [SystemRoles.Admin] = new HashSet<RolePermission> { RolePermission.ManageUsersAndRoles, RolePermission.ManageGlobalConfiguration },
+        [SystemRoles.Admin] = new HashSet<RolePermission> { RolePermission.ManageUsersAndRoles, RolePermission.ViewAuditLog, RolePermission.ManageGlobalConfiguration },
         [SystemRoles.Maker] = new HashSet<RolePermission> { RolePermission.Upload, RolePermission.TriggerExtraction, RolePermission.StartVerification },
         [SystemRoles.Checker] = new HashSet<RolePermission> { RolePermission.ReviewVerification, RolePermission.ResolveUnmatched, RolePermission.ApproveVerification },
         [SystemRoles.Approver] = new HashSet<RolePermission> { RolePermission.ReviewVerification, RolePermission.FinalApproval, RolePermission.ControlDocumentAccess, RolePermission.GenerateFinalReports },

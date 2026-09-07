@@ -22,7 +22,9 @@ public sealed class UsernamePasswordAuthenticationService
             else if(state.FailureReason=="InvalidPassword") { reason="InvalidPassword"; result=new(AuthenticationResultKind.InvalidCredentials,GenericFailure); }
             else result=new(AuthenticationResultKind.Success,"Login successful.",new AuthenticatedUser(state.Account.Username,state.Account.Roles,state.Account.RoleVersion));
             var auditReason = result.Succeeded ? null : reason == string.Empty ? "InvalidPassword" : reason;
-            await _audit.WriteAsync(new(username, normalized, DateTimeOffset.UtcNow, "Login", result.Succeeded ? "Success" : "Failure", auditReason), cancellationToken);
+            await _audit.WriteAsync(new(username, normalized, DateTimeOffset.UtcNow, result.Succeeded ? "LoginSuccess" : "LoginFailure", result.Succeeded ? "Success" : "Failure", auditReason, SourceIdentifier: Environment.MachineName), cancellationToken);
+            if (!result.Succeeded && state.IsLocked && reason == "AccountLocked" && state.Account is not null)
+                await _audit.WriteAsync(new(username, normalized, DateTimeOffset.UtcNow, "AccountLocked", "Failure", "ExceededMaxFailedAttempts", SourceIdentifier: Environment.MachineName, FailedAttemptCount: state.Account?.FailedAttempts), cancellationToken);
             if (result.Succeeded) _session.SignIn(result.User!);
             return result;
         }

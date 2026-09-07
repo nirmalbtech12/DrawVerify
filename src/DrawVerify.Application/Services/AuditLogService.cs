@@ -1,0 +1,41 @@
+using System.Text;
+using DrawVerify.Core.Authorization;
+using DrawVerify.Core.Interfaces;
+using DrawVerify.Core.Models;
+
+namespace DrawVerify.Application.Services;
+
+public sealed class AuditLogService
+{
+    private readonly IAuthenticationAuditRepository _repository;
+    private readonly ISessionAuthenticationService _session;
+    private readonly RoleAuthorization _authorization;
+    private readonly ICentralizedLogger? _logger;
+    private AuditLogQuery? _lastQuery;
+    private AuditLogPage? _lastPage;
+    public AuditLogService(IAuthenticationAuditRepository repository, ISessionAuthenticationService session, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null) => (_repository, _session, _authorization, _logger) = (repository, session, authorization ?? new RoleAuthorization(), logger);
+    public async Task<AuditLogPage> QueryAsync(AuditLogQuery query, CancellationToken cancellationToken = default)
+    {
+        EnsureAuthorized();
+        try { var page = await _repository.QueryAsync(query, cancellationToken); _lastQuery = query; _lastPage = page; return page; }
+        catch (Exception ex) { _logger?.Log(ex, "Audit log query", "Unable to retrieve audit entries."); throw; }
+    }
+    public async Task<string> ExportCsvAsync(AuditLogQuery query, CancellationToken cancellationToken = default)
+    {
+        EnsureAuthorized();
+        try
+        {
+            var page = _lastPage is not null && query == _lastQuery ? _lastPage : await QueryAsync(query, cancellationToken);
+            var b = new StringBuilder("Actor,AffectedUsername,TimestampUtc,Action,Result,FailureReason,RolesBefore,RolesAfter\r\n");
+            foreach (var entry in page.Entries)
+            {
+                var affectedUsername = entry.Username;
+                b.AppendJoin(',', new[] { entry.ActorUsername, affectedUsername, entry.TimestampUtc.ToString("O"), entry.Action, entry.Result, entry.FailureReason, entry.RolesBefore, entry.RolesAfter }.Select(Escape)).Append("\r\n");
+            }
+            return b.ToString();
+        }
+        catch (Exception ex) { _logger?.Log(ex, "Audit log export", "Unable to export audit entries."); throw; }
+    }
+    private void EnsureAuthorized() { if (!_authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewAuditLog)) throw new UnauthorizedAccessException("Only administrators can view audit logs."); }
+    private static string Escape(string? value) { value ??= string.Empty; return value.Contains(',', StringComparison.Ordinal) || value.Contains('"') || value.Contains('\n') ? "\"" + value.Replace("\"", "\"\"") + "\"" : value; }
+}

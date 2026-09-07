@@ -1,6 +1,7 @@
 using System.Text.Json;
 using DrawVerify.Core.Authorization;
 using DrawVerify.Core.Models;
+using DrawVerify.Infrastructure.Persistence;
 using Microsoft.Data.Sqlite;
 using Xunit;
 
@@ -8,7 +9,28 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteUserRepositoryTests
 {
-    [Fact(DisplayName = "TD-INF-ROLE-001 seeds five users idempotently and atomically replaces roles")]
+    [Fact(DisplayName = "TD-01 persists profile and deactivation audit data atomically")]
+    public async Task Profile_and_deactivation_are_transactionally_audited()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-lifecycle-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteUserRepository(path);
+            var salt = new byte[16];
+            await repository.CreateAsync(new UserAccount { Username = "TARGET", DisplayName = "Target", PasswordSalt = salt, PasswordHash = new byte[32], PasswordIterations = 1, Roles = new[] { "Viewer" } }, new("ADMIN", "TARGET", DateTimeOffset.UtcNow, "UserCreated", "Success", RolesAfter: "[\"Viewer\"]"));
+            await repository.UpdateProfileAsync("TARGET", "Changed", "target@example.test", true, new("ADMIN", "TARGET", DateTimeOffset.UtcNow, "UserModified", "Success", ChangedFields: "[\"DisplayName\",\"Email\",\"PasswordReset\"]"));
+            await repository.DeactivateAsync("TARGET", "retired", new("ADMIN", "TARGET", DateTimeOffset.UtcNow, "UserDeactivated", "Success", DeactivationReason: "retired"));
+            var target = await repository.FindByUsernameAsync("TARGET");
+            Assert.False(target!.IsActive); Assert.Equal("Changed", target.DisplayName); Assert.Equal("target@example.test", target.Email);
+            var audit = new SqliteAuthenticationAuditRepository(path);
+            var rows = (await audit.QueryAsync(new AuditLogQuery(PageSize: 20))).Entries;
+            Assert.Contains(rows, x => x.Action == "UserModified" && x.ChangedFields!.Contains("PasswordReset"));
+            Assert.Contains(rows, x => x.Action == "UserDeactivated" && x.DeactivationReason == "retired");
+        }
+        finally { SqliteConnection.ClearAllPools(); if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact(DisplayName = "TD-02 classifies add-only, remove-only, and mixed role replacements atomically")]
     public async Task Seed_and_role_replacement_preserve_authorization_invariants()
     {
         var path = Path.Combine(Path.GetTempPath(), $"drawverify-auth-seed-{Guid.NewGuid():N}.db");

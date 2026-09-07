@@ -5,6 +5,9 @@ public sealed class UserAccount
     public Guid Id { get; init; } = Guid.NewGuid();
     public required string Username { get; init; }
     public required string DisplayName { get; init; }
+    public string? Email { get; init; }
+    public bool IsActive { get; init; } = true;
+    public string? DeactivationReason { get; init; }
     public required byte[] PasswordSalt { get; init; }
     public required byte[] PasswordHash { get; init; }
     public string PasswordAlgorithm { get; init; } = "PBKDF2-SHA256";

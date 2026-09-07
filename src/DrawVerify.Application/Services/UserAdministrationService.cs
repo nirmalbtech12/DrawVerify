@@ -3,10 +3,9 @@ using DrawVerify.Core.Configuration;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
 using DrawVerify.Core.Authorization;
+using System.Text.Json;
 
 namespace DrawVerify.Application.Services;
-
-public sealed record UserCreationRequest(string Username, string DisplayName, string InitialPassword);
 
 public sealed class UserAdministrationService
 {
@@ -38,7 +37,7 @@ public sealed class UserAdministrationService
             var salt = RandomNumberGenerator.GetBytes(16);
             var hash = Rfc2898DeriveBytes.Pbkdf2(request.InitialPassword, salt, PasswordIterations, HashAlgorithmName.SHA256, 32);
             var account = new UserAccount { Username = username, DisplayName = request.DisplayName.Trim(), PasswordSalt = salt, PasswordHash = hash, PasswordIterations = PasswordIterations, Roles = _configuration.CanonicalDefaultRoles };
-            await _users.CreateAsync(account, new(actor.Username, username, DateTimeOffset.UtcNow, "UserCreated", "Success"), cancellationToken);
+            await _users.CreateAsync(account, new(actor.Username, username, DateTimeOffset.UtcNow, "UserCreated", "Success", RolesAfter: JsonSerializer.Serialize(account.Roles)), cancellationToken);
             return new(AuthenticationResultKind.Success, "User created.");
         }
         catch (DuplicateUsernameException) { return new(AuthenticationResultKind.DuplicateUsername, "Username is already in use."); }
@@ -76,6 +75,66 @@ public sealed class UserAdministrationService
         catch (Exception ex) { _logger.Log(ex, "Role assignment", $"Unable to update roles for '{normalized}'."); throw; }
     }
     public static string Normalize(string username) => username.Trim().ToUpperInvariant();
+
+    public async Task<AuthenticationResult> UpdateProfileAsync(string username, string? displayName, string? email, bool passwordReset, CancellationToken cancellationToken = default, string? newPassword = null)
+    {
+        var actor = _session.CurrentUser; if (actor is null || !_authorization.IsAllowed(actor, RolePermission.ManageUsersAndRoles)) return new(AuthenticationResultKind.ValidationFailure, "Only an administrator can modify users.");
+        var normalized = Normalize(username); var current = await _users.FindByUsernameAsync(normalized, cancellationToken); if (current is null) return new(AuthenticationResultKind.ValidationFailure, "The target user was not found.");
+        var fields = new List<string>(); var oldValues = new Dictionary<string, string?>(); var newValues = new Dictionary<string, string?>();
+        if (displayName is not null && !string.Equals(current.DisplayName, displayName.Trim(), StringComparison.Ordinal)) { fields.Add("DisplayName"); oldValues["DisplayName"] = current.DisplayName; newValues["DisplayName"] = displayName.Trim(); }
+        if (!string.Equals(current.Email, email, StringComparison.Ordinal)) { fields.Add("Email"); oldValues["Email"] = current.Email; newValues["Email"] = email; }
+        if (passwordReset) fields.Add("PasswordReset");
+        byte[]? salt = null; byte[]? hash = null;
+        if (passwordReset)
+        {
+            // The legacy overload has no password argument. Keep that API usable for
+            // existing callers while still replacing the stored password material;
+            // the UI/request overload always supplies the administrator-selected value.
+            var resetPassword = newPassword ?? $"Reset-{Convert.ToBase64String(RandomNumberGenerator.GetBytes(18))}aA1!";
+            var policyError = _configuration.ValidatePassword(resetPassword); if (policyError is not null) return new(AuthenticationResultKind.ValidationFailure, policyError);
+            salt = RandomNumberGenerator.GetBytes(16); hash = Rfc2898DeriveBytes.Pbkdf2(resetPassword, salt, PasswordIterations, HashAlgorithmName.SHA256, 32);
+        }
+        if (fields.Count == 0) return new(AuthenticationResultKind.ValidationFailure, "No profile changes were supplied.");
+        var audit = new AuthenticationAuditEntry(actor.Username, normalized, DateTimeOffset.UtcNow, "UserModified", "Success", ChangedFields: JsonSerializer.Serialize(fields), OldValues: JsonSerializer.Serialize(oldValues), NewValues: JsonSerializer.Serialize(newValues));
+        try
+        {
+            if (passwordReset)
+            {
+                await _users.UpdateProfileAsync(normalized, newValues.TryGetValue("DisplayName", out var name) ? name : current.DisplayName, newValues.TryGetValue("Email", out var mail) ? mail : current.Email, true, salt, hash, PasswordIterations, audit, cancellationToken);
+            }
+            else
+            {
+                // Preserve the original interface path for profile-only updates so
+                // repositories that do not need password material remain compatible.
+                await _users.UpdateProfileAsync(normalized, newValues.TryGetValue("DisplayName", out var name) ? name : current.DisplayName, newValues.TryGetValue("Email", out var mail) ? mail : current.Email, false, audit, cancellationToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Log(ex, "User profile update", $"Unable to update user profile; actor '{actor.Username}', affected user '{normalized}'.");
+            throw;
+        }
+        return new(AuthenticationResultKind.Success, "User profile updated.");
+    }
+    public Task<AuthenticationResult> UpdateProfileAsync(UserProfileUpdateRequest request, CancellationToken cancellationToken = default)
+        => UpdateProfileAsync(request.Username, request.DisplayName, request.Email, request.PasswordReset, cancellationToken, request.NewPassword);
+    public async Task<AuthenticationResult> DeactivateUserAsync(string username, string? reason, CancellationToken cancellationToken = default)
+    {
+        var actor = _session.CurrentUser; if (actor is null || !_authorization.IsAllowed(actor, RolePermission.ManageUsersAndRoles)) return new(AuthenticationResultKind.ValidationFailure, "Only an administrator can deactivate users.");
+        var normalized = Normalize(username); if (await _users.FindByUsernameAsync(normalized, cancellationToken) is null) return new(AuthenticationResultKind.ValidationFailure, "The target user was not found.");
+        try
+        {
+            await _users.DeactivateAsync(normalized, reason, new(actor.Username, normalized, DateTimeOffset.UtcNow, "UserDeactivated", "Success", DeactivationReason: reason), cancellationToken);
+            return new(AuthenticationResultKind.Success, "User deactivated.");
+        }
+        catch (Exception ex)
+        {
+            _logger.Log(ex, "User deactivation", $"Unable to deactivate user; actor '{actor.Username}', affected user '{normalized}'.");
+            throw;
+        }
+    }
+    public Task<AuthenticationResult> DeactivateUserAsync(UserDeactivationRequest request, CancellationToken cancellationToken = default)
+        => DeactivateUserAsync(request.Username, request.Reason, cancellationToken);
 }
 
 public sealed class DuplicateUsernameException : Exception

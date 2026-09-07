@@ -13,7 +13,14 @@ public partial class MainWindow : Window
     {
         CompositionRoot.Initialize();
         InitializeComponent();
+        Loaded += async (_, _) => await ApplySystemRetentionAsync();
         ShowLogin();
+    }
+
+    private static async Task ApplySystemRetentionAsync()
+    {
+        try { await CompositionRoot.ApplySystemRetentionAsync(); }
+        catch (Exception) { System.Windows.MessageBox.Show("Unable to apply the configured audit retention policy.", "Retention failed"); }
     }
 
     private void ShowAuthenticatedContent()
@@ -25,12 +32,14 @@ public partial class MainWindow : Window
         var review=new System.Windows.Controls.Button { Content="Review verification", Margin=new Thickness(0,0,0,8) }; review.Click += (_,_)=>ShowVerificationReview(); review.IsEnabled=CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ReviewVerification); panel.Children.Add(review);
         var profile=new System.Windows.Controls.Button { Content="My profile", Margin=new Thickness(0,0,0,8) }; profile.Click += (_,_)=>ShowProfile(); panel.Children.Add(profile);
         if(CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ManageUsersAndRoles)) { var users=new System.Windows.Controls.Button { Content="Create user", Margin=new Thickness(0,0,0,8) }; users.Click += (_,_)=>ShowUserAdministration(); panel.Children.Add(users); }
+        if(CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ViewAuditLog)) { var audit=new System.Windows.Controls.Button { Content="Audit log", Margin=new Thickness(0,0,0,8) }; audit.Click += (_,_)=>ShowAuditLog(); panel.Children.Add(audit); }
         var logout=new System.Windows.Controls.Button { Content="Logout" }; logout.Click += async (_,_)=>{ try { await CompositionRoot.CreateAuthenticationService().LogoutAsync(); ShowLogin(); } catch(Exception ex) { new CentralizedLogger().Log(ex,"WPF logout","Unable to complete logout."); System.Windows.MessageBox.Show("Unable to complete logout.","Logout failed"); } }; panel.Children.Add(logout); MainContent.Content=panel;
     }
 
     private void ShowLogin() { var view=new LoginView { DataContext=new LoginViewModel(CompositionRoot.CreateAuthenticationService()) }; ((LoginViewModel)view.DataContext).LoginSucceeded += ShowAuthenticatedContent; MainContent.Content=view; }
     private void ShowUserAdministration() { if(!CompositionRoot.SessionAuthentication.IsAuthenticated || !CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ManageUsersAndRoles)){ShowLogin();return;} var view = new UserAdministrationView { DataContext=new UserAdministrationViewModel(CompositionRoot.CreateUserAdministrationService()) }; ((UserAdministrationViewModel)view.DataContext).AuthorizationStateChanged += ShowAuthenticatedContent; MainContent.Content=view; }
     private void ShowProfile() { if (!CompositionRoot.SessionAuthentication.IsAuthenticated) { ShowLogin(); return; } var view = new UserAdministrationView { DataContext = new UserAdministrationViewModel(CompositionRoot.CreateUserAdministrationService()) }; ((UserAdministrationViewModel)view.DataContext).AuthorizationStateChanged += ShowAuthenticatedContent; MainContent.Content = view; }
+    private void ShowAuditLog() { if (!CompositionRoot.SessionAuthentication.IsAuthenticated || !CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ViewAuditLog)) { ShowLogin(); return; } MainContent.Content = new AuditLogView { DataContext = new AuditLogViewModel(CompositionRoot.CreateAuditLogService()) }; }
 
     private void ShowUpload()
     {
