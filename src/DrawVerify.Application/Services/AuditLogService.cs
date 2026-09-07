@@ -25,7 +25,7 @@ public sealed class AuditLogService
         EnsureAuthorized();
         try
         {
-            var page = _lastPage is not null && CanReuseExportPage(query, _lastQuery) ? _lastPage : await QueryAsync(query, cancellationToken);
+            var page = _lastPage is not null && query == _lastQuery ? _lastPage : await QueryAsync(query, cancellationToken);
             var b = new StringBuilder("Actor,AffectedUsername,TimestampUtc,Action,Result,FailureReason,RolesBefore,RolesAfter\r\n");
             foreach (var entry in page.Entries)
             {
@@ -36,15 +36,6 @@ public sealed class AuditLogService
         }
         catch (Exception ex) { _logger?.Log(ex, "Audit log export", "Unable to export audit entries."); throw; }
     }
-    private static bool CanReuseExportPage(AuditLogQuery requested, AuditLogQuery? previous)
-        => previous is not null
-           && string.Equals(requested.Action, previous.Action, StringComparison.Ordinal)
-           && string.Equals(requested.ActorUsername, previous.ActorUsername, StringComparison.Ordinal)
-           && requested.FromUtc == previous.FromUtc
-           && requested.ToUtc == previous.ToUtc
-           && requested.Page == previous.Page
-           && requested.PageSize == previous.PageSize
-           && (requested.Username is null || string.Equals(requested.Username, previous.Username, StringComparison.Ordinal));
     private void EnsureAuthorized() { if (!_authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewAuditLog)) throw new UnauthorizedAccessException("Only administrators can view audit logs."); }
     private static string Escape(string? value) { value ??= string.Empty; return value.Contains(',', StringComparison.Ordinal) || value.Contains('"') || value.Contains('\n') ? "\"" + value.Replace("\"", "\"\"") + "\"" : value; }
 }

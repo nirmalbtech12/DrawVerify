@@ -17,10 +17,10 @@ public sealed class AuditLogServiceTests
         var service = new AuditLogService(repository, session);
         var page = await service.QueryAsync(new AuditLogQuery(Action: "UserCreated", Username: "USER,1"));
         Assert.Single(page.Entries);
+        Assert.Equal(new[] { "UserCreated", "USER,1" }, repository.LastQuery is { } query ? new[] { query.Action!, query.Username! } : Array.Empty<string>());
         var csv = await service.ExportCsvAsync(new AuditLogQuery(Action: "UserCreated"));
         Assert.Contains("\"USER,1\"", csv);
         Assert.Contains("RolesBefore", csv);
-        Assert.Equal(new[] { "UserCreated", "USER,1" }, repository.LastQuery is { } q ? new[] { q.Action!, q.Username! } : Array.Empty<string>());
     }
 
     [Fact(DisplayName = "TD-05 rejects non-Admin query and export before repository access")]
