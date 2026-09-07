@@ -42,6 +42,12 @@ public static class CompositionRoot
         return new(new SqliteAuthenticationAuditRepository(database, logger), Session, Authorization, logger);
     }
     internal static AuditRetentionService CreateAuditRetentionService() => new(new SqliteAuditRetentionRepository(DatabasePath(), new CentralizedLogger()), AuditLogConfiguration);
+    public static async Task<int> ApplySystemRetentionAsync(CancellationToken cancellationToken = default)
+    {
+        var logger = new CentralizedLogger();
+        try { return await CreateAuditRetentionService().ApplySystemAsync(cancellationToken); }
+        catch (Exception ex) { logger.Log(ex, "System audit retention", "Unable to apply the configured audit retention policy."); throw; }
+    }
     public static StepUploadViewModel CreateStepUploadViewModel()
     {
         var config=StepUploadConfiguration;

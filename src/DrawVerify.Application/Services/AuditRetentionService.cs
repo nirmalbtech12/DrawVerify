@@ -6,5 +6,6 @@ public sealed class AuditRetentionService
     private readonly IAuditRetentionRepository _repository;
     public AuditRetentionService(IAuditRetentionRepository repository, AuditLogConfiguration configuration) { configuration.Validate(); _repository = repository; Configuration = configuration; }
     public AuditLogConfiguration Configuration { get; }
-    internal Task<int> ApplyAsync(CancellationToken cancellationToken = default) => _repository.ApplyAsync(Configuration.RetentionDays, cancellationToken);
+    public Task<int> ApplySystemAsync(CancellationToken cancellationToken = default) => _repository.ApplyAsync(Configuration.RetentionDays, cancellationToken);
+    internal Task<int> ApplyAsync(CancellationToken cancellationToken = default) => ApplySystemAsync(cancellationToken);
 }

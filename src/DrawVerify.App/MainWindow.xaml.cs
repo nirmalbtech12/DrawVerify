@@ -13,7 +13,14 @@ public partial class MainWindow : Window
     {
         CompositionRoot.Initialize();
         InitializeComponent();
+        Loaded += async (_, _) => await ApplySystemRetentionAsync();
         ShowLogin();
+    }
+
+    private static async Task ApplySystemRetentionAsync()
+    {
+        try { await CompositionRoot.ApplySystemRetentionAsync(); }
+        catch (Exception) { System.Windows.MessageBox.Show("Unable to apply the configured audit retention policy.", "Retention failed"); }
     }
 
     private void ShowAuthenticatedContent()

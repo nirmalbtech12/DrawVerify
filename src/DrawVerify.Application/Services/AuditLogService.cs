@@ -25,12 +25,18 @@ public sealed class AuditLogService
         EnsureAuthorized();
         try
         {
-            var page = _lastPage is not null && CanReuseForExport(query, _lastQuery) ? _lastPage : await QueryAsync(query, cancellationToken);
-            var b = new StringBuilder("Actor,AffectedUsername,TimestampUtc,Action,Result,FailureReason,RolesBefore,RolesAfter\r\n"); foreach (var e in page.Entries) b.AppendJoin(',', new[] { e.ActorUsername, e.Username, e.TimestampUtc.ToString("O"), e.Action, e.Result, e.FailureReason, e.RolesBefore, e.RolesAfter }.Select(Escape)).Append("\r\n"); return b.ToString();
+            var page = _lastPage is not null && CanReuseExportPage(query, _lastQuery) ? _lastPage : await QueryAsync(query, cancellationToken);
+            var b = new StringBuilder("Actor,AffectedUsername,TimestampUtc,Action,Result,FailureReason,RolesBefore,RolesAfter\r\n");
+            foreach (var entry in page.Entries)
+            {
+                var affectedUsername = entry.Username;
+                b.AppendJoin(',', new[] { entry.ActorUsername, affectedUsername, entry.TimestampUtc.ToString("O"), entry.Action, entry.Result, entry.FailureReason, entry.RolesBefore, entry.RolesAfter }.Select(Escape)).Append("\r\n");
+            }
+            return b.ToString();
         }
         catch (Exception ex) { _logger?.Log(ex, "Audit log export", "Unable to export audit entries."); throw; }
     }
-    private static bool CanReuseForExport(AuditLogQuery requested, AuditLogQuery? previous)
+    private static bool CanReuseExportPage(AuditLogQuery requested, AuditLogQuery? previous)
         => previous is not null
            && string.Equals(requested.Action, previous.Action, StringComparison.Ordinal)
            && string.Equals(requested.ActorUsername, previous.ActorUsername, StringComparison.Ordinal)

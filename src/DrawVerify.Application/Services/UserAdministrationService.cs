@@ -96,15 +96,23 @@ public sealed class UserAdministrationService
         }
         if (fields.Count == 0) return new(AuthenticationResultKind.ValidationFailure, "No profile changes were supplied.");
         var audit = new AuthenticationAuditEntry(actor.Username, normalized, DateTimeOffset.UtcNow, "UserModified", "Success", ChangedFields: JsonSerializer.Serialize(fields), OldValues: JsonSerializer.Serialize(oldValues), NewValues: JsonSerializer.Serialize(newValues));
-        if (passwordReset)
+        try
         {
-            await _users.UpdateProfileAsync(normalized, newValues.TryGetValue("DisplayName", out var name) ? name : current.DisplayName, newValues.TryGetValue("Email", out var mail) ? mail : current.Email, true, salt, hash, PasswordIterations, audit, cancellationToken);
+            if (passwordReset)
+            {
+                await _users.UpdateProfileAsync(normalized, newValues.TryGetValue("DisplayName", out var name) ? name : current.DisplayName, newValues.TryGetValue("Email", out var mail) ? mail : current.Email, true, salt, hash, PasswordIterations, audit, cancellationToken);
+            }
+            else
+            {
+                // Preserve the original interface path for profile-only updates so
+                // repositories that do not need password material remain compatible.
+                await _users.UpdateProfileAsync(normalized, newValues.TryGetValue("DisplayName", out var name) ? name : current.DisplayName, newValues.TryGetValue("Email", out var mail) ? mail : current.Email, false, audit, cancellationToken);
+            }
         }
-        else
+        catch (Exception ex)
         {
-            // Preserve the original interface path for profile-only updates so
-            // repositories that do not need password material remain compatible.
-            await _users.UpdateProfileAsync(normalized, newValues.TryGetValue("DisplayName", out var name) ? name : current.DisplayName, newValues.TryGetValue("Email", out var mail) ? mail : current.Email, false, audit, cancellationToken);
+            _logger.Log(ex, "User profile update", $"Unable to update user profile; actor '{actor.Username}', affected user '{normalized}'.");
+            throw;
         }
         return new(AuthenticationResultKind.Success, "User profile updated.");
     }
@@ -114,7 +122,16 @@ public sealed class UserAdministrationService
     {
         var actor = _session.CurrentUser; if (actor is null || !_authorization.IsAllowed(actor, RolePermission.ManageUsersAndRoles)) return new(AuthenticationResultKind.ValidationFailure, "Only an administrator can deactivate users.");
         var normalized = Normalize(username); if (await _users.FindByUsernameAsync(normalized, cancellationToken) is null) return new(AuthenticationResultKind.ValidationFailure, "The target user was not found.");
-        await _users.DeactivateAsync(normalized, reason, new(actor.Username, normalized, DateTimeOffset.UtcNow, "UserDeactivated", "Success", DeactivationReason: reason), cancellationToken); return new(AuthenticationResultKind.Success, "User deactivated.");
+        try
+        {
+            await _users.DeactivateAsync(normalized, reason, new(actor.Username, normalized, DateTimeOffset.UtcNow, "UserDeactivated", "Success", DeactivationReason: reason), cancellationToken);
+            return new(AuthenticationResultKind.Success, "User deactivated.");
+        }
+        catch (Exception ex)
+        {
+            _logger.Log(ex, "User deactivation", $"Unable to deactivate user; actor '{actor.Username}', affected user '{normalized}'.");
+            throw;
+        }
     }
     public Task<AuthenticationResult> DeactivateUserAsync(UserDeactivationRequest request, CancellationToken cancellationToken = default)
         => DeactivateUserAsync(request.Username, request.Reason, cancellationToken);
