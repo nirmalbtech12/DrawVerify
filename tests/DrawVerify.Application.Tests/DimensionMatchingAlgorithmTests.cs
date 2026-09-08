@@ -34,7 +34,10 @@ public sealed class DimensionMatchingAlgorithmTests
 
         Assert.Contains(results, x => x.DxfDimensionReference == 1 && x.Status == DimensionMatchStatus.Matched && x.Confidence == MatchConfidence.High);
         Assert.Contains(results, x => x.DxfDimensionReference == 2 && x.GeometryType == "Hole" && x.Status == DimensionMatchStatus.Matched);
-        Assert.Contains(results, x => x.DxfDimensionReference == 3 && x.Status == DimensionMatchStatus.Unmatched && x.ReasonCode == "AngularFeatureDetectionUnavailable");
+        var angular = Assert.Single(results.Where(x => x.DxfDimensionReference == 3));
+        Assert.Equal(DimensionMatchStatus.Unmatched, angular.Status);
+        Assert.Equal("DimensionTypeNotSupported", angular.ReasonCode);
+        Assert.Contains("not supported", angular.ReasonExplanation, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(results, x => x.Status == DimensionMatchStatus.MissingDimension && x.StepGeometryReference == "Edge:unused");
     }
 
@@ -47,6 +50,25 @@ public sealed class DimensionMatchingAlgorithmTests
         var results = new DimensionMatchingAlgorithm(new DimensionMatchingConfiguration()).Match(session, dimensions, features);
         var ambiguous = Assert.Single(results.Where(x => x.DxfDimensionReference == 1));
         Assert.True(ambiguous.RequiresManualReview);
-        Assert.Equal("NoCorrespondingGeometryFound", Assert.Single(results.Where(x => x.DxfDimensionReference == 2)).ReasonCode);
+        Assert.Equal("AmbiguousReference", ambiguous.ReasonCode);
+        Assert.Null(ambiguous.StepGeometryReference);
+        var noCandidate = Assert.Single(results.Where(x => x.DxfDimensionReference == 2));
+        Assert.Equal("NoCorrespondingGeometryFound", noCandidate.ReasonCode);
+        Assert.Contains("No corresponding geometry", noCandidate.ReasonExplanation);
+    }
+
+    [Fact]
+    public void Unmatched_results_propagate_dimension_metadata_and_have_no_geometry_reference()
+    {
+        var session = new VerificationSession { StepDocumentVersionId = StepVersion, DxfDocumentVersionId = DxfVersion };
+        var dimension = new CoreDimensionData(Guid.NewGuid(), DxfVersion, 7, DimensionType.Radial, 5, displayText: "R5", radialDimensionKind: RadialDimensionKind.Unknown);
+        var result = Assert.Single(new DimensionMatchingAlgorithm(new DimensionMatchingConfiguration()).Match(session, new[] { dimension }, Array.Empty<GeometryFeatureData>()));
+        Assert.Equal(DimensionMatchStatus.Unmatched, result.Status);
+        Assert.Equal(DimensionType.Radial, result.DimensionType);
+        Assert.Equal(5, result.NominalValue);
+        Assert.Equal("R5", result.DimensionText);
+        Assert.Equal("DimensionTypeNotSupported", result.ReasonCode);
+        Assert.True(result.RequiresManualReview);
+        Assert.Null(result.StepGeometryReference);
     }
 }

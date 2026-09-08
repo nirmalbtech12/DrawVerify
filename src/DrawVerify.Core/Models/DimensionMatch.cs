@@ -14,4 +14,8 @@ public sealed record DimensionMatch
     public bool RequiresManualReview { get; init; }
     public DimensionMatchStatus Status { get; init; }
     public string? ReasonCode { get; init; }
+    public DimensionType? DimensionType { get; init; }
+    public double? NominalValue { get; init; }
+    public string? DimensionText { get; init; }
+    public string? ReasonExplanation { get; init; }
 }
