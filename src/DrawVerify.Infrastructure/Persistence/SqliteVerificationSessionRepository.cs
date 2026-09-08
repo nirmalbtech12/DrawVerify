@@ -43,7 +43,9 @@ public sealed class SqliteVerificationSessionRepository : IVerificationSessionRe
         await using var connection = new SqliteConnection(_connectionString); await connection.OpenAsync(cancellationToken); await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
         try
         {
-            await ValidateSessionAndCurrentVersionsAsync(connection, transaction, session, cancellationToken).ConfigureAwait(false);
+            await ValidateSessionAndCurrentVersionsAsync(connection, transaction, session, auditAction == DocumentAuditAction.DimensionMatchingFailed, cancellationToken).ConfigureAwait(false);
+            if (auditAction == DocumentAuditAction.DimensionMatchingFailed && matches.Count != 0)
+                throw new InvalidOperationException("Failure audits cannot include dimension match rows.");
             await Exec(connection, transaction, "DELETE FROM DimensionMatch WHERE VerificationSessionId=$id", cancellationToken, ("$id", session.VerificationSessionId.ToString()));
             foreach (var match in matches)
             {
@@ -58,17 +60,19 @@ public sealed class SqliteVerificationSessionRepository : IVerificationSessionRe
         catch { await transaction.RollbackAsync(CancellationToken.None); throw; }
     }
     private static async Task<int> Exec(SqliteConnection connection, SqliteTransaction transaction, string sql, CancellationToken token, params (string Name, object Value)[] values) { await using var command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = sql; foreach (var value in values) command.Parameters.AddWithValue(value.Name, value.Value); return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false); }
-    private static async Task ValidateSessionAndCurrentVersionsAsync(SqliteConnection connection, SqliteTransaction transaction, VerificationSession session, CancellationToken token)
+    private static async Task ValidateSessionAndCurrentVersionsAsync(SqliteConnection connection, SqliteTransaction transaction, VerificationSession session, bool allowPreconditionFailure, CancellationToken token)
     {
-        if (session.StepDocumentVersionId is null || session.DxfDocumentVersionId is null) throw new InvalidOperationException("Matching results require current document versions.");
         await using var command = connection.CreateCommand(); command.Transaction = transaction;
         var hasDocumentSchema = await HasTableAsync(connection, transaction, "Document", token).ConfigureAwait(false);
         var hasVersionSchema = await HasTableAsync(connection, transaction, "DocumentVersion", token).ConfigureAwait(false);
-        command.CommandText = hasDocumentSchema && hasVersionSchema
+        var hasBothVersions = session.StepDocumentVersionId is not null && session.DxfDocumentVersionId is not null;
+        if (!hasBothVersions && !allowPreconditionFailure)
+            throw new InvalidOperationException("Matching results require current document versions.");
+        command.CommandText = hasBothVersions && hasDocumentSchema && hasVersionSchema
             ? "SELECT COUNT(*) FROM VerificationSession s INNER JOIN Document sd ON sd.DocumentId=s.StepDocumentId INNER JOIN Document dd ON dd.DocumentId=s.DxfDocumentId INNER JOIN DocumentVersion sv ON sv.VersionId=$stepVersion AND sv.DocumentId=s.StepDocumentId AND sv.VersionNumber=sd.CurrentVersion INNER JOIN DocumentVersion dv ON dv.VersionId=$dxfVersion AND dv.DocumentId=s.DxfDocumentId AND dv.VersionNumber=dd.CurrentVersion WHERE s.VerificationSessionId=$session AND s.StepDocumentId=$stepDocument AND s.DxfDocumentId=$dxfDocument"
             : "SELECT COUNT(*) FROM VerificationSession WHERE VerificationSessionId=$session AND StepDocumentId=$stepDocument AND DxfDocumentId=$dxfDocument";
         command.Parameters.AddWithValue("$session", session.VerificationSessionId.ToString()); command.Parameters.AddWithValue("$stepDocument", session.StepDocumentId.ToString()); command.Parameters.AddWithValue("$dxfDocument", session.DxfDocumentId.ToString());
-        if (hasDocumentSchema && hasVersionSchema) { command.Parameters.AddWithValue("$stepVersion", session.StepDocumentVersionId.Value.ToString()); command.Parameters.AddWithValue("$dxfVersion", session.DxfDocumentVersionId.Value.ToString()); }
+        if (hasBothVersions && hasDocumentSchema && hasVersionSchema) { command.Parameters.AddWithValue("$stepVersion", session.StepDocumentVersionId!.Value.ToString()); command.Parameters.AddWithValue("$dxfVersion", session.DxfDocumentVersionId!.Value.ToString()); }
         if (Convert.ToInt32(await command.ExecuteScalarAsync(token).ConfigureAwait(false), CultureInfo.InvariantCulture) != 1) throw new InvalidOperationException("The verification session or its current document versions are invalid.");
     }
     private static bool HasTable(SqliteConnection connection, string table) { using var command = connection.CreateCommand(); command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=$name"; command.Parameters.AddWithValue("$name", table); return Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture) == 1; }
