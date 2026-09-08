@@ -15,6 +15,7 @@ public sealed record Document
     public DrawVerify.Core.Enums.DocumentType DocumentType { get; init; } = DrawVerify.Core.Enums.DocumentType.StepModel;
     public DrawVerify.Core.Enums.UploadStatus UploadStatus { get; set; } = DrawVerify.Core.Enums.UploadStatus.Uploaded;
     public DrawVerify.Core.Enums.VerificationStatus VerificationStatus { get; init; } = DrawVerify.Core.Enums.VerificationStatus.Unknown;
+    public string? VerificationError { get; init; }
     public string? UploaderUserId { get; init; }
     public string? UploaderDisplayName { get; init; }
     public string? UploaderDisplayNameSnapshot => UploaderDisplayName;

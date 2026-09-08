@@ -53,7 +53,7 @@ public partial class MainWindow : Window
         var view=new StepUploadView { DataContext=CompositionRoot.CreateStepUploadViewModel() };
         var model=(StepUploadViewModel)view.DataContext;
         view.AttachFilePicker(model);
-        model.DocumentUploaded += document => Dispatcher.Invoke(() => ShowProtected(() => new DocumentDetailView { DataContext = new DocumentDetailViewModel(document) }));
+        model.DocumentUploaded += document => Dispatcher.Invoke(() => ShowProtected(() => new DocumentDetailView { DataContext = CompositionRoot.CreateDocumentDetailViewModel(document) }));
         MainContent.Content=view;
     }
     private void ShowDxfUpload()
@@ -63,7 +63,7 @@ public partial class MainWindow : Window
         var view = new DxfUploadView { DataContext = CompositionRoot.CreateDxfUploadViewModel() };
         var model = (DxfUploadViewModel)view.DataContext;
         view.AttachFilePicker(model);
-        model.DocumentUploaded += document => Dispatcher.Invoke(() => ShowProtected(() => new DocumentDetailView { DataContext = new DocumentDetailViewModel(document) }));
+        model.DocumentUploaded += document => Dispatcher.Invoke(() => ShowProtected(() => new DocumentDetailView { DataContext = CompositionRoot.CreateDocumentDetailViewModel(document) }));
         MainContent.Content = view;
     }
     private void ShowVerificationReview()

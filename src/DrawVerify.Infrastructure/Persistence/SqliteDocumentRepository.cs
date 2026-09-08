@@ -7,7 +7,7 @@ namespace DrawVerify.Infrastructure.Persistence;
 
 public sealed class SqliteDocumentRepository : IDocumentRepository, ITransactionalDocumentRepository
 {
-    private const string DocumentColumns = "DocumentId,OriginalFileName,FileSizeBytes,UploadTimestampUtc,DocumentType,UploadStatus,VerificationStatus,GeometryStatus,Status,CurrentVersion";
+    private const string DocumentColumns = "DocumentId,OriginalFileName,FileSizeBytes,UploadTimestampUtc,DocumentType,UploadStatus,VerificationStatus,VerificationError,GeometryStatus,Status,CurrentVersion";
     private const string DocumentColumnsWithUploader = DocumentColumns + ",UploaderUserId,UploaderDisplayName";
     private readonly string _connectionString;
     private readonly Dictionary<Guid, DocumentVersion> _measurementVersions = new();
@@ -61,6 +61,7 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
                 else
                 {
                     AddColumnIfMissing(connection, transaction, "Document", "VerificationStatus", "INTEGER NOT NULL DEFAULT 0");
+                    AddColumnIfMissing(connection, transaction, "Document", "VerificationError", "TEXT NULL");
                     AddColumnIfMissing(connection, transaction, "Document", "UploaderUserId", "TEXT NULL");
                     AddColumnIfMissing(connection, transaction, "Document", "UploaderDisplayName", "TEXT NULL");
                     hasUploaderColumns = true;
@@ -84,6 +85,10 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
             {
                 AddColumnIfMissing(connection, transaction, "DocumentAuditLog", "UserId", "TEXT NULL");
             }
+
+            if (!Exists(connection, transaction, "DimensionData"))
+                Execute(connection, transaction, CreateDimensionDataSql());
+            Execute(connection, transaction, "CREATE UNIQUE INDEX IF NOT EXISTS IX_DimensionData_VersionOrdinal ON DimensionData(DocumentVersionId,SourceEntityOrdinal)");
 
             Execute(connection, transaction, "CREATE UNIQUE INDEX IF NOT EXISTS IX_Document_NameSize ON Document(OriginalFileName,FileSizeBytes)");
             transaction.Commit();
@@ -152,6 +157,126 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
         return version is not null && _measurementVersions.TryGetValue(version.VersionId, out var measured) ? measured : version;
     }
 
+    public async Task ReplaceDimensionsAsync(
+        Guid documentId,
+        Guid documentVersionId,
+        IReadOnlyCollection<DimensionData> dimensions,
+        DrawVerify.Core.Enums.VerificationStatus status,
+        string? verificationError,
+        AuditEntry auditEntry,
+        CancellationToken cancellationToken = default)
+        => await ReplaceDimensionsAsync(documentId, documentVersionId, dimensions, status, verificationError, () => auditEntry, cancellationToken).ConfigureAwait(false);
+
+    public async Task ReplaceDimensionsAsync(
+        Guid documentId,
+        Guid documentVersionId,
+        IReadOnlyCollection<DimensionData> dimensions,
+        DrawVerify.Core.Enums.VerificationStatus status,
+        string? verificationError,
+        Func<AuditEntry> auditEntryFactory,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(dimensions);
+        ArgumentNullException.ThrowIfNull(auditEntryFactory);
+        if (status == DrawVerify.Core.Enums.VerificationStatus.Error && dimensions.Count != 0)
+            throw new InvalidOperationException("A failed dimension extraction cannot persist dimension data.");
+        if (status != DrawVerify.Core.Enums.VerificationStatus.Error && verificationError is not null)
+            throw new InvalidOperationException("A successful dimension extraction cannot persist an error.");
+        if (dimensions.Any(dimension => dimension.DocumentId != documentId || dimension.DocumentVersionId != documentVersionId))
+            throw new InvalidOperationException("Dimension data must reference the requested document version.");
+        if (dimensions.Select(dimension => dimension.SourceEntityOrdinal).Distinct().Count() != dimensions.Count)
+            throw new InvalidOperationException("Dimension source entity ordinals must be unique within a document version.");
+
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using (var current = connection.CreateCommand())
+            {
+                current.Transaction = transaction;
+                current.CommandText = "SELECT COUNT(*) FROM Document d INNER JOIN DocumentVersion v ON v.DocumentId=d.DocumentId AND v.VersionNumber=d.CurrentVersion WHERE d.DocumentId=$documentId AND v.VersionId=$versionId";
+                current.Parameters.AddWithValue("$documentId", documentId.ToString());
+                current.Parameters.AddWithValue("$versionId", documentVersionId.ToString());
+                if (Convert.ToInt32(await current.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture) != 1)
+                    throw new InvalidOperationException("The requested document version is not current.");
+            }
+
+            await using (var delete = connection.CreateCommand())
+            {
+                delete.Transaction = transaction;
+                delete.CommandText = "DELETE FROM DimensionData WHERE DocumentId=$documentId AND DocumentVersionId=$versionId";
+                delete.Parameters.AddWithValue("$documentId", documentId.ToString());
+                delete.Parameters.AddWithValue("$versionId", documentVersionId.ToString());
+                await delete.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            foreach (var dimension in dimensions)
+            {
+                await using var insert = connection.CreateCommand();
+                insert.Transaction = transaction;
+                insert.CommandText = "INSERT INTO DimensionData (DimensionDataId,DocumentId,DocumentVersionId,SourceEntityOrdinal,DimensionType,NominalValue,LowerTolerance,UpperTolerance,DisplayText) VALUES ($id,$documentId,$versionId,$ordinal,$type,$nominal,$lower,$upper,$text)";
+                Add(insert, "$id", Guid.NewGuid());
+                Add(insert, "$documentId", dimension.DocumentId);
+                Add(insert, "$versionId", dimension.DocumentVersionId);
+                Add(insert, "$ordinal", dimension.SourceEntityOrdinal);
+                Add(insert, "$type", dimension.DimensionType);
+                Add(insert, "$nominal", dimension.NominalValue);
+                insert.Parameters.AddWithValue("$lower", (object?)dimension.LowerTolerance ?? DBNull.Value);
+                insert.Parameters.AddWithValue("$upper", (object?)dimension.UpperTolerance ?? DBNull.Value);
+                insert.Parameters.AddWithValue("$text", (object?)dimension.DisplayText ?? DBNull.Value);
+                await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await using (var update = connection.CreateCommand())
+            {
+                update.Transaction = transaction;
+                update.CommandText = "UPDATE Document SET VerificationStatus=$status,VerificationError=$error WHERE DocumentId=$documentId";
+                Add(update, "$status", status);
+                update.Parameters.AddWithValue("$error", (object?)verificationError ?? DBNull.Value);
+                update.Parameters.AddWithValue("$documentId", documentId.ToString());
+                if (await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                    throw new InvalidOperationException("The document disappeared while dimension data was being persisted.");
+            }
+
+            var auditEntry = auditEntryFactory();
+            ArgumentNullException.ThrowIfNull(auditEntry);
+            if (auditEntry.DocumentId != documentId)
+                throw new InvalidOperationException("The dimension audit entry must reference the same document.");
+            await InsertAuditAsync(connection, transaction, auditEntry, cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            try { await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false); } catch { }
+            throw;
+        }
+    }
+
+    public async Task<IReadOnlyList<DimensionData>> GetDimensionsAsync(Guid documentId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT d.DimensionDataId,d.DocumentId,d.DocumentVersionId,d.SourceEntityOrdinal,d.DimensionType,d.NominalValue,d.LowerTolerance,d.UpperTolerance,d.DisplayText FROM DimensionData d INNER JOIN Document doc ON doc.DocumentId=d.DocumentId INNER JOIN DocumentVersion v ON v.VersionId=d.DocumentVersionId AND v.DocumentId=doc.DocumentId AND v.VersionNumber=doc.CurrentVersion WHERE d.DocumentId=$documentId ORDER BY d.SourceEntityOrdinal";
+        command.Parameters.AddWithValue("$documentId", documentId.ToString());
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        var dimensions = new List<DimensionData>();
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            dimensions.Add(new DimensionData(
+                Guid.Parse(reader.GetString(1)),
+                Guid.Parse(reader.GetString(2)),
+                reader.GetInt32(3),
+                (DrawVerify.Core.Enums.DimensionType)reader.GetInt32(4),
+                reader.GetDouble(5),
+                reader.IsDBNull(6) ? null : reader.GetDouble(6),
+                reader.IsDBNull(7) ? null : reader.GetDouble(7),
+                reader.IsDBNull(8) ? null : reader.GetString(8)));
+        }
+        return dimensions;
+    }
+
     public void ReplaceMeasurements(Guid versionId, GeometryMeasurement? geometry, IReadOnlyCollection<FeatureMeasurement> features, DrawVerify.Core.Enums.GeometryStatus status, string? error)
     {
         var version = _measurementVersions.TryGetValue(versionId, out var existing) ? existing : new DocumentVersion { VersionId = versionId };
@@ -190,8 +315,8 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = _documentHasUploaderColumns
-            ? "INSERT INTO Document (DocumentId,OriginalFileName,FileSizeBytes,UploadTimestampUtc,DocumentType,UploadStatus,VerificationStatus,GeometryStatus,Status,CurrentVersion,UploaderUserId,UploaderDisplayName) VALUES ($id,$name,$size,$timestamp,$type,$upload,$verification,$geometry,$status,$version,$uploaderId,$uploaderName)"
-            : "INSERT INTO Document (DocumentId,OriginalFileName,FileSizeBytes,UploadTimestampUtc,DocumentType,UploadStatus,VerificationStatus,GeometryStatus,Status,CurrentVersion) VALUES ($id,$name,$size,$timestamp,$type,$upload,$verification,$geometry,$status,$version)";
+            ? "INSERT INTO Document (DocumentId,OriginalFileName,FileSizeBytes,UploadTimestampUtc,DocumentType,UploadStatus,VerificationStatus,VerificationError,GeometryStatus,Status,CurrentVersion,UploaderUserId,UploaderDisplayName) VALUES ($id,$name,$size,$timestamp,$type,$upload,$verification,$verificationError,$geometry,$status,$version,$uploaderId,$uploaderName)"
+            : "INSERT INTO Document (DocumentId,OriginalFileName,FileSizeBytes,UploadTimestampUtc,DocumentType,UploadStatus,VerificationStatus,VerificationError,GeometryStatus,Status,CurrentVersion) VALUES ($id,$name,$size,$timestamp,$type,$upload,$verification,$verificationError,$geometry,$status,$version)";
         Add(command, "$id", document.DocumentId);
         Add(command, "$name", document.OriginalFileName);
         Add(command, "$size", document.FileSizeBytes);
@@ -199,6 +324,7 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
         Add(command, "$type", document.DocumentType);
         Add(command, "$upload", document.UploadStatus);
         Add(command, "$verification", document.VerificationStatus);
+        command.Parameters.AddWithValue("$verificationError", (object?)document.VerificationError ?? DBNull.Value);
         Add(command, "$geometry", document.GeometryStatus);
         Add(command, "$status", document.Status);
         Add(command, "$version", document.CurrentVersion);
@@ -261,6 +387,7 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
             DocumentType = (DrawVerify.Core.Enums.DocumentType)reader.GetInt32(reader.GetOrdinal("DocumentType")),
             UploadStatus = (DrawVerify.Core.Enums.UploadStatus)reader.GetInt32(reader.GetOrdinal("UploadStatus")),
             VerificationStatus = (DrawVerify.Core.Enums.VerificationStatus)reader.GetInt32(reader.GetOrdinal("VerificationStatus")),
+            VerificationError = NullableString(reader, "VerificationError"),
             GeometryStatus = (DrawVerify.Core.Enums.GeometryStatus)reader.GetInt32(reader.GetOrdinal("GeometryStatus")),
             Status = (DrawVerify.Core.Enums.DocumentStatus)reader.GetInt32(reader.GetOrdinal("Status")),
             CurrentVersion = reader.GetInt32(reader.GetOrdinal("CurrentVersion")),
@@ -296,11 +423,12 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
     }
 
     private static string CreateDocumentSql(bool includeUploaderColumns) => includeUploaderColumns
-        ? "CREATE TABLE Document (DocumentId TEXT PRIMARY KEY, OriginalFileName TEXT NOT NULL, FileSizeBytes INTEGER NOT NULL, UploadTimestampUtc TEXT NOT NULL, DocumentType INTEGER NOT NULL, UploadStatus INTEGER NOT NULL, VerificationStatus INTEGER NOT NULL DEFAULT 0, GeometryStatus INTEGER NOT NULL, Status INTEGER NOT NULL, CurrentVersion INTEGER NOT NULL, UploaderUserId TEXT NULL, UploaderDisplayName TEXT NULL)"
-        : "CREATE TABLE Document (DocumentId TEXT PRIMARY KEY, OriginalFileName TEXT NOT NULL, FileSizeBytes INTEGER NOT NULL, UploadTimestampUtc TEXT NOT NULL, DocumentType INTEGER NOT NULL, UploadStatus INTEGER NOT NULL, VerificationStatus INTEGER NOT NULL DEFAULT 0, GeometryStatus INTEGER NOT NULL, Status INTEGER NOT NULL, CurrentVersion INTEGER NOT NULL)";
+        ? "CREATE TABLE Document (DocumentId TEXT PRIMARY KEY, OriginalFileName TEXT NOT NULL, FileSizeBytes INTEGER NOT NULL, UploadTimestampUtc TEXT NOT NULL, DocumentType INTEGER NOT NULL, UploadStatus INTEGER NOT NULL, VerificationStatus INTEGER NOT NULL DEFAULT 0, VerificationError TEXT NULL, GeometryStatus INTEGER NOT NULL, Status INTEGER NOT NULL, CurrentVersion INTEGER NOT NULL, UploaderUserId TEXT NULL, UploaderDisplayName TEXT NULL)"
+        : "CREATE TABLE Document (DocumentId TEXT PRIMARY KEY, OriginalFileName TEXT NOT NULL, FileSizeBytes INTEGER NOT NULL, UploadTimestampUtc TEXT NOT NULL, DocumentType INTEGER NOT NULL, UploadStatus INTEGER NOT NULL, VerificationStatus INTEGER NOT NULL DEFAULT 0, VerificationError TEXT NULL, GeometryStatus INTEGER NOT NULL, Status INTEGER NOT NULL, CurrentVersion INTEGER NOT NULL)";
 
     private static string CreateDocumentVersionSql() => "CREATE TABLE DocumentVersion (VersionId TEXT PRIMARY KEY, DocumentId TEXT NOT NULL, VersionNumber INTEGER NOT NULL, StoredRelativePath TEXT NOT NULL, FileSizeBytes INTEGER NOT NULL, CreatedUtc TEXT NOT NULL, FOREIGN KEY(DocumentId) REFERENCES Document(DocumentId))";
     private static string CreateAuditSql() => "CREATE TABLE DocumentAuditLog (AuditId TEXT PRIMARY KEY, DocumentId TEXT NULL, Action INTEGER NOT NULL, UserId TEXT NULL, TimestampUtc TEXT NOT NULL, DetailsJson TEXT NOT NULL)";
+    private static string CreateDimensionDataSql() => "CREATE TABLE DimensionData (DimensionDataId TEXT PRIMARY KEY, DocumentId TEXT NOT NULL, DocumentVersionId TEXT NOT NULL, SourceEntityOrdinal INTEGER NOT NULL, DimensionType INTEGER NOT NULL, NominalValue REAL NOT NULL, LowerTolerance REAL NULL, UpperTolerance REAL NULL, DisplayText TEXT NULL, FOREIGN KEY(DocumentId) REFERENCES Document(DocumentId), FOREIGN KEY(DocumentVersionId) REFERENCES DocumentVersion(VersionId), UNIQUE(DocumentVersionId,SourceEntityOrdinal))";
 
     private static void RebuildDocumentWithoutRemovedIdentityColumns(
         SqliteConnection connection,
@@ -311,7 +439,8 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
         Execute(connection, transaction, "ALTER TABLE Document RENAME TO Document_legacy");
         Execute(connection, transaction, CreateDocumentSql(includeUploaderColumns: false));
         var verificationStatus = sourceHasVerificationStatus ? "VerificationStatus" : "0";
-        Execute(connection, transaction, "INSERT INTO Document (" + DocumentColumns + ") SELECT DocumentId,OriginalFileName,FileSizeBytes,UploadTimestampUtc,DocumentType,UploadStatus," + verificationStatus + ",GeometryStatus,Status,CurrentVersion FROM Document_legacy");
+        var verificationError = GetColumns(connection, transaction, "Document_legacy").Contains("VerificationError") ? "VerificationError" : "NULL";
+        Execute(connection, transaction, "INSERT INTO Document (" + DocumentColumns + ") SELECT DocumentId,OriginalFileName,FileSizeBytes,UploadTimestampUtc,DocumentType,UploadStatus," + verificationStatus + "," + verificationError + ",GeometryStatus,Status,CurrentVersion FROM Document_legacy");
         Execute(connection, transaction, "DROP TABLE Document_legacy");
         foreach (var index in indexes)
             Execute(connection, transaction, index);
