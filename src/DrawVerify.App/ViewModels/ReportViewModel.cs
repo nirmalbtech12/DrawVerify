@@ -38,7 +38,7 @@ public sealed class ReportViewModel : INotifyPropertyChanged
         }
         catch (UnauthorizedAccessException) { ReportContent = string.Empty; Status = "Access denied."; return false; }
         catch (OperationCanceledException) { ReportContent = string.Empty; Status = "Report generation cancelled."; return false; }
-        catch (Exception exception) { ReportContent = string.Empty; Status = $"Unable to generate report: {exception.Message}"; return false; }
+        catch (Exception) { ReportContent = string.Empty; Status = "Unable to generate verification report."; return false; }
         finally { IsBusy = false; }
     }
 

@@ -118,7 +118,7 @@ public sealed class VerificationViewModelTests
         repository.ThrowOnRead = true;
         Assert.False(await viewModel.GenerateAsync());
         Assert.Empty(viewModel.ReportContent);
-        Assert.StartsWith("Unable to generate report:", viewModel.Status);
+        Assert.Equal("Unable to generate verification report.", viewModel.Status);
     }
 
     private sealed class ReportRepositoryFake(DimensionMatch match) : IVerificationSessionRepository
