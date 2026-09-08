@@ -18,6 +18,11 @@ public sealed class DimensionMatchingAlgorithm
         foreach (var dimension in dimensions)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (dimension.DimensionType == DimensionType.Radial && dimension.RadialKind == RadialDimensionKind.Unknown)
+            {
+                results.Add(Unmatched(session, dimension, "RadialSubtypeUnknown"));
+                continue;
+            }
             var candidates = features.Where(feature => IsCandidate(dimension, feature)).Select(feature => (feature, score: Score(dimension, feature))).OrderByDescending(candidate => candidate.score).ToList();
             if (dimension.DimensionType == DimensionType.Angular)
             {

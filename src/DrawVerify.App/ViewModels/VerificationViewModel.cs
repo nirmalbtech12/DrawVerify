@@ -1,11 +1,11 @@
 using DrawVerify.Core.Authorization;
-using DrawVerify.Core.Interfaces;
 using DrawVerify.Application.Services;
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Models;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
+using DrawVerify.Core.Interfaces;
 
 namespace DrawVerify.App.ViewModels;
 
@@ -14,7 +14,8 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
     private readonly ISessionAuthenticationService _session;
     private readonly RoleAuthorization _authorization;
     private readonly DimensionMatchingService? _matching;
-    public VerificationViewModel(ISessionAuthenticationService session, RoleAuthorization authorization, DimensionMatchingService? matching = null) { _session = session; _authorization = authorization; _matching = matching; SelectPairCommand = new RelayCommand(async _ => await SelectPairAsync(), _ => CanMatchDimensions && !IsBusy); MatchDimensionsCommand = new RelayCommand(async _ => await MatchSelectedDimensionsAsync(), _ => CanMatchDimensions && SelectedSessionId is not null && !IsBusy); RefreshMatchesCommand = new RelayCommand(async _ => await RefreshSelectedMatchesAsync(), _ => CanViewDimensionMatches && SelectedSessionId is not null && !IsBusy); ApplyFilterCommand = new RelayCommand(_ => ApplyResultView()); SortResultsCommand = new RelayCommand(_ => ApplyResultView()); }
+    private readonly ICentralizedLogger? _logger;
+    public VerificationViewModel(ISessionAuthenticationService session, RoleAuthorization authorization, DimensionMatchingService? matching = null, ICentralizedLogger? logger = null) { _session = session; _authorization = authorization; _matching = matching; _logger = logger; SelectPairCommand = new RelayCommand(async _ => await SelectPairAsync(), _ => CanMatchDimensions && !IsBusy); MatchDimensionsCommand = new RelayCommand(async _ => await MatchSelectedDimensionsAsync(), _ => CanMatchDimensions && SelectedSessionId is not null && !IsBusy); RefreshMatchesCommand = new RelayCommand(async _ => await RefreshSelectedMatchesAsync(), _ => CanViewDimensionMatches && SelectedSessionId is not null && !IsBusy); ApplyFilterCommand = new RelayCommand(_ => ApplyResultView()); SortResultsCommand = new RelayCommand(_ => ApplyResultView()); }
     public event PropertyChangedEventHandler? PropertyChanged;
     public bool CanReview => _authorization.IsAllowed(_session.CurrentUser, RolePermission.ReviewVerification);
     public bool CanEnterReview => CanReview;
@@ -48,7 +49,8 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
     {
         if (!CanViewDimensionMatches) { MatchResults = Array.Empty<DimensionMatchItemViewModel>(); MatchingStatus = "Access denied."; return; }
         try { _allMatchResults = (await _matching!.GetResultsAsync(sessionId, cancellationToken: cancellationToken)).Select(match => new DimensionMatchItemViewModel(match)).ToArray(); ApplyResultView(); }
-        catch (UnauthorizedAccessException) { MatchResults = Array.Empty<DimensionMatchItemViewModel>(); MatchingStatus = "Access denied."; }
+        catch (UnauthorizedAccessException) { ClearResults("Access denied."); }
+        catch (Exception exception) { _logger?.Log(exception, "Load dimension matching results", $"Unable to load verificationSessionId={sessionId}."); ClearResults("Unable to load matching results."); }
     }
     private async Task SelectPairAsync()
     {
@@ -68,5 +70,6 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
     }
     private void RaiseCommands() { ((RelayCommand)SelectPairCommand).Raise(); ((RelayCommand)MatchDimensionsCommand).Raise(); ((RelayCommand)RefreshMatchesCommand).Raise(); }
     private void Notify([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    private void ClearResults(string message) { _allMatchResults = Array.Empty<DimensionMatchItemViewModel>(); MatchResults = Array.Empty<DimensionMatchItemViewModel>(); MatchingStatus = message; Notify(nameof(MatchResults)); Notify(nameof(MatchingStatus)); }
     private sealed class RelayCommand(Action<object?> execute, Predicate<object?>? canExecute = null) : ICommand { public event EventHandler? CanExecuteChanged; public bool CanExecute(object? parameter) => canExecute?.Invoke(parameter) ?? true; public void Execute(object? parameter) => execute(parameter); public void Raise() => CanExecuteChanged?.Invoke(this, EventArgs.Empty); }
 }

@@ -69,14 +69,14 @@ public partial class MainWindow : Window
     }
     private void ShowVerificationReview()
     {
-        var model = new VerificationViewModel(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization, CompositionRoot.CreateDimensionMatchingService());
+        var model = new VerificationViewModel(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization, CompositionRoot.CreateDimensionMatchingService(), new CentralizedLogger());
         if (!model.TryEnterReview(out var message)) { System.Windows.MessageBox.Show(message, "Access denied"); return; }
         MainContent.Content = new VerificationView { DataContext = model };
     }
     private void ShowVerificationMatching()
     {
         if (!CompositionRoot.SessionAuthentication.IsAuthenticated || !CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.MatchDimensionsToGeometry)) { ShowLogin(); return; }
-        MainContent.Content = new VerificationView { DataContext = new VerificationViewModel(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization, CompositionRoot.CreateDimensionMatchingService()) };
+        MainContent.Content = new VerificationView { DataContext = new VerificationViewModel(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization, CompositionRoot.CreateDimensionMatchingService(), new CentralizedLogger()) };
     }
     private void ShowProtected(Func<UIElement> contentFactory) { if(!CompositionRoot.SessionAuthentication.IsAuthenticated){ShowLogin();return;} MainContent.Content=contentFactory(); }
     public Func<MessageBoxResult> DiscardConfirmation { get; set; } = () => MessageBox.Show("Discard unsaved changes?", "Discard user creation", MessageBoxButton.YesNo, MessageBoxImage.Warning);
