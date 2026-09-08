@@ -10,5 +10,6 @@ public enum DocumentAuditAction
     DimensionExtractionFailed = 11,
     DimensionsMatched = 12,
     DimensionsMatchedPartial = 13,
-    DimensionMatchingFailed = 14
+    DimensionMatchingFailed = 14,
+    UnmatchedDimensionsFlagged = 15
 }

@@ -8,14 +8,14 @@ namespace DrawVerify.Core.Tests;
 
 public sealed class DimensionMatchingDomainTests
 {
-    [Fact]
+    [Fact(DisplayName = "TD-CORE-001 preserves the dimension-match contract and audit enum compatibility")]
     public void Legacy_dimension_constructor_defaults_radial_kind_to_unknown()
     {
         var dimension = new DimensionData(Guid.NewGuid(), Guid.NewGuid(), 1, DimensionType.Radial, 5);
         Assert.Equal(RadialDimensionKind.Unknown, dimension.RadialKind);
     }
 
-    [Fact]
+    [Fact(DisplayName = "TD-CORE-001 preserves explicit unmatched metadata and rejects invalid configuration")]
     public void Configuration_rejects_invalid_limits_and_thresholds()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new DimensionMatchingConfiguration { TimeoutSeconds = 0 }.Validate());
@@ -23,7 +23,7 @@ public sealed class DimensionMatchingDomainTests
         Assert.Throws<ArgumentException>(() => new DimensionMatchingConfiguration { HighConfidenceThreshold = .5, MediumConfidenceThreshold = .75 }.Validate());
     }
 
-    [Fact]
+    [Fact(DisplayName = "TD-CORE-001 limits dimension matching permissions to Maker and Checker")]
     public void Only_maker_and_checker_can_match_or_view_results()
     {
         var authorization = new RoleAuthorization();
@@ -34,12 +34,26 @@ public sealed class DimensionMatchingDomainTests
         Assert.False(authorization.IsAllowed(new AuthenticatedUser("approver", new[] { "Approver" }), RolePermission.MatchDimensionsToGeometry));
     }
 
-    [Fact]
+    [Fact(DisplayName = "TD-CORE-001 accepts explicit unmatched status, reason, and DXF metadata")]
     public void Match_record_requires_explicit_status_and_supports_manual_review_fields()
     {
-        var match = new DimensionMatch { VerificationSessionId = Guid.NewGuid(), Status = DimensionMatchStatus.Unmatched, RequiresManualReview = true, ReasonCode = "NoCorrespondingGeometryFound" };
+        var match = new DimensionMatch { VerificationSessionId = Guid.NewGuid(), Status = DimensionMatchStatus.Unmatched, RequiresManualReview = true, ReasonCode = "NoCorrespondingGeometryFound", ReasonExplanation = "No corresponding geometry found in STEP model.", DimensionType = DimensionType.Linear, NominalValue = 12.5, DimensionText = "Ø12.5" };
         Assert.Equal(DimensionMatchStatus.Unmatched, match.Status);
         Assert.True(match.RequiresManualReview);
         Assert.Equal("NoCorrespondingGeometryFound", match.ReasonCode);
+        Assert.Equal("No corresponding geometry found in STEP model.", match.ReasonExplanation);
+        Assert.Equal(DimensionType.Linear, match.DimensionType);
+        Assert.Equal(12.5, match.NominalValue);
+        Assert.Equal("Ø12.5", match.DimensionText);
+        Assert.Null(match.StepGeometryReference);
+    }
+
+    [Fact(DisplayName = "TD-CORE-001 appends UnmatchedDimensionsFlagged without changing existing audit values")]
+    public void Unmatched_audit_action_is_appended_without_changing_existing_values()
+    {
+        Assert.Equal(12, (int)DocumentAuditAction.DimensionsMatched);
+        Assert.Equal(13, (int)DocumentAuditAction.DimensionsMatchedPartial);
+        Assert.Equal(14, (int)DocumentAuditAction.DimensionMatchingFailed);
+        Assert.Equal(15, (int)DocumentAuditAction.UnmatchedDimensionsFlagged);
     }
 }

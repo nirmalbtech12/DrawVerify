@@ -29,6 +29,8 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
     public bool IsBusy { get; private set; }
     public string StatusFilter { get; set; } = "All";
     public bool SortDescending { get; set; }
+    public string SearchText { get; set; } = string.Empty;
+    public string UnmatchedDimensionsTitle => "Unmatched Dimensions";
     public IReadOnlyList<string> StatusFilters { get; } = new[] { "All", "Matched", "Manual review", "Unmatched", "Missing Dimension" };
     public ICommand SelectPairCommand { get; }
     public ICommand MatchDimensionsCommand { get; }
@@ -66,7 +68,8 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
         var filtered = MatchResults;
         filtered = _allMatchResults;
         if (!string.Equals(StatusFilter, "All", StringComparison.OrdinalIgnoreCase)) filtered = filtered.Where(item => string.Equals(item.StatusLabel, StatusFilter, StringComparison.OrdinalIgnoreCase)).ToArray();
-        MatchResults = (SortDescending ? filtered.OrderByDescending(item => item.StatusLabel) : filtered.OrderBy(item => item.StatusLabel)).ToArray(); Notify(nameof(MatchResults));
+        if (!string.IsNullOrWhiteSpace(SearchText)) filtered = filtered.Where(item => string.Join(" ", item.DimensionText, item.NominalValue, item.DimensionType, item.Reason, item.ReasonExplanation, item.Match.DxfDimensionReference).Contains(SearchText, StringComparison.OrdinalIgnoreCase)).ToArray();
+        MatchResults = (SortDescending ? filtered.OrderByDescending(item => item.DimensionType).ThenByDescending(item => item.NominalValue) : filtered.OrderBy(item => item.DimensionType).ThenBy(item => item.NominalValue)).ToArray(); Notify(nameof(MatchResults));
     }
     private void RaiseCommands() { ((RelayCommand)SelectPairCommand).Raise(); ((RelayCommand)MatchDimensionsCommand).Raise(); ((RelayCommand)RefreshMatchesCommand).Raise(); }
     private void Notify([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
