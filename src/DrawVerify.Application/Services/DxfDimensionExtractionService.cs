@@ -145,7 +145,7 @@ public sealed class DxfDimensionExtractionService
                     new InvalidDataException(parsed.ErrorMessage ?? "DXF parser returned a fatal result."),
                     "DXF dimension extraction",
                     Context(document, version, $"fatal parser result: {parsed.ErrorMessage ?? "unknown parser error"}"));
-                return await PersistFailureAsync(document, version, error, stopwatch, timeout.Token, parsed.Warnings, parsed.ErrorMessage).ConfigureAwait(false);
+                return await PersistFailureAsync(document, version, error, stopwatch, timeout.Token, parsed.Warnings).ConfigureAwait(false);
             }
 
             LogWarnings(parsed.Warnings, document.DocumentId, version.VersionId);
@@ -186,7 +186,13 @@ public sealed class DxfDimensionExtractionService
             _logger?.Log(exception, "DXF dimension extraction", Context(document, version, "parser or storage failure"));
             try
             {
-                var failure = await PersistFailureAsync(document, version, FailureMessage(operationStage, exception), stopwatch, CancellationToken.None, diagnosticMessage: exception.Message).ConfigureAwait(false);
+                var failure = await PersistFailureAsync(
+                    document,
+                    version,
+                    FailureMessage(operationStage, exception),
+                    stopwatch,
+                    CancellationToken.None,
+                    diagnosticMessage: operationStage == "parse" ? null : exception.Message).ConfigureAwait(false);
                 stopwatch.Stop();
                 return failure;
             }

@@ -15,7 +15,7 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class DxfDimensionExtractionServiceTests
 {
-    [Theory(DisplayName = "TD-KAN24-APP-002 invokes extraction for Maker and Checker")]
+    [Theory(DisplayName = "TD-KAN25-APP-002 invokes extraction for Maker and Checker")]
     [InlineData(SystemRoles.Maker)]
     [InlineData(SystemRoles.Checker)]
     public async Task Authorized_roles_refresh_and_persist_success(string role)
@@ -45,7 +45,7 @@ public sealed class DxfDimensionExtractionServiceTests
         Assert.Null(details.RootElement.GetProperty("error").GetString());
     }
 
-    [Fact(DisplayName = "TD-KAN24-APP-002 refreshes persisted roles before opening the DXF")]
+    [Fact(DisplayName = "TD-KAN25-APP-002 refreshes persisted roles before opening the DXF")]
     public async Task Persisted_role_refresh_occurs_before_authorization_and_file_access()
     {
         var scenario = CreateScenario(SystemRoles.Viewer, new DxfDimensionExtractionResult(Array.Empty<DimensionData>()));
@@ -63,7 +63,7 @@ public sealed class DxfDimensionExtractionServiceTests
         Assert.Equal(SystemRoles.Maker, scenario.Session.CurrentUser!.Roles.Single());
     }
 
-    [Fact(DisplayName = "TD-KAN24-APP-002 records an informational audit for an empty drawing")]
+    [Fact(DisplayName = "TD-KAN25-APP-002 records an informational audit for an empty drawing")]
     public async Task Empty_drawing_succeeds_with_zero_dimensions_and_information_log()
     {
         var scenario = CreateScenario(SystemRoles.Maker, DxfDimensionExtractionResult.Success(Array.Empty<DimensionData>()));
@@ -79,7 +79,7 @@ public sealed class DxfDimensionExtractionServiceTests
         Assert.Equal(0, details.RootElement.GetProperty("dimensionCount").GetInt32());
     }
 
-    [Fact(DisplayName = "TD-KAN24-APP-002 persists partial data and warning audit metadata")]
+    [Fact(DisplayName = "TD-KAN25-APP-002 persists partial data and warning audit metadata")]
     public async Task Recoverable_warnings_keep_dimensions_and_select_partial_audit()
     {
         var dimension = Dimension(Guid.NewGuid(), Guid.NewGuid(), 0, DimensionType.Radial, 8, displayText: "R8");
@@ -101,7 +101,7 @@ public sealed class DxfDimensionExtractionServiceTests
         Assert.Equal(1, details.RootElement.GetProperty("warningCount").GetInt32());
     }
 
-    [Fact(DisplayName = "TD-KAN24-APP-002 converts parser failure into Error with no dimensions")]
+    [Fact(DisplayName = "TD-KAN25-APP-002 converts parser failure into Error with no dimensions")]
     public async Task Fatal_parser_result_sets_error_and_clears_current_dimensions()
     {
         var scenario = CreateScenario(SystemRoles.Maker, DxfDimensionExtractionResult.Failure("unable to parse DXF file."), initialDimensions: new[]
@@ -118,9 +118,12 @@ public sealed class DxfDimensionExtractionServiceTests
         Assert.Empty(scenario.Repository.Dimensions);
         Assert.Equal(DocumentAuditAction.DimensionExtractionFailed, Assert.Single(scenario.Repository.Audits).Action);
         Assert.Contains(scenario.Logger.Entries, entry => entry.Operation == "DXF dimension extraction warning" || entry.Operation == "DXF dimension extraction");
+        using var details = JsonDocument.Parse(scenario.Repository.Audits[0].DetailsJson);
+        Assert.Equal(0, details.RootElement.GetProperty("dimensionCount").GetInt32());
+        Assert.Equal("Dimension extraction failed: unable to parse DXF file.", details.RootElement.GetProperty("error").GetString());
     }
 
-    [Fact(DisplayName = "TD-KAN24-APP-002 reports parser exceptions with diagnostics")]
+    [Fact(DisplayName = "TD-KAN25-APP-002 reports parser exceptions with diagnostics")]
     public async Task Parser_exception_is_logged_and_persisted_as_a_clear_failure()
     {
         var scenario = CreateScenario(SystemRoles.Maker, DxfDimensionExtractionResult.Success(Array.Empty<DimensionData>()));
@@ -129,13 +132,17 @@ public sealed class DxfDimensionExtractionServiceTests
         var result = await scenario.Service.ExtractDimensionsAsync(scenario.Document.DocumentId);
 
         Assert.False(result.Succeeded);
-        Assert.Contains("severe parser corruption", result.Message);
+        Assert.Equal("Dimension extraction failed: unable to parse DXF file.", result.Message);
+        Assert.DoesNotContain("severe parser corruption", result.Message, StringComparison.Ordinal);
         Assert.Empty(scenario.Repository.Dimensions);
         Assert.Equal(DocumentAuditAction.DimensionExtractionFailed, Assert.Single(scenario.Repository.Audits).Action);
         Assert.Contains(scenario.Logger.Entries, entry => entry.Operation == "DXF dimension extraction" && entry.Exception is InvalidDataException);
+        using var details = JsonDocument.Parse(scenario.Repository.Audits[0].DetailsJson);
+        Assert.Equal("Dimension extraction failed: unable to parse DXF file.", details.RootElement.GetProperty("error").GetString());
+        Assert.True(details.RootElement.GetProperty("durationMilliseconds").GetInt64() >= 0);
     }
 
-    [Fact(DisplayName = "TD-KAN24-APP-002 reports missing DXF storage visibly")]
+    [Fact(DisplayName = "TD-KAN25-APP-002 reports missing DXF storage visibly")]
     public async Task Missing_file_is_a_failure_without_parser_invocation()
     {
         var scenario = CreateScenario(SystemRoles.Maker, DxfDimensionExtractionResult.Success(Array.Empty<DimensionData>()));
@@ -151,7 +158,7 @@ public sealed class DxfDimensionExtractionServiceTests
         Assert.Equal(DocumentAuditAction.DimensionExtractionFailed, Assert.Single(scenario.Repository.Audits).Action);
     }
 
-    [Fact(DisplayName = "TD-KAN24-APP-002 enforces the configured maximum file size")]
+    [Fact(DisplayName = "TD-KAN25-APP-002 enforces the configured maximum file size")]
     public async Task Oversized_document_fails_before_file_open()
     {
         var scenario = CreateScenario(SystemRoles.Maker, DxfDimensionExtractionResult.Success(Array.Empty<DimensionData>()), maximumFileSizeBytes: 4);
@@ -174,7 +181,7 @@ public sealed class DxfDimensionExtractionServiceTests
         Assert.Equal(DocumentAuditAction.DimensionExtractionFailed, Assert.Single(scenario.Repository.Audits).Action);
     }
 
-    [Fact(DisplayName = "TD-KAN24-APP-002 enforces timeout and disposes the opened stream")]
+    [Fact(DisplayName = "TD-KAN25-APP-002 enforces timeout and disposes the opened stream")]
     public async Task Timeout_fails_with_zero_dimensions_and_released_stream()
     {
         var scenario = CreateScenario(SystemRoles.Maker, DxfDimensionExtractionResult.Success(Array.Empty<DimensionData>()), timeoutSeconds: 1);
@@ -193,7 +200,7 @@ public sealed class DxfDimensionExtractionServiceTests
         Assert.Contains("configured timeout", details.RootElement.GetProperty("error").GetString(), StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact(DisplayName = "TD-KAN24-APP-002 enforces the streaming size limit")]
+    [Fact(DisplayName = "TD-KAN25-APP-002 enforces the streaming size limit")]
     public async Task Stream_that_grows_past_the_limit_fails_and_releases_resources()
     {
         var scenario = CreateScenario(SystemRoles.Maker, DxfDimensionExtractionResult.Success(Array.Empty<DimensionData>()), maximumFileSizeBytes: 4);
@@ -217,7 +224,7 @@ public sealed class DxfDimensionExtractionServiceTests
         Assert.Equal(VerificationStatus.Error, scenario.Repository.StoredDocument!.VerificationStatus);
     }
 
-    [Fact(DisplayName = "TD-KAN24-APP-002 denies unauthorized and ineligible extraction before access")]
+    [Fact(DisplayName = "TD-KAN25-APP-002 denies unauthorized and ineligible extraction before access")]
     public async Task Unauthorized_and_ineligible_requests_do_not_call_dependencies()
     {
         foreach (var role in new string?[] { null, SystemRoles.Admin, SystemRoles.Approver, SystemRoles.Viewer })
@@ -242,7 +249,7 @@ public sealed class DxfDimensionExtractionServiceTests
         Assert.Empty(ineligible.Repository.Audits);
     }
 
-    [Fact(DisplayName = "TD-KAN24-APP-002 authorizes and denies dimension result queries")]
+    [Fact(DisplayName = "TD-KAN25-APP-002 authorizes and denies dimension result queries")]
     public async Task Result_queries_are_authorized_and_do_not_expose_data_to_other_roles()
     {
         var authorized = CreateScenario(SystemRoles.Checker, DxfDimensionExtractionResult.Success(Array.Empty<DimensionData>()));
@@ -261,7 +268,7 @@ public sealed class DxfDimensionExtractionServiceTests
         }
     }
 
-    [Fact(DisplayName = "TD-KAN24-APP-002 replaces dimensions on re-extraction without creating a version")]
+    [Fact(DisplayName = "TD-KAN25-APP-002 replaces dimensions on re-extraction without creating a version")]
     public async Task Re_extraction_replaces_current_results_and_adds_audit_only()
     {
         var scenario = CreateScenario(SystemRoles.Maker, DxfDimensionExtractionResult.Success(Array.Empty<DimensionData>()));
@@ -285,6 +292,7 @@ public sealed class DxfDimensionExtractionServiceTests
         Assert.Equal(2, scenario.Repository.Audits.Count);
         Assert.All(scenario.Repository.Audits, audit => Assert.Equal(DocumentAuditAction.DimensionsExtracted, audit.Action));
         Assert.Equal(1, scenario.Repository.DocumentVersionCount);
+        Assert.Equal(0, scenario.Repository.CreateVersionCalls);
         Assert.Equal(scenario.Version.VersionId, scenario.Repository.CurrentVersion.VersionId);
     }
 

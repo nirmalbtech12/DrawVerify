@@ -8,7 +8,7 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class DxfDimensionParserTests
 {
-    [Fact(DisplayName = "TD-KAN24-APP-001 parses standard linear, angular, and radial dimensions")]
+    [Fact(DisplayName = "TD-KAN25-APP-001 parses standard linear, angular, and radial dimensions")]
     public async Task Standard_dimension_entities_are_typed_and_linked()
     {
         var documentId = Guid.NewGuid();
@@ -48,7 +48,7 @@ public sealed class DxfDimensionParserTests
         Assert.Equal(ordinals.OrderBy(ordinal => ordinal), ordinals);
     }
 
-    [Fact(DisplayName = "TD-KAN24-APP-001 parses explicitly encoded tolerance forms")]
+    [Fact(DisplayName = "TD-KAN25-APP-001 parses explicitly encoded tolerance forms")]
     public async Task Explicit_tolerance_forms_populate_lower_and_upper_values()
     {
         var parser = new DxfDimensionParser();
@@ -70,7 +70,7 @@ public sealed class DxfDimensionParserTests
         Assert.Equal((-0.15, 0.25), (result.Dimensions[3].LowerTolerance, result.Dimensions[3].UpperTolerance));
     }
 
-    [Fact(DisplayName = "TD-KAN24-APP-001 leaves tolerance fields null when absent")]
+    [Fact(DisplayName = "TD-KAN25-APP-001 leaves tolerance fields null when absent")]
     public async Task Dimensions_without_explicit_tolerances_have_null_tolerance_fields()
     {
         var parser = new DxfDimensionParser();
@@ -84,7 +84,7 @@ public sealed class DxfDimensionParserTests
         Assert.Equal("4.25", dimension.DisplayText);
     }
 
-    [Fact(DisplayName = "TD-KAN24-APP-001 accepts a valid empty ENTITIES section")]
+    [Fact(DisplayName = "TD-KAN25-APP-001 accepts a valid empty ENTITIES section")]
     public async Task Empty_entities_section_is_a_success_with_no_dimensions()
     {
         var parser = new DxfDimensionParser();
@@ -97,7 +97,7 @@ public sealed class DxfDimensionParserTests
         Assert.Empty(result.Warnings);
     }
 
-    [Fact(DisplayName = "TD-KAN24-APP-001 skips unsupported custom dimension styles safely")]
+    [Fact(DisplayName = "TD-KAN25-APP-001 skips unsupported custom dimension styles safely")]
     public async Task Unsupported_dimension_type_is_skipped_without_crashing()
     {
         var parser = new DxfDimensionParser();
@@ -110,7 +110,7 @@ public sealed class DxfDimensionParserTests
         Assert.Contains(result.Warnings, warning => warning.Contains("not supported", StringComparison.OrdinalIgnoreCase));
     }
 
-    [Fact(DisplayName = "TD-KAN24-APP-001 keeps valid dimensions after a malformed entity")]
+    [Fact(DisplayName = "TD-KAN25-APP-001 keeps valid dimensions after a malformed entity")]
     public async Task Recoverable_malformed_entity_is_reported_as_partial()
     {
         var parser = new DxfDimensionParser();
@@ -125,8 +125,8 @@ public sealed class DxfDimensionParserTests
         Assert.Contains(result.Warnings, warning => warning.Contains("Skipped malformed DIMENSION entity", StringComparison.Ordinal));
     }
 
-    [Fact(DisplayName = "TD-KAN24-APP-001 classifies fatally corrupt DXF content as failure")]
-    public async Task Missing_entities_section_is_fatal_and_has_no_dimensions()
+    [Fact(DisplayName = "TD-KAN25-APP-001 classifies malformed-only DXF content as failure")]
+    public async Task Malformed_only_entities_section_is_fatal_and_has_no_dimensions()
     {
         var parser = new DxfDimensionParser();
         await using var stream = AsStream(DimensionWithoutNominal(0, "bad"));
@@ -139,7 +139,48 @@ public sealed class DxfDimensionParserTests
         Assert.Contains("readable", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact(DisplayName = "TD-KAN24-APP-001 reads DXF sequentially with a bounded parser buffer")]
+    [Fact(DisplayName = "TD-KAN25-APP-001 rejects unreadable group-code records without recoverable dimensions")]
+    public async Task Unreadable_group_code_is_fatal_without_recoverable_dimensions()
+    {
+        var parser = new DxfDimensionParser();
+        await using var stream = RawStream("0\nSECTION\n2\nENTITIES\nnot-a-group-code\nignored\n0\nENDSEC\n0\nEOF\n");
+
+        var result = await parser.ParseAsync(stream, Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.False(result.Succeeded);
+        Assert.Empty(result.Dimensions);
+        Assert.Contains(result.Warnings, warning => warning.Contains("Unreadable DXF group code", StringComparison.Ordinal));
+        Assert.Contains("readable", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact(DisplayName = "TD-KAN25-APP-001 rejects incomplete group-code records without recoverable dimensions")]
+    public async Task Incomplete_group_code_pair_is_fatal_without_recoverable_dimensions()
+    {
+        var parser = new DxfDimensionParser();
+        await using var stream = RawStream("0\nSECTION\n2\nENTITIES\n0\nLINE\n8\n");
+
+        var result = await parser.ParseAsync(stream, Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.False(result.Succeeded);
+        Assert.Empty(result.Dimensions);
+        Assert.Contains(result.Warnings, warning => warning.Contains("middle of a group-code record", StringComparison.Ordinal));
+        Assert.Contains("readable", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact(DisplayName = "TD-KAN25-APP-001 rejects a DXF without an ENTITIES section")]
+    public async Task Missing_entities_section_is_fatal_and_has_no_dimensions()
+    {
+        var parser = new DxfDimensionParser();
+        await using var stream = RawStream("0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n");
+
+        var result = await parser.ParseAsync(stream, Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.False(result.Succeeded);
+        Assert.Empty(result.Dimensions);
+        Assert.Contains("ENTITIES", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact(DisplayName = "TD-KAN25-APP-001 reads DXF sequentially with a bounded parser buffer")]
     public async Task Parser_uses_bounded_sequential_reads_and_leaves_caller_stream_open()
     {
         var parser = new DxfDimensionParser();
@@ -156,6 +197,9 @@ public sealed class DxfDimensionParserTests
 
     private static TrackingReadStream AsStream(params string[] entities) =>
         new(Encoding.UTF8.GetBytes(Dxf(entities)));
+
+    private static TrackingReadStream RawStream(string content) =>
+        new(Encoding.UTF8.GetBytes(content));
 
     private static string Dxf(params string[] entities)
     {
