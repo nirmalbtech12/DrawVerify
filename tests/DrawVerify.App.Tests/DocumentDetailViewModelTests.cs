@@ -51,7 +51,7 @@ public sealed class DocumentDetailViewModelTests
         Assert.Null(viewModel.GeometryError);
     }
 
-    [Theory(DisplayName = "TD-KAN24-WPF-001 Maker and Checker can extract DXF dimensions")]
+    [Theory(DisplayName = "TD-KAN25-WPF-001 Maker and Checker can extract DXF dimensions")]
     [InlineData(SystemRoles.Maker)]
     [InlineData(SystemRoles.Checker)]
     public async Task Authorized_roles_receive_derived_dimension_results(string role)
@@ -87,7 +87,7 @@ public sealed class DocumentDetailViewModelTests
         Assert.Equal(1, scenario.Parser.Calls);
     }
 
-    [Fact(DisplayName = "TD-KAN24-WPF-001 exposes the complete DXF-derived binding contract")]
+    [Fact(DisplayName = "TD-KAN25-WPF-001 exposes the complete DXF-derived binding contract")]
     public void Dimension_result_properties_are_public_and_labelled_as_derived_data()
     {
         var scenario = CreateScenario(SystemRoles.Maker, DxfDimensionExtractionResult.Success(Array.Empty<DimensionData>()));
@@ -103,7 +103,7 @@ public sealed class DocumentDetailViewModelTests
         Assert.Equal("Derived from DXF drawing", viewModel.DimensionResultsHeading);
     }
 
-    [Fact(DisplayName = "TD-KAN24-WPF-001 displays empty and partial extraction outcomes")]
+    [Fact(DisplayName = "TD-KAN25-WPF-001 displays empty and partial extraction outcomes")]
     public async Task Empty_and_partial_results_remain_visible_without_invented_values()
     {
         var empty = CreateScenario(SystemRoles.Maker, DxfDimensionExtractionResult.Success(Array.Empty<DimensionData>()));
@@ -129,7 +129,7 @@ public sealed class DocumentDetailViewModelTests
         Assert.Empty(partialViewModel.ErrorMessage);
     }
 
-    [Fact(DisplayName = "TD-KAN24-WPF-001 clears stale dimensions after extraction failure")]
+    [Fact(DisplayName = "TD-KAN25-WPF-001 clears stale dimensions after extraction failure")]
     public async Task Failure_replaces_stale_results_with_a_clear_error()
     {
         var oldDimension = new DimensionData(Guid.NewGuid(), Guid.NewGuid(), 0, DimensionType.Linear, 10, displayText: "old");
@@ -146,7 +146,7 @@ public sealed class DocumentDetailViewModelTests
         Assert.Contains("unable to parse DXF file", viewModel.Message);
     }
 
-    [Theory(DisplayName = "TD-KAN24-WPF-001 denies derived actions to non-Maker and non-Checker users")]
+    [Theory(DisplayName = "TD-KAN25-WPF-001 denies derived actions to non-Maker and non-Checker users")]
     [InlineData(null)]
     [InlineData(SystemRoles.Admin)]
     [InlineData(SystemRoles.Approver)]

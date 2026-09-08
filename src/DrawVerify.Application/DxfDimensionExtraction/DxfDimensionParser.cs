@@ -32,7 +32,7 @@ public sealed class DxfDimensionParser : IDxfDimensionParser
         var pendingSectionName = false;
         var sourceOrdinal = 0;
         var sawEntitiesSection = false;
-        var structurallyTruncated = false;
+        var hasStructuralCorruption = false;
 
         using var reader = new StreamReader(content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true), detectEncodingFromByteOrderMarks: true, bufferSize: 4096, leaveOpen: true);
         while (true)
@@ -46,13 +46,14 @@ public sealed class DxfDimensionParser : IDxfDimensionParser
             if (valueLine is null)
             {
                 warnings.Add("DXF ended in the middle of a group-code record.");
-                structurallyTruncated = true;
+                hasStructuralCorruption = true;
                 break;
             }
 
             if (!int.TryParse(codeLine.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var code))
             {
                 warnings.Add($"Unreadable DXF group code '{codeLine.Trim()}'.");
+                hasStructuralCorruption = true;
                 continue;
             }
 
@@ -67,6 +68,7 @@ public sealed class DxfDimensionParser : IDxfDimensionParser
                 else
                 {
                     warnings.Add("DXF SECTION record has no section name.");
+                    hasStructuralCorruption = true;
                 }
                 pendingSectionName = false;
                 continue;
@@ -74,8 +76,13 @@ public sealed class DxfDimensionParser : IDxfDimensionParser
 
             if (code == 0)
             {
-                FlushEntity(currentEntityName, entities, currentSection, sourceOrdinal, documentId, documentVersionId, dimensions, warnings);
+                hasStructuralCorruption |= FlushEntity(currentEntityName, entities, currentSection, sourceOrdinal, documentId, documentVersionId, dimensions, warnings);
                 entities.Clear();
+                if (string.Equals(value, "SECTION", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(currentSection))
+                {
+                    warnings.Add("DXF SECTION was not terminated before the next SECTION record.");
+                    hasStructuralCorruption = true;
+                }
                 currentEntityName = value;
                 if (string.Equals(value, "SECTION", StringComparison.OrdinalIgnoreCase))
                 {
@@ -89,6 +96,11 @@ public sealed class DxfDimensionParser : IDxfDimensionParser
                 }
                 else if (string.Equals(value, "EOF", StringComparison.OrdinalIgnoreCase))
                 {
+                    if (!string.IsNullOrEmpty(currentSection))
+                    {
+                        warnings.Add($"DXF section '{currentSection}' was not terminated before EOF.");
+                        hasStructuralCorruption = true;
+                    }
                     currentSection = string.Empty;
                     currentEntityName = string.Empty;
                 }
@@ -110,21 +122,27 @@ public sealed class DxfDimensionParser : IDxfDimensionParser
             }
         }
 
-        FlushEntity(currentEntityName, entities, currentSection, sourceOrdinal, documentId, documentVersionId, dimensions, warnings);
+        hasStructuralCorruption |= FlushEntity(currentEntityName, entities, currentSection, sourceOrdinal, documentId, documentVersionId, dimensions, warnings);
         if (pendingSectionName)
+        {
             warnings.Add("DXF SECTION record was not completed.");
+            hasStructuralCorruption = true;
+        }
+        if (!string.IsNullOrEmpty(currentSection))
+        {
+            warnings.Add($"DXF section '{currentSection}' was not terminated.");
+            hasStructuralCorruption = true;
+        }
 
         if (!sawEntitiesSection)
             return DxfDimensionExtractionResult.Failure("DXF file does not contain a valid ENTITIES section.", warnings);
-        if (structurallyTruncated && dimensions.Count == 0)
-            return DxfDimensionExtractionResult.Failure("DXF file ended before its entities could be read.", warnings);
-        if (dimensions.Count == 0 && warnings.Any(warning => warning.StartsWith("Skipped malformed DIMENSION entity", StringComparison.Ordinal)))
+        if (hasStructuralCorruption && dimensions.Count == 0)
             return DxfDimensionExtractionResult.Failure("DXF file contains no readable dimension entities.", warnings);
 
         return DxfDimensionExtractionResult.Success(dimensions, warnings);
     }
 
-    private static void FlushEntity(
+    private static bool FlushEntity(
         string entityName,
         Dictionary<int, List<string>> values,
         string section,
@@ -136,7 +154,7 @@ public sealed class DxfDimensionParser : IDxfDimensionParser
     {
         if (!string.Equals(section, "ENTITIES", StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(entityName, "DIMENSION", StringComparison.OrdinalIgnoreCase))
-            return;
+            return false;
 
         try
         {
@@ -162,11 +180,15 @@ public sealed class DxfDimensionParser : IDxfDimensionParser
         catch (NotSupportedException exception)
         {
             warnings.Add(exception.Message);
+            return false;
         }
         catch (Exception exception) when (exception is InvalidDataException or FormatException or ArgumentException)
         {
             warnings.Add($"Skipped malformed DIMENSION entity {sourceOrdinal}: {exception.Message}");
+            return true;
         }
+
+        return false;
     }
 
     private static (double? Lower, double? Upper) ReadTolerances(Dictionary<int, List<string>> values, string? displayText, double nominal)

@@ -13,7 +13,7 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteDimensionExtractionRepositoryTests
 {
-    [Fact(DisplayName = "TD-KAN24-INFRA-001 creates additive dimension schema and retains audit rows")]
+    [Fact(DisplayName = "TD-KAN25-INFRA-001 creates additive dimension schema and retains audit rows")]
     public async Task Fresh_schema_persists_dimensions_status_error_and_indefinite_audit_rows()
     {
         var path = TempPath("fresh");
@@ -54,7 +54,7 @@ public sealed class SqliteDimensionExtractionRepositoryTests
         }
     }
 
-    [Fact(DisplayName = "TD-KAN24-INFRA-001 migrates a retained pre-dimension schema")]
+    [Fact(DisplayName = "TD-KAN25-INFRA-001 migrates a retained pre-dimension schema")]
     public async Task Retained_schema_migration_preserves_documents_versions_and_audits()
     {
         var path = TempPath("migration");
@@ -98,7 +98,7 @@ public sealed class SqliteDimensionExtractionRepositoryTests
         }
     }
 
-    [Fact(DisplayName = "TD-KAN24-INFRA-001 persists nullable tolerance and parameterized label data")]
+    [Fact(DisplayName = "TD-KAN25-INFRA-001 persists nullable tolerance and parameterized label data")]
     public async Task Dimension_rows_round_trip_nullable_values_and_quotes()
     {
         var path = TempPath("values");
@@ -133,7 +133,7 @@ public sealed class SqliteDimensionExtractionRepositoryTests
         }
     }
 
-    [Fact(DisplayName = "TD-KAN24-INFRA-001 replaces only the current document-version dimensions")]
+    [Fact(DisplayName = "TD-KAN25-INFRA-001 replaces only the current document-version dimensions")]
     public async Task Re_extraction_replaces_rows_without_new_versions_and_preserves_history()
     {
         var path = TempPath("replacement");
@@ -181,7 +181,7 @@ public sealed class SqliteDimensionExtractionRepositoryTests
         }
     }
 
-    [Fact(DisplayName = "TD-KAN24-INFRA-001 clears current dimensions for successful empty and failed outcomes")]
+    [Fact(DisplayName = "TD-KAN25-INFRA-001 clears current dimensions for successful empty and failed outcomes")]
     public async Task Empty_success_and_failure_store_their_status_and_error_contracts()
     {
         var path = TempPath("outcomes");
@@ -197,15 +197,32 @@ public sealed class SqliteDimensionExtractionRepositoryTests
                 Audit(document.DocumentId, DocumentAuditAction.DimensionsExtracted, "maker-1", "{\"dimensionCount\":0}"));
             Assert.Empty(await repository.GetDimensionsAsync(document.DocumentId));
 
+            var staleBeforeFailure = Dimension(document.DocumentId, version.VersionId, 3, DimensionType.Angular, 25, displayText: "25 degrees");
+            await repository.ReplaceDimensionsAsync(document.DocumentId, version.VersionId, new[] { staleBeforeFailure }, VerificationStatus.DimensionsExtracted, null,
+                Audit(document.DocumentId, DocumentAuditAction.DimensionsExtracted, "maker-1", "{\"dimensionCount\":1}"));
+            Assert.Equal(staleBeforeFailure, Assert.Single(await repository.GetDimensionsAsync(document.DocumentId)));
+
             const string error = "Dimension extraction failed: unable to parse DXF file.";
+            var failedAudit = Audit(document.DocumentId, DocumentAuditAction.DimensionExtractionFailed, "maker-1",
+                "{\"durationMilliseconds\":12,\"dimensionCount\":0,\"warnings\":[],\"warningCount\":0,\"error\":\"Dimension extraction failed: unable to parse DXF file.\"}");
             await repository.ReplaceDimensionsAsync(document.DocumentId, version.VersionId, Array.Empty<DimensionData>(), VerificationStatus.Error, error,
-                Audit(document.DocumentId, DocumentAuditAction.DimensionExtractionFailed, "maker-1", "{\"dimensionCount\":0,\"error\":\"Dimension extraction failed: unable to parse DXF file.\"}"));
+                failedAudit);
 
             var loaded = await new SqliteDocumentRepository(path).GetAsync(document.DocumentId);
             Assert.Empty(await repository.GetDimensionsAsync(document.DocumentId));
             Assert.Equal(VerificationStatus.Error, loaded!.VerificationStatus);
             Assert.Equal(error, loaded.VerificationError);
-            Assert.Equal(4L, await CountAsync(path, "DocumentAuditLog"));
+            Assert.Single(loaded.Versions);
+            Assert.Equal(1, await CountVersionsAsync(path, document.DocumentId));
+            Assert.Equal(5L, await CountAsync(path, "DocumentAuditLog"));
+            var auditRow = await ReadAuditAsync(path, failedAudit.AuditId);
+            Assert.Equal(document.DocumentId, auditRow.DocumentId);
+            Assert.Equal(DocumentAuditAction.DimensionExtractionFailed, auditRow.Action);
+            Assert.Equal("maker-1", auditRow.UserId);
+            using var details = JsonDocument.Parse(auditRow.DetailsJson);
+            Assert.Equal(12, details.RootElement.GetProperty("durationMilliseconds").GetInt64());
+            Assert.Equal(0, details.RootElement.GetProperty("dimensionCount").GetInt32());
+            Assert.Equal(error, details.RootElement.GetProperty("error").GetString());
         }
         finally
         {
@@ -213,7 +230,7 @@ public sealed class SqliteDimensionExtractionRepositoryTests
         }
     }
 
-    [Fact(DisplayName = "TD-KAN24-INFRA-001 rolls back replacement, status, and audit together")]
+    [Fact(DisplayName = "TD-KAN25-INFRA-001 rolls back replacement, status, and audit together")]
     public async Task Audit_failure_rolls_back_dimension_replacement_and_status_update()
     {
         var path = TempPath("rollback");
@@ -250,7 +267,7 @@ public sealed class SqliteDimensionExtractionRepositoryTests
         }
     }
 
-    [Fact(DisplayName = "TD-KAN24-INFRA-001 opens only contained asynchronous DXF paths")]
+    [Fact(DisplayName = "TD-KAN25-INFRA-001 opens only contained asynchronous DXF paths")]
     public async Task Dxf_read_access_rejects_blank_rooted_and_escaping_paths()
     {
         var root = Path.Combine(Path.GetTempPath(), "drawverify-dimension-store-" + Guid.NewGuid().ToString("N"));
