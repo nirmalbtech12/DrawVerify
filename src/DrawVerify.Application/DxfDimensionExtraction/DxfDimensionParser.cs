@@ -174,8 +174,9 @@ public sealed class DxfDimensionParser : IDxfDimensionParser
 
             var displayText = FirstString(values, 1);
             var (lowerTolerance, upperTolerance) = ReadTolerances(values, displayText, nominal.Value);
+            var radialKind = baseType switch { 3 => RadialDimensionKind.Diameter, 4 => RadialDimensionKind.Radius, _ => RadialDimensionKind.Unknown };
             dimensions.Add(new DimensionData(documentId, documentVersionId, sourceOrdinal, type, nominal.Value,
-                lowerTolerance, upperTolerance, displayText));
+                lowerTolerance, upperTolerance, displayText, radialKind));
         }
         catch (NotSupportedException exception)
         {

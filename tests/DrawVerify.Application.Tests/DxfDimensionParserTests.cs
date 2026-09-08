@@ -38,6 +38,8 @@ public sealed class DxfDimensionParserTests
         }, result.Dimensions.Select(dimension => dimension.DimensionType));
         Assert.Equal(new[] { 10.0, 20.0, 30.0, 45.0, 5.0, 12.0 }, result.Dimensions.Select(dimension => dimension.NominalValue));
         Assert.Equal(new[] { "horizontal", "vertical", "aligned", "angle", "R5", "Ø12" }, result.Dimensions.Select(dimension => dimension.DisplayText));
+        Assert.Equal(RadialDimensionKind.Diameter, result.Dimensions[4].RadialKind);
+        Assert.Equal(RadialDimensionKind.Radius, result.Dimensions[5].RadialKind);
         Assert.All(result.Dimensions, dimension =>
         {
             Assert.Equal(documentId, dimension.DocumentId);
@@ -46,6 +48,13 @@ public sealed class DxfDimensionParserTests
         var ordinals = result.Dimensions.Select(dimension => dimension.SourceEntityOrdinal).ToArray();
         Assert.Equal(ordinals.Length, ordinals.Distinct().Count());
         Assert.Equal(ordinals.OrderBy(ordinal => ordinal), ordinals);
+    }
+
+    [Fact(DisplayName = "TD-03 preserves unknown radial subtype for legacy records")]
+    public async Task Legacy_radial_record_defaults_to_unknown_subtype()
+    {
+        var result = await new DxfDimensionParser().ParseAsync(AsStream(Dimension(5, "7.0", "radial")), Guid.NewGuid(), Guid.NewGuid());
+        Assert.Equal(RadialDimensionKind.Unknown, Assert.Single(result.Dimensions).RadialKind);
     }
 
     [Fact(DisplayName = "TD-KAN25-APP-001 parses explicitly encoded tolerance forms")]

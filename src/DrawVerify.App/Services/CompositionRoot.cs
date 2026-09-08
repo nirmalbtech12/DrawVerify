@@ -24,6 +24,7 @@ public static class CompositionRoot
     private static readonly AuthenticationConfiguration AuthenticationConfiguration = LoadAuthenticationConfiguration();
     private static readonly AuditLogConfiguration AuditLogConfiguration = LoadAuditLogConfiguration();
     private static readonly DxfDimensionExtractionConfiguration DxfDimensionExtractionConfiguration = LoadDxfDimensionExtractionConfiguration();
+    private static readonly DimensionMatchingConfiguration DimensionMatchingConfiguration = LoadDimensionMatchingConfiguration();
     private static readonly SessionAuthenticationService Session = new();
     private static readonly RoleAuthorization Authorization = new();
     public static void Initialize() { }
@@ -81,6 +82,13 @@ public static class CompositionRoot
     }
     public static DocumentDetailViewModel CreateDocumentDetailViewModel(DrawVerify.Core.Models.Document document) =>
         new(document, CreateDxfDimensionExtractionService());
+    public static DimensionMatchingService CreateDimensionMatchingService()
+    {
+        var database = DatabasePath();
+        var logger = new CentralizedLogger();
+        var workerPath = Path.Combine(AppContext.BaseDirectory, DimensionMatchingConfiguration.WorkerPath);
+        return new DimensionMatchingService(new SqliteDocumentRepository(database, logger), new SqliteVerificationSessionRepository(database), new OcctWorkerGeometryService(workerPath, DimensionMatchingConfiguration.MaximumStepFileSizeBytes, DimensionMatchingConfiguration.TimeoutSeconds, logger), Session, DimensionMatchingConfiguration, Authorization, logger);
+    }
     private static StepUploadConfiguration LoadStepUploadConfiguration()
     {
         var logger=new CentralizedLogger();
@@ -152,5 +160,12 @@ public static class CompositionRoot
             logger.Log(exception, "DXF dimension extraction configuration startup", "Unable to load or validate DxfDimensionExtraction settings");
             throw;
         }
+    }
+    private static DimensionMatchingConfiguration LoadDimensionMatchingConfiguration()
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "appsettings.json")));
+        var section = document.RootElement.GetProperty("DimensionMatching");
+        var config = new DimensionMatchingConfiguration { MaximumStepFileSizeBytes = section.GetProperty("MaximumStepFileSizeBytes").GetInt64(), TimeoutSeconds = section.GetProperty("TimeoutSeconds").GetInt32(), AbsoluteTolerance = section.GetProperty("AbsoluteTolerance").GetDouble(), RelativeTolerance = section.GetProperty("RelativeTolerance").GetDouble(), HighConfidenceThreshold = section.GetProperty("HighConfidenceThreshold").GetDouble(), MediumConfidenceThreshold = section.GetProperty("MediumConfidenceThreshold").GetDouble(), WorkerPath = section.GetProperty("WorkerPath").GetString() ?? string.Empty };
+        config.Validate(); return config;
     }
 }

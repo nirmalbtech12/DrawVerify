@@ -7,5 +7,8 @@ public enum DocumentAuditAction
     InvalidDxfFileRejected = 8,
     DimensionsExtracted = 9,
     DimensionsExtractedPartial = 10,
-    DimensionExtractionFailed = 11
+    DimensionExtractionFailed = 11,
+    DimensionsMatched = 12,
+    DimensionsMatchedPartial = 13,
+    DimensionMatchingFailed = 14
 }

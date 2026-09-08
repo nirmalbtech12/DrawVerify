@@ -8,7 +8,7 @@ namespace DrawVerify.OcctService;
 /// The ONLY layer that knows OCCT. Implements IGeometryService using the SWIG
 /// wrapper (DrawVerify.OcctWrapper) and maps results into Geometry DTOs.
 /// </summary>
-public sealed class OcctGeometryService : IGeometryService
+public sealed class OcctGeometryService : IGeometryService, IMatchableGeometryService
 {
     private readonly IOcctModelLoader _loader;
 
@@ -52,6 +52,38 @@ public sealed class OcctGeometryService : IGeometryService
         {
             return MeasurementExtractionResult.Failure(ex.GetType().Name, ex.Message);
         }
+    }
+
+    public MatchableGeometryExtractionResult ExtractMatchableGeometry(MatchableGeometryExtractionRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
+            using var model = _loader.LoadStep(request.FilePath);
+            if (model.IsNull) return MatchableGeometryExtractionResult.Failure("InvalidModel", "The STEP model is null.");
+            var features = new List<GeometryFeatureData>();
+            foreach (var edge in model.GetEdges())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (double.IsFinite(edge.Length) && edge.Length > 0)
+                    features.Add(new GeometryFeatureData { Reference = $"Edge:{edge.Id}", GeometryType = edge.GeometryType, Length = edge.Length });
+            }
+            foreach (var face in model.GetFaces())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (double.IsFinite(face.Area) && face.Area > 0)
+                {
+                    var height = Math.Abs(face.BoundingBox.MaximumZ - face.BoundingBox.MinimumZ);
+                    features.Add(new GeometryFeatureData { Reference = $"Face:{face.Id}", GeometryType = face.SurfaceType, Height = double.IsFinite(height) && height > 0 ? height : null });
+                }
+                if (string.Equals(face.SurfaceType, "Cylinder", StringComparison.OrdinalIgnoreCase) && double.IsFinite(face.Radius) && face.Radius > 0)
+                    features.Add(new GeometryFeatureData { Reference = $"Face:{face.Id}:Cylinder", GeometryType = face.Orientation == -1 ? "Hole" : "CylindricalFace", Radius = face.Radius, Diameter = face.Radius * 2 });
+            }
+            return new MatchableGeometryExtractionResult(true, features);
+        }
+        catch (OcctOperationException ex) { return MatchableGeometryExtractionResult.Failure(ex.ErrorCode, ex.Message); }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or ArgumentException) { return MatchableGeometryExtractionResult.Failure(ex.GetType().Name, ex.Message); }
     }
 
     private static bool ValuesAreFinite(OcctBoundingBox box) =>
