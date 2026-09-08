@@ -53,6 +53,15 @@ public sealed class DxfDocumentFileStore : IDxfUploadFileStore
         return Task.CompletedTask;
     }
 
+    public Task<Stream> OpenReadAsync(string relativePath, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var fullPath = Contained(relativePath);
+        Stream stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        return Task.FromResult(stream);
+    }
+
     private string Contained(string relativePath)
     {
         if (string.IsNullOrWhiteSpace(relativePath))

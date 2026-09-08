@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using DrawVerify.Application.Services;
+using DrawVerify.Application.DxfDimensionExtraction;
 using DrawVerify.Core.Configuration;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Authorization;
@@ -22,6 +23,7 @@ public static class CompositionRoot
     private static readonly DxfUploadConfiguration DxfUploadConfiguration = LoadDxfUploadConfiguration();
     private static readonly AuthenticationConfiguration AuthenticationConfiguration = LoadAuthenticationConfiguration();
     private static readonly AuditLogConfiguration AuditLogConfiguration = LoadAuditLogConfiguration();
+    private static readonly DxfDimensionExtractionConfiguration DxfDimensionExtractionConfiguration = LoadDxfDimensionExtractionConfiguration();
     private static readonly SessionAuthenticationService Session = new();
     private static readonly RoleAuthorization Authorization = new();
     public static void Initialize() { }
@@ -63,6 +65,22 @@ public static class CompositionRoot
         var logger = new CentralizedLogger();
         return new DxfUploadViewModel(new DxfDocumentService(new SqliteDocumentRepository(database, logger), new SqliteAuditRepository(database), new DxfDocumentFileStore(AppContext.BaseDirectory, config), config, Session, logger, Authorization, new SqliteUserRepository(database, logger)));
     }
+    public static DxfDimensionExtractionService CreateDxfDimensionExtractionService()
+    {
+        var database = DatabasePath();
+        var logger = new CentralizedLogger();
+        return new DxfDimensionExtractionService(
+            new SqliteDocumentRepository(database, logger),
+            new DxfDocumentFileStore(AppContext.BaseDirectory, DxfUploadConfiguration),
+            new DxfDimensionParser(),
+            DxfDimensionExtractionConfiguration,
+            Session,
+            new SqliteUserRepository(database, logger),
+            logger,
+            Authorization);
+    }
+    public static DocumentDetailViewModel CreateDocumentDetailViewModel(DrawVerify.Core.Models.Document document) =>
+        new(document, CreateDxfDimensionExtractionService());
     private static StepUploadConfiguration LoadStepUploadConfiguration()
     {
         var logger=new CentralizedLogger();
@@ -113,5 +131,26 @@ public static class CompositionRoot
         var logger = new CentralizedLogger();
         try { using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "appsettings.json"))); var section = document.RootElement.GetProperty("AuditLog"); var config = new AuditLogConfiguration { RetentionDays = section.GetProperty("RetentionDays").GetInt32() }; config.Validate(); return config; }
         catch (Exception ex) { logger.Log(ex, "Audit log configuration startup", "Unable to load or validate AuditLog settings"); throw; }
+    }
+    private static DxfDimensionExtractionConfiguration LoadDxfDimensionExtractionConfiguration()
+    {
+        var logger = new CentralizedLogger();
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "appsettings.json")));
+            var section = document.RootElement.GetProperty("DxfDimensionExtraction");
+            var config = new DxfDimensionExtractionConfiguration
+            {
+                MaximumFileSizeBytes = section.GetProperty("MaximumFileSizeBytes").GetInt64(),
+                TimeoutSeconds = section.GetProperty("TimeoutSeconds").GetInt32()
+            };
+            config.Validate();
+            return config;
+        }
+        catch (Exception exception)
+        {
+            logger.Log(exception, "DXF dimension extraction configuration startup", "Unable to load or validate DxfDimensionExtraction settings");
+            throw;
+        }
     }
 }

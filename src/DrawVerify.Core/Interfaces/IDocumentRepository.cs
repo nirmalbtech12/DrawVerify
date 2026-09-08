@@ -16,6 +16,10 @@ public interface IDocumentRepository
     Document? Get(Guid documentId) => GetAsync(documentId).GetAwaiter().GetResult();
     DocumentVersion? GetCurrentVersion(Guid documentId) => Get(documentId)?.Version;
     void ReplaceMeasurements(Guid versionId, GeometryMeasurement? geometry, IReadOnlyCollection<FeatureMeasurement> features, DrawVerify.Core.Enums.GeometryStatus status, string? error) => throw new NotSupportedException("Measurement persistence is not supported by this document repository.");
+    Task ReplaceDimensionsAsync(Guid documentId, Guid documentVersionId, IReadOnlyCollection<DimensionData> dimensions, VerificationStatus status, string? verificationError, AuditEntry auditEntry, CancellationToken cancellationToken = default)
+        => Task.FromException(new NotSupportedException("Dimension persistence is not supported by this document repository."));
+    Task<IReadOnlyList<DimensionData>> GetDimensionsAsync(Guid documentId, CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<DimensionData>>(Array.Empty<DimensionData>());
 }
 
 public interface ITransactionalDocumentRepository
