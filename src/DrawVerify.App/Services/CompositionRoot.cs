@@ -89,6 +89,11 @@ public static class CompositionRoot
         var workerPath = Path.Combine(AppContext.BaseDirectory, DimensionMatchingConfiguration.WorkerPath);
         return new DimensionMatchingService(new SqliteDocumentRepository(database, logger), new SqliteVerificationSessionRepository(database), new OcctWorkerGeometryService(workerPath, DimensionMatchingConfiguration.MaximumStepFileSizeBytes, DimensionMatchingConfiguration.TimeoutSeconds, logger), Session, DimensionMatchingConfiguration, Authorization, logger);
     }
+    public static ReportService CreateReportService()
+    {
+        var database = DatabasePath();
+        return new ReportService(new SqliteVerificationSessionRepository(database), Session, Authorization, new MarkdownReportGenerator());
+    }
     private static StepUploadConfiguration LoadStepUploadConfiguration()
     {
         var logger=new CentralizedLogger();

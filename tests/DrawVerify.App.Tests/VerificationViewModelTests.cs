@@ -4,6 +4,7 @@ using DrawVerify.Core.Models;
 using DrawVerify.Application.Services;
 using Xunit;
 using DrawVerify.Core.Enums;
+using DrawVerify.Core.Interfaces;
 using System.Reflection;
 
 namespace DrawVerify.App.Tests;
@@ -99,6 +100,35 @@ public sealed class VerificationViewModelTests
         Assert.Contains("Reference: `9`", markdown);
         Assert.Contains("Nominal value: 12", markdown);
         Assert.Contains("DimensionTypeNotSupported", markdown);
+    }
+
+    [Fact(DisplayName = "TD-APPUI-003 report workflow generates through the service and clears content on failure")]
+    public async Task Report_workflow_generates_and_surfaces_failure()
+    {
+        var session = new SessionAuthenticationService();
+        session.SignIn(new AuthenticatedUser("maker", new[] { "Maker" }));
+        var repository = new ReportRepositoryFake(new DimensionMatch { Status = DimensionMatchStatus.Unmatched, DxfDimensionReference = 4, NominalValue = 18, ReasonCode = "NoCorrespondingGeometryFound" });
+        var service = new ReportService(repository, session, new RoleAuthorization());
+        var viewModel = new ReportViewModel(service) { SessionId = repository.SessionId.ToString() };
+
+        Assert.True(await viewModel.GenerateAsync());
+        Assert.Contains("Unmatched Dimensions – Requires Manual Review", viewModel.ReportContent);
+        Assert.Equal("Report generated.", viewModel.Status);
+
+        repository.ThrowOnRead = true;
+        Assert.False(await viewModel.GenerateAsync());
+        Assert.Empty(viewModel.ReportContent);
+        Assert.StartsWith("Unable to generate report:", viewModel.Status);
+    }
+
+    private sealed class ReportRepositoryFake(DimensionMatch match) : IVerificationSessionRepository
+    {
+        public Guid SessionId { get; } = Guid.NewGuid();
+        public bool ThrowOnRead { get; set; }
+        public Task<VerificationSession> GetOrCreateAsync(Guid stepDocumentId, Guid dxfDocumentId, CancellationToken cancellationToken = default) => Task.FromResult(new VerificationSession { VerificationSessionId = SessionId, StepDocumentId = stepDocumentId, DxfDocumentId = dxfDocumentId });
+        public Task<VerificationSession?> GetAsync(Guid sessionId, CancellationToken cancellationToken = default) => Task.FromResult<VerificationSession?>(new VerificationSession { VerificationSessionId = SessionId });
+        public Task<IReadOnlyList<DimensionMatch>> GetMatchesAsync(Guid sessionId, DimensionMatchStatus? status = null, CancellationToken cancellationToken = default) => ThrowOnRead ? Task.FromException<IReadOnlyList<DimensionMatch>>(new InvalidOperationException("repository failure")) : Task.FromResult<IReadOnlyList<DimensionMatch>>(new[] { match });
+        public Task ReplaceResultsAsync(VerificationSession session, IReadOnlyCollection<DimensionMatch> matches, DocumentAuditAction auditAction, string userId, string detailsJson, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
 }
