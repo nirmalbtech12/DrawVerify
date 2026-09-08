@@ -9,7 +9,7 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteVerificationSessionRepositoryTests
 {
-    [Fact]
+    [Fact(DisplayName = "TD-INFRA-001 replaces SQLite results and persists unmatched audit details atomically")]
     public async Task Session_pair_is_unique_and_results_are_replaced_atomically()
     {
         var path = Path.Combine(Path.GetTempPath(), "drawverify-session-" + Guid.NewGuid().ToString("N") + ".db");
@@ -59,7 +59,7 @@ public sealed class SqliteVerificationSessionRepositoryTests
         }
     }
 
-    [Fact]
+    [Fact(DisplayName = "TD-INFRA-001 migrates legacy match metadata and retains unmatched audit rows")]
     public async Task Legacy_dimension_match_schema_is_migrated_and_audit_rows_are_retained()
     {
         var path = Path.Combine(Path.GetTempPath(), "drawverify-legacy-" + Guid.NewGuid().ToString("N") + ".db");

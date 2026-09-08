@@ -9,7 +9,7 @@ using Xunit;
 /// </summary>
 public class PdfReportTests
 {
-    [Fact]
+    [Fact(DisplayName = "TD-INFRA-002 emits the labeled unmatched Markdown section and required fields")]
     public void Markdown_report_contains_labeled_unmatched_section_and_required_fields()
     {
         var report = new VerificationReport { DimensionMatches = new[]
@@ -25,7 +25,7 @@ public class PdfReportTests
         Assert.DoesNotContain("Reference: `5`", markdown);
     }
 
-    [Fact]
+    [Fact(DisplayName = "TD-INFRA-002 emits an explicit unmatched section for an empty report")]
     public void Markdown_report_has_an_explicit_unmatched_section_when_there_are_no_matches()
         => Assert.Contains("Unmatched Dimensions – Requires Manual Review", new VerificationReport().ToMarkdown());
 }

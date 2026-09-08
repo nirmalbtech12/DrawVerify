@@ -17,7 +17,7 @@ using System.Text.Json;
 
 public sealed class DimensionMatchingServiceTests
 {
-    [Fact]
+    [Fact(DisplayName = "TD-APP-002 denies matching before session or geometry access")]
     public async Task Unauthorized_matching_does_not_lookup_session_or_geometry()
     {
         var sessions = new SessionFake();
@@ -29,7 +29,7 @@ public sealed class DimensionMatchingServiceTests
         Assert.Equal(0, geometry.CallCount);
     }
 
-    [Fact]
+    [Fact(DisplayName = "TD-APP-002 persists authorized matching results and the matching audit action")]
     public async Task Authorized_processed_pair_persists_match_and_audit_action()
     {
         var step = NewDocument(CoreDocumentType.StepModel, CoreGeometryStatus.Processed, VerificationStatus.Unknown);
@@ -49,7 +49,7 @@ public sealed class DimensionMatchingServiceTests
         Assert.Equal(1, geometry.CallCount);
     }
 
-    [Fact]
+    [Fact(DisplayName = "TD-APP-002 persists unmatched reasons, metadata, count, and audit breakdown")]
     public async Task Unmatched_dimensions_are_persisted_with_reason_breakdown_and_audit_details()
     {
         var step = NewDocument(CoreDocumentType.StepModel, CoreGeometryStatus.Processed, VerificationStatus.Unknown);
@@ -81,7 +81,7 @@ public sealed class DimensionMatchingServiceTests
         Assert.Equal(1, details.RootElement.GetProperty("reasonBreakdown").GetProperty("NoCorrespondingGeometryFound").GetInt32());
     }
 
-    [Fact]
+    [Fact(DisplayName = "TD-APP-003 authorizes result retrieval before filtering or repository access")]
     public async Task Result_retrieval_authorizes_before_filtering_and_returns_requested_status()
     {
         var sessions = new SessionFake { Matches = new[]

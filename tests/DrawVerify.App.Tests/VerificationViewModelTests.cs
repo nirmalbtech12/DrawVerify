@@ -39,7 +39,7 @@ public sealed class VerificationViewModelTests
         Assert.Equal(expected, new RoleAuthorization().IsAllowed(session.CurrentUser, RolePermission.MatchDimensionsToGeometry));
     }
 
-    [Fact]
+    [Fact(DisplayName = "TD-APPUI-001 exposes distinct unmatched presentation and reasons")]
     public void Result_items_have_distinct_status_labels_and_reasons()
     {
         var version = Guid.NewGuid(); var sessionId = Guid.NewGuid();
@@ -54,7 +54,7 @@ public sealed class VerificationViewModelTests
         Assert.Equal("NoCorrespondingGeometryFound", items[1].Reason);
     }
 
-    [Fact]
+    [Fact(DisplayName = "TD-APPUI-001 exposes the Unmatched Dimensions list and required metadata")]
     public void Unmatched_dimensions_section_exposes_required_metadata_and_filter_controls()
     {
         var vm = new VerificationViewModel(new SessionAuthenticationService(), new RoleAuthorization());
@@ -74,7 +74,7 @@ public sealed class VerificationViewModelTests
         Assert.Contains("multiple possible", item.ReasonExplanation);
     }
 
-    [Fact]
+    [Fact(DisplayName = "TD-APPUI-002 filters, searches, and sorts mixed results deterministically")]
     public void Authorized_view_filters_searches_and_sorts_mixed_results_deterministically()
     {
         var vm = new VerificationViewModel(new SessionAuthenticationService(), new RoleAuthorization());

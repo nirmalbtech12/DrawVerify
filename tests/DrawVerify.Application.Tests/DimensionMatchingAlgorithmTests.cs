@@ -13,7 +13,7 @@ public sealed class DimensionMatchingAlgorithmTests
     private static readonly Guid StepVersion = Guid.NewGuid();
     private static readonly Guid DxfVersion = Guid.NewGuid();
 
-    [Fact]
+    [Fact(DisplayName = "TD-APP-001 preserves matched results and classifies unsupported dimensions")]
     public void Matches_linear_radial_and_angular_dimensions_and_emits_missing_features()
     {
         var session = new VerificationSession { StepDocumentVersionId = StepVersion, DxfDocumentVersionId = DxfVersion };
@@ -41,7 +41,7 @@ public sealed class DimensionMatchingAlgorithmTests
         Assert.Contains(results, x => x.Status == DimensionMatchStatus.MissingDimension && x.StepGeometryReference == "Edge:unused");
     }
 
-    [Fact]
+    [Fact(DisplayName = "TD-APP-001 classifies ambiguous and no-candidate dimensions with stable reasons")]
     public void Ambiguous_and_no_candidate_dimensions_are_flagged_for_review()
     {
         var session = new VerificationSession { StepDocumentVersionId = StepVersion, DxfDocumentVersionId = DxfVersion };
@@ -57,7 +57,7 @@ public sealed class DimensionMatchingAlgorithmTests
         Assert.Contains("No corresponding geometry", noCandidate.ReasonExplanation);
     }
 
-    [Fact]
+    [Fact(DisplayName = "TD-APP-001 propagates unmatched dimension metadata without geometry association")]
     public void Unmatched_results_propagate_dimension_metadata_and_have_no_geometry_reference()
     {
         var session = new VerificationSession { StepDocumentVersionId = StepVersion, DxfDocumentVersionId = DxfVersion };
