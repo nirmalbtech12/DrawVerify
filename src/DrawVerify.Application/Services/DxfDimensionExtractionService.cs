@@ -12,6 +12,7 @@ namespace DrawVerify.Application.Services;
 public sealed class DxfDimensionExtractionService
 {
     public const string TimeoutMessage = "Dimension extraction failed: operation exceeded the configured timeout.";
+    public const string GenericFailureMessage = "Dimension extraction failed: unable to complete the request.";
 
     private readonly IDocumentRepository _documents;
     private readonly IDxfUploadFileStore _files;
@@ -71,21 +72,59 @@ public sealed class DxfDimensionExtractionService
     public async Task<DxfDimensionExtractionResult> ExtractDimensionsAsync(DxfDimensionExtractionRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        await RefreshAuthorizationAsync(request.CancellationToken).ConfigureAwait(false);
+        try
+        {
+            await RefreshAuthorizationAsync(request.CancellationToken).ConfigureAwait(false);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            throw new InvalidOperationException("Unable to verify DXF dimension authorization.", exception);
+        }
         if (!CanExtractDimensions)
             return DxfDimensionExtractionResult.Failure("The Maker or Checker role is required to extract DXF dimensions.");
 
-        var document = await _documents.GetAsync(request.DocumentId, request.CancellationToken).ConfigureAwait(false);
+        Document? document;
+        try
+        {
+            document = await _documents.GetAsync(request.DocumentId, request.CancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            _logger?.Log(exception, "DXF dimension extraction document lookup", $"Unable to load documentId={request.DocumentId}.");
+            throw new InvalidOperationException(GenericFailureMessage, exception);
+        }
         if (document is null)
             return DxfDimensionExtractionResult.Failure("Dimension extraction failed: document was not found.");
         if (document.DocumentType != DrawVerify.Core.Enums.DocumentType.DxfDrawing || document.UploadStatus != DrawVerify.Core.Enums.UploadStatus.Uploaded)
             return DxfDimensionExtractionResult.Failure("Dimension extraction requires an uploaded DXF drawing.");
 
-        var version = _documents.GetCurrentVersion(document.DocumentId) ?? document.Version;
+        DocumentVersion? version;
+        try
+        {
+            version = _documents.GetCurrentVersion(document.DocumentId) ?? document.Version;
+        }
+        catch (Exception exception)
+        {
+            _logger?.Log(exception, "DXF dimension extraction version lookup", $"Unable to load the current version for documentId={document.DocumentId}.");
+            throw new InvalidOperationException(GenericFailureMessage, exception);
+        }
         if (version is null || version.DocumentId != document.DocumentId)
             return DxfDimensionExtractionResult.Failure("Dimension extraction failed: document version was not found.");
 
         var stopwatch = Stopwatch.StartNew();
+        var operationStage = "storage";
         try
         {
             if (version.FileSizeBytes > _configuration.MaximumFileSizeBytes)
@@ -93,29 +132,35 @@ public sealed class DxfDimensionExtractionService
 
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(request.CancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(_configuration.TimeoutSeconds));
+            operationStage = "storage";
             await using var source = await _files.OpenReadAsync(version.StoredRelativePath, timeout.Token).ConfigureAwait(false);
             await using var bounded = new SizeLimitedReadStream(source, _configuration.MaximumFileSizeBytes);
+            operationStage = "parse";
             var parsed = await _parser.ParseAsync(bounded, document.DocumentId, version.VersionId, timeout.Token).ConfigureAwait(false);
-            stopwatch.Stop();
 
             if (!parsed.Succeeded)
             {
-                var error = UserFailure(parsed.ErrorMessage ?? "unable to parse DXF file.");
+                var error = UserFailure("unable to parse DXF file.");
                 _logger?.Log(
                     new InvalidDataException(parsed.ErrorMessage ?? "DXF parser returned a fatal result."),
                     "DXF dimension extraction",
                     Context(document, version, $"fatal parser result: {parsed.ErrorMessage ?? "unknown parser error"}"));
-                return await PersistFailureAsync(document, version, error, stopwatch, request.CancellationToken, parsed.Warnings).ConfigureAwait(false);
+                return await PersistFailureAsync(document, version, error, stopwatch, timeout.Token, parsed.Warnings, parsed.ErrorMessage).ConfigureAwait(false);
             }
 
             LogWarnings(parsed.Warnings, document.DocumentId, version.VersionId);
             if (parsed.Dimensions.Count == 0)
                 _logger?.Log(new InvalidDataException("DXF drawing contains no dimension entities."), "DXF dimension extraction information", Context(document, version, "no dimensions found"));
 
+            timeout.Token.ThrowIfCancellationRequested();
+            operationStage = "persistence";
             var action = parsed.IsPartial ? DocumentAuditAction.DimensionsExtractedPartial : DocumentAuditAction.DimensionsExtracted;
-            var audit = CreateAudit(document, action, stopwatch.ElapsedMilliseconds, parsed.Dimensions.Count, parsed.Warnings, null);
             await _documents.ReplaceDimensionsAsync(document.DocumentId, version.VersionId, parsed.Dimensions,
-                VerificationStatus.DimensionsExtracted, null, audit, request.CancellationToken).ConfigureAwait(false);
+                VerificationStatus.DimensionsExtracted, null,
+                () => CreateAudit(document, action, stopwatch.ElapsedMilliseconds, parsed.Dimensions.Count, parsed.Warnings, null),
+                timeout.Token).ConfigureAwait(false);
+            timeout.Token.ThrowIfCancellationRequested();
+            stopwatch.Stop();
 
             var updated = document with { VerificationStatus = VerificationStatus.DimensionsExtracted, VerificationError = null };
             return new DxfDimensionExtractionResult(parsed.Dimensions, parsed.Warnings)
@@ -128,32 +173,74 @@ public sealed class DxfDimensionExtractionService
         }
         catch (OperationCanceledException exception)
         {
-            stopwatch.Stop();
             var detail = request.CancellationToken.IsCancellationRequested ? "operation was cancelled" : "operation exceeded the configured timeout";
             _logger?.Log(exception, "DXF dimension extraction timeout", Context(document, version, detail));
-            return await PersistFailureAsync(document, version, request.CancellationToken.IsCancellationRequested
+            var failure = await PersistFailureAsync(document, version, request.CancellationToken.IsCancellationRequested
                 ? UserFailure("operation was cancelled")
                 : TimeoutMessage, stopwatch, CancellationToken.None).ConfigureAwait(false);
+            stopwatch.Stop();
+            return failure;
         }
         catch (Exception exception)
         {
-            stopwatch.Stop();
             _logger?.Log(exception, "DXF dimension extraction", Context(document, version, "parser or storage failure"));
-            return await PersistFailureAsync(document, version, UserFailure(exception.Message), stopwatch, CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                var failure = await PersistFailureAsync(document, version, FailureMessage(operationStage, exception), stopwatch, CancellationToken.None, diagnosticMessage: exception.Message).ConfigureAwait(false);
+                stopwatch.Stop();
+                return failure;
+            }
+            catch (Exception persistenceException)
+            {
+                stopwatch.Stop();
+                _logger?.Log(persistenceException, "DXF dimension extraction persistence", Context(document, version, "unable to persist failure outcome"));
+                throw new InvalidOperationException(GenericFailureMessage, persistenceException);
+            }
         }
     }
 
     public async Task<IReadOnlyList<DimensionData>> GetDimensionsAsync(Guid documentId, CancellationToken cancellationToken = default)
     {
-        await RefreshAuthorizationAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await RefreshAuthorizationAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            throw new InvalidOperationException("Unable to verify DXF dimension authorization.", exception);
+        }
         if (!CanViewDimensions)
             throw new UnauthorizedAccessException("The Maker or Checker role is required to view DXF dimensions.");
 
-        var document = await _documents.GetAsync(documentId, cancellationToken).ConfigureAwait(false)
-            ?? throw new KeyNotFoundException("Document was not found.");
-        if (document.DocumentType != DrawVerify.Core.Enums.DocumentType.DxfDrawing)
-            throw new InvalidOperationException("Dimension results are available only for DXF drawings.");
-        return await _documents.GetDimensionsAsync(documentId, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var document = await _documents.GetAsync(documentId, cancellationToken).ConfigureAwait(false)
+                ?? throw new KeyNotFoundException("Document was not found.");
+            if (document.DocumentType != DrawVerify.Core.Enums.DocumentType.DxfDrawing)
+                throw new InvalidOperationException("Dimension results are available only for DXF drawings.");
+            return await _documents.GetDimensionsAsync(documentId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (KeyNotFoundException)
+        {
+            throw;
+        }
+        catch (InvalidOperationException exception) when (exception.Message == "Dimension results are available only for DXF drawings.")
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            _logger?.Log(exception, "DXF dimension results", $"Unable to load dimension results for documentId={documentId}.");
+            throw new InvalidOperationException("Unable to load DXF dimension results.", exception);
+        }
     }
 
     public Task<IReadOnlyList<DimensionData>> QueryDimensionsAsync(Guid documentId, CancellationToken cancellationToken = default) =>
@@ -191,18 +278,20 @@ public sealed class DxfDimensionExtractionService
         string message,
         Stopwatch stopwatch,
         CancellationToken cancellationToken,
-        IReadOnlyList<string>? warnings = null)
+        IReadOnlyList<string>? warnings = null,
+        string? diagnosticMessage = null)
     {
         var error = message.StartsWith("Dimension extraction failed:", StringComparison.Ordinal)
             ? message
             : UserFailure(message);
-        var audit = CreateAudit(document, DocumentAuditAction.DimensionExtractionFailed, stopwatch.ElapsedMilliseconds, 0, warnings, error);
         await _documents.ReplaceDimensionsAsync(document.DocumentId, version.VersionId, Array.Empty<DimensionData>(),
-            VerificationStatus.Error, error, audit, cancellationToken).ConfigureAwait(false);
+            VerificationStatus.Error, error,
+            () => CreateAudit(document, DocumentAuditAction.DimensionExtractionFailed, stopwatch.ElapsedMilliseconds, 0, warnings, error),
+            cancellationToken).ConfigureAwait(false);
         return new DxfDimensionExtractionResult(Array.Empty<DimensionData>(), warnings, error)
         {
             Document = document with { VerificationStatus = VerificationStatus.Error, VerificationError = error },
-            Message = error
+            Message = diagnosticMessage ?? error
         };
     }
 
@@ -230,6 +319,17 @@ public sealed class DxfDimensionExtractionService
 
     private static string UserFailure(string detail) =>
         $"Dimension extraction failed: {(string.IsNullOrWhiteSpace(detail) ? "unable to parse DXF file." : detail)}";
+
+    private static string FailureMessage(string operationStage, Exception exception) =>
+        exception is IOException && exception.Message.Contains("configured maximum size", StringComparison.OrdinalIgnoreCase)
+            ? "Dimension extraction failed: the DXF file exceeds the configured maximum size."
+            : operationStage switch
+    {
+        "storage" => "Dimension extraction failed: unable to read the stored DXF file.",
+        "parse" => "Dimension extraction failed: unable to parse DXF file.",
+        "persistence" => "Dimension extraction failed: unable to save dimension extraction results.",
+        _ => GenericFailureMessage
+    };
 
     private static string Context(Document document, DocumentVersion version, string detail) =>
         $"documentId={document.DocumentId}; versionId={version.VersionId}; {detail}";

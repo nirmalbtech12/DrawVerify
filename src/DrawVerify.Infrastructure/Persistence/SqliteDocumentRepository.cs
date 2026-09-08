@@ -165,11 +165,19 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
         string? verificationError,
         AuditEntry auditEntry,
         CancellationToken cancellationToken = default)
+        => await ReplaceDimensionsAsync(documentId, documentVersionId, dimensions, status, verificationError, () => auditEntry, cancellationToken).ConfigureAwait(false);
+
+    public async Task ReplaceDimensionsAsync(
+        Guid documentId,
+        Guid documentVersionId,
+        IReadOnlyCollection<DimensionData> dimensions,
+        DrawVerify.Core.Enums.VerificationStatus status,
+        string? verificationError,
+        Func<AuditEntry> auditEntryFactory,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(dimensions);
-        ArgumentNullException.ThrowIfNull(auditEntry);
-        if (auditEntry.DocumentId != documentId)
-            throw new InvalidOperationException("The dimension audit entry must reference the same document.");
+        ArgumentNullException.ThrowIfNull(auditEntryFactory);
         if (status == DrawVerify.Core.Enums.VerificationStatus.Error && dimensions.Count != 0)
             throw new InvalidOperationException("A failed dimension extraction cannot persist dimension data.");
         if (status != DrawVerify.Core.Enums.VerificationStatus.Error && verificationError is not null)
@@ -231,6 +239,10 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
                     throw new InvalidOperationException("The document disappeared while dimension data was being persisted.");
             }
 
+            var auditEntry = auditEntryFactory();
+            ArgumentNullException.ThrowIfNull(auditEntry);
+            if (auditEntry.DocumentId != documentId)
+                throw new InvalidOperationException("The dimension audit entry must reference the same document.");
             await InsertAuditAsync(connection, transaction, auditEntry, cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         }

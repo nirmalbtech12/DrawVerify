@@ -105,8 +105,16 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
         catch (Exception exception)
         {
             _dimensions = Array.Empty<DimensionData>();
-            ErrorMessage = exception.Message;
-            Message = exception.Message;
+            var safeMessage = exception switch
+            {
+                UnauthorizedAccessException => "The Maker or Checker role is required to view DXF dimensions.",
+                KeyNotFoundException => "The requested document was not found.",
+                InvalidOperationException invalidOperation when invalidOperation.Message == "Dimension results are available only for DXF drawings." => invalidOperation.Message,
+                InvalidOperationException => "Unable to load DXF dimension results.",
+                _ => "Unable to load DXF dimension results."
+            };
+            ErrorMessage = safeMessage;
+            Message = safeMessage;
         }
         finally
         {
@@ -127,16 +135,20 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
             var result = await _dimensionService.ExtractDimensionsAsync(_document.DocumentId).ConfigureAwait(true);
             if (result.Document is not null) _document = result.Document;
             _dimensions = result.Succeeded && CanViewDimensions ? result.Dimensions.ToArray() : Array.Empty<DimensionData>();
-            Message = result.Message;
-            ErrorMessage = result.Succeeded ? string.Empty : result.ErrorMessage ?? result.Message;
+            var safeMessage = result.Succeeded ? result.Message : result.ErrorMessage ?? DxfDimensionExtractionService.GenericFailureMessage;
+            Message = safeMessage;
+            ErrorMessage = result.Succeeded ? string.Empty : safeMessage;
             Changed(nameof(Document)); Changed(nameof(VerificationStatus)); Changed(nameof(VerificationError)); Changed(nameof(VerificationStatusDisplay));
             Changed(nameof(Dimensions)); Changed(nameof(DimensionResults)); Changed(nameof(ExtractedDimensions));
         }
         catch (Exception exception)
         {
             _dimensions = Array.Empty<DimensionData>();
-            ErrorMessage = exception.Message;
-            Message = exception.Message;
+            var safeMessage = exception is UnauthorizedAccessException
+                ? "The Maker or Checker role is required to extract DXF dimensions."
+                : DxfDimensionExtractionService.GenericFailureMessage;
+            ErrorMessage = safeMessage;
+            Message = safeMessage;
             Changed(nameof(Dimensions)); Changed(nameof(DimensionResults)); Changed(nameof(ExtractedDimensions));
         }
         finally { IsBusy = false; }
