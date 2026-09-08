@@ -7,7 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="Generated/**/*.cs" />
+    <Compile Remove="Generated/**/*.cs;.buildobj/**/*.cs;$b/**/*.cs" />
   </ItemGroup>
 
   <Target Name="GenerateOcctWrapper" BeforeTargets="ValidateOcctWrapperGenerated"
