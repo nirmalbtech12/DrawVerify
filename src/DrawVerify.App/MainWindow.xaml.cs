@@ -36,6 +36,7 @@ public partial class MainWindow : Window
             panel.Children.Add(drawing);
         }
         var review=new System.Windows.Controls.Button { Content="Review verification", Margin=new Thickness(0,0,0,8) }; review.Click += (_,_)=>ShowVerificationReview(); review.IsEnabled=CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ReviewVerification); panel.Children.Add(review);
+        if (CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.MatchDimensionsToGeometry)) { var matching = new System.Windows.Controls.Button { Content = "Match dimensions to geometry", Margin = new Thickness(0, 0, 0, 8) }; matching.Click += (_, _) => ShowVerificationMatching(); panel.Children.Add(matching); }
         var profile=new System.Windows.Controls.Button { Content="My profile", Margin=new Thickness(0,0,0,8) }; profile.Click += (_,_)=>ShowProfile(); panel.Children.Add(profile);
         if(CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ManageUsersAndRoles)) { var users=new System.Windows.Controls.Button { Content="Create user", Margin=new Thickness(0,0,0,8) }; users.Click += (_,_)=>ShowUserAdministration(); panel.Children.Add(users); }
         if(CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ViewAuditLog)) { var audit=new System.Windows.Controls.Button { Content="Audit log", Margin=new Thickness(0,0,0,8) }; audit.Click += (_,_)=>ShowAuditLog(); panel.Children.Add(audit); }
@@ -68,9 +69,14 @@ public partial class MainWindow : Window
     }
     private void ShowVerificationReview()
     {
-        var model = new VerificationViewModel(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization);
+        var model = new VerificationViewModel(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization, CompositionRoot.CreateDimensionMatchingService());
         if (!model.TryEnterReview(out var message)) { System.Windows.MessageBox.Show(message, "Access denied"); return; }
         MainContent.Content = new VerificationView { DataContext = model };
+    }
+    private void ShowVerificationMatching()
+    {
+        if (!CompositionRoot.SessionAuthentication.IsAuthenticated || !CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.MatchDimensionsToGeometry)) { ShowLogin(); return; }
+        MainContent.Content = new VerificationView { DataContext = new VerificationViewModel(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization, CompositionRoot.CreateDimensionMatchingService()) };
     }
     private void ShowProtected(Func<UIElement> contentFactory) { if(!CompositionRoot.SessionAuthentication.IsAuthenticated){ShowLogin();return;} MainContent.Content=contentFactory(); }
     public Func<MessageBoxResult> DiscardConfirmation { get; set; } = () => MessageBox.Show("Discard unsaved changes?", "Discard user creation", MessageBoxButton.YesNo, MessageBoxImage.Warning);
