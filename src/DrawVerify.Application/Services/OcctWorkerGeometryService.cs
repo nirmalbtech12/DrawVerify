@@ -26,21 +26,26 @@ public sealed class OcctWorkerGeometryService : ManagedGeometryService, IMatchab
     public MatchableGeometryExtractionResult ExtractMatchableGeometry(MatchableGeometryExtractionRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (cancellationToken.IsCancellationRequested) return MatchableGeometryExtractionResult.Failure("Timeout", "Matching failed: operation timeout occurred before the worker was launched.");
         if (!File.Exists(request.FilePath)) return MatchableGeometryExtractionResult.Failure("FileNotFound", "Matching failed: stored STEP file was not found.");
         if (new FileInfo(request.FilePath).Length > _maximumFileSizeBytes) return MatchableGeometryExtractionResult.Failure("FileTooLarge", "Matching failed: STEP file exceeds the configured maximum size.");
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(_timeout);
         using var process = new Process { StartInfo = new ProcessStartInfo(_workerPath) { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true } };
         try
         {
             if (!process.Start()) return MatchableGeometryExtractionResult.Failure("WorkerStart", "Matching failed: worker could not be started.");
+            if (timeout.IsCancellationRequested) return TimeoutResult(process, request.FilePath);
             process.StandardInput.Write(JsonSerializer.Serialize(new { ProtocolVersion = 1, Operation = "MatchableGeometry", FilePath = request.FilePath })); process.StandardInput.Close();
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken); timeout.CancelAfter(_timeout);
-            try { process.WaitForExitAsync(timeout.Token).GetAwaiter().GetResult(); } catch (OperationCanceledException) { var cleanupError = Terminate(process, "Matchable geometry worker", request.FilePath); var diagnostics = ReadDiagnostics(process); return MatchableGeometryExtractionResult.Failure("Timeout", $"Matching failed: operation exceeded the configured timeout.{cleanupError}{FormatDiagnostics(diagnostics)}"); }
+            try { process.WaitForExitAsync(timeout.Token).GetAwaiter().GetResult(); } catch (OperationCanceledException) { return TimeoutResult(process, request.FilePath); }
+            if (timeout.IsCancellationRequested) return TimeoutResult(process, request.FilePath);
             var diagnosticsAfterExit = ReadDiagnostics(process); var output = process.StandardOutput.ReadToEnd(); if (string.IsNullOrWhiteSpace(output)) { LogDiagnostics("Matchable geometry worker", request.FilePath, diagnosticsAfterExit); return MatchableGeometryExtractionResult.Failure("WorkerProtocol", $"Matching failed: worker returned no result.{FormatDiagnostics(diagnosticsAfterExit)}"); }
             using var json = JsonDocument.Parse(output); var root = json.RootElement;
             if (!root.TryGetProperty("ProtocolVersion", out var version) || version.GetInt32() != 1 || process.ExitCode != 0) { LogDiagnostics("Matchable geometry worker", request.FilePath, diagnosticsAfterExit); return MatchableGeometryExtractionResult.Failure("WorkerProtocol", $"Matching failed: unsupported or failed worker response.{FormatDiagnostics(diagnosticsAfterExit)}"); }
             var result = root.TryGetProperty("Result", out var resultElement) ? resultElement.Deserialize<MatchableGeometryExtractionResult>() : null;
             return result ?? MatchableGeometryExtractionResult.Failure("WorkerProtocol", "Matching failed: worker returned an invalid result.");
         }
+        catch (OperationCanceledException) { return TimeoutResult(process, request.FilePath); }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException or IOException) { _logger?.Log(ex, "Matchable geometry worker", $"Worker operation failed for file '{request.FilePath}'."); return MatchableGeometryExtractionResult.Failure("Worker", $"Matching failed: {ex.Message}"); }
     }
 
@@ -89,6 +94,12 @@ public sealed class OcctWorkerGeometryService : ManagedGeometryService, IMatchab
     {
         try { if (!process.HasExited) process.Kill(true); process.WaitForExit(); return string.Empty; }
         catch (Exception exception) { _logger?.Log(exception, operation, $"Worker cleanup failed for file '{filePath}'."); return $" Worker termination failed: {exception.Message}"; }
+    }
+    private MatchableGeometryExtractionResult TimeoutResult(Process process, string filePath)
+    {
+        var cleanupError = Terminate(process, "Matchable geometry worker", filePath);
+        var diagnostics = ReadDiagnostics(process);
+        return MatchableGeometryExtractionResult.Failure("Timeout", $"Matching failed: operation exceeded the configured timeout.{cleanupError}{FormatDiagnostics(diagnostics)}");
     }
     private void LogDiagnostics(string operation, string filePath, string diagnostics) { if (!string.IsNullOrWhiteSpace(diagnostics)) _logger?.Log(new InvalidOperationException(SafeDiagnostics(diagnostics)), operation, $"Worker diagnostics for file '{filePath}'."); }
     private static string ReadDiagnostics(Process process) { try { return process.StandardError.ReadToEnd(); } catch (Exception exception) { return $"Unable to read worker diagnostics: {exception.Message}"; } }

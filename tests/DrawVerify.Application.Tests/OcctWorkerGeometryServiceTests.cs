@@ -91,7 +91,7 @@ public sealed class OcctWorkerGeometryServiceTests
         try
         {
             File.WriteAllText(path, "step");
-            for (var attempt = 0; attempt < 2; attempt++)
+            for (var attempt = 0; attempt < 3; attempt++)
             {
                 using var cancellation = new CancellationTokenSource();
                 cancellation.Cancel();
@@ -99,6 +99,23 @@ public sealed class OcctWorkerGeometryServiceTests
                     .ExtractMatchableGeometry(new MatchableGeometryExtractionRequest(path), cancellation.Token);
                 Assert.Equal("Timeout", result.ErrorCode);
             }
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact(DisplayName = "TD-SVC-004 converts in-flight cancellation to deterministic timeout")]
+    public void In_flight_cancellation_returns_timeout_without_throwing()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path, "step");
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(1));
+            var result = new OcctWorkerGeometryService(Environment.SystemDirectory + "\\cmd.exe", timeoutSeconds: 1)
+                .ExtractMatchableGeometry(new MatchableGeometryExtractionRequest(path), cancellation.Token);
+            Assert.False(result.Succeeded);
+            Assert.Equal("Timeout", result.ErrorCode);
+            Assert.False(string.IsNullOrWhiteSpace(result.ErrorMessage));
         }
         finally { File.Delete(path); }
     }

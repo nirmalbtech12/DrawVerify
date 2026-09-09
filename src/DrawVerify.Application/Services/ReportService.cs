@@ -28,7 +28,7 @@ public sealed class ReportService
             var content = await _generator.GenerateMarkdownAsync(report, cancellationToken).ConfigureAwait(false);
             if (_audit is not null)
             {
-                var details = JsonSerializer.Serialize(new { verificationSessionId = sessionId, mismatchedDimensions = report.MismatchedDimensions.Count, reportFormat = "Markdown" });
+                var details = JsonSerializer.Serialize(new { verificationSessionId = sessionId, matchedDimensions = report.DimensionMatches.Count(match => match.Status == DimensionMatchStatus.Matched), mismatchedDimensions = report.MismatchedDimensions.Count, unmatchedDimensions = report.UnmatchedDimensions.Count, reportFormat = "Markdown" });
                 await _audit.WriteAsync(new AuditEntry { DocumentId = sessionId, UserId = _authentication.CurrentUser!.UserId, Action = DocumentAuditAction.VerificationReportGenerated, TimestampUtc = DateTime.UtcNow, DetailsJson = details }, cancellationToken).ConfigureAwait(false);
             }
             return content;
