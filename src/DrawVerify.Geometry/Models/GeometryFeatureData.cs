@@ -9,4 +9,5 @@ public sealed record GeometryFeatureData
     public double? Distance { get; init; }
     public double? Radius { get; init; }
     public double? Diameter { get; init; }
+    public double? AngleDegrees { get; init; }
 }

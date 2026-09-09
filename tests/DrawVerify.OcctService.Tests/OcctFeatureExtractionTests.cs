@@ -1,4 +1,5 @@
 using DrawVerify.OcctService;
+using DrawVerify.Geometry.Models;
 using Xunit;
 
 namespace DrawVerify.OcctService.Tests;
@@ -7,7 +8,7 @@ public sealed class OcctFeatureExtractionTests
 {
     private static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 
-    [Fact(DisplayName = "TD-07 projects finite stable edge and face references")]
+    [Fact(DisplayName = "TD-APP-003 projects finite stable edge and face references")]
     public void Cube_features_are_managed_and_finite()
     {
         var result = new OcctGeometryService().ExtractMatchableGeometry(new DrawVerify.Geometry.Models.MatchableGeometryExtractionRequest(Fixture("cube.step")));
@@ -18,7 +19,7 @@ public sealed class OcctFeatureExtractionTests
         Assert.All(result.Features, feature => Assert.DoesNotContain("Generated", feature.GetType().AssemblyQualifiedName ?? string.Empty));
     }
 
-    [Fact(DisplayName = "TD-07 projects cylindrical geometry as hole or cylindrical face")]
+    [Fact(DisplayName = "TD-APP-003 projects cylindrical geometry as hole or cylindrical face")]
     public void Cylinder_features_include_radius_and_diameter()
     {
         var result = new OcctGeometryService().ExtractMatchableGeometry(new DrawVerify.Geometry.Models.MatchableGeometryExtractionRequest(Fixture("cylinder.step")));
@@ -28,12 +29,20 @@ public sealed class OcctFeatureExtractionTests
         Assert.Equal(cylinder.Radius * 2, cylinder.Diameter);
     }
 
-    [Fact(DisplayName = "TD-07 reports invalid STEP extraction explicitly")]
+    [Fact(DisplayName = "TD-APP-003 reports invalid STEP extraction explicitly")]
     public void Invalid_fixture_does_not_fabricate_features()
     {
         var result = new OcctGeometryService().ExtractMatchableGeometry(new DrawVerify.Geometry.Models.MatchableGeometryExtractionRequest(Fixture("invalid.step")));
         Assert.False(result.Succeeded);
         Assert.Empty(result.Features);
         Assert.False(string.IsNullOrWhiteSpace(result.ErrorCode));
+    }
+
+    [Fact(DisplayName = "TD-APP-003 keeps managed angular measurements in degrees when present")]
+    public void Angular_feature_values_are_finite_and_degree_based()
+    {
+        var feature = new GeometryFeatureData { Reference = "Angle:1", GeometryType = "Cone", AngleDegrees = 45 };
+        Assert.Equal(45, feature.AngleDegrees);
+        Assert.InRange(feature.AngleDegrees!.Value, 0, 180);
     }
 }

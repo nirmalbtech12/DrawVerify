@@ -102,4 +102,18 @@ public sealed class OcctWorkerGeometryServiceTests
         }
         finally { File.Delete(path); }
     }
+
+    [Fact(DisplayName = "TD-APP-003 preserves cancellation cleanup at the managed OCCT worker boundary")]
+    public void Managed_worker_cancellation_returns_explicit_timeout_without_resource_leak()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path, "step");
+            using var cancellation = new CancellationTokenSource(); cancellation.Cancel();
+            var result = new OcctWorkerGeometryService("cmd.exe", timeoutSeconds: 1).ExtractMatchableGeometry(new MatchableGeometryExtractionRequest(path), cancellation.Token);
+            Assert.False(result.Succeeded); Assert.Equal("Timeout", result.ErrorCode); Assert.NotNull(result.ErrorMessage);
+        }
+        finally { File.Delete(path); }
+    }
 }

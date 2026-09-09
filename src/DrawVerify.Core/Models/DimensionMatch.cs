@@ -18,4 +18,9 @@ public sealed record DimensionMatch
     public double? NominalValue { get; init; }
     public string? DimensionText { get; init; }
     public string? ReasonExplanation { get; init; }
+    public double? MeasuredValue { get; init; }
+    public double? EffectiveLowerTolerance { get; init; }
+    public double? EffectiveUpperTolerance { get; init; }
+    public string? ToleranceUnit { get; init; }
+    public ToleranceSource? ToleranceSource { get; init; }
 }

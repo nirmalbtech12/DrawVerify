@@ -10,4 +10,5 @@ public sealed record VerificationSession
     public VerificationSessionStatus Status { get; init; } = VerificationSessionStatus.Pending;
     public string? ErrorMessage { get; init; }
     public DateTime UpdatedUtc { get; init; } = DateTime.UtcNow;
+    public double? ToleranceThresholdMm { get; init; }
 }

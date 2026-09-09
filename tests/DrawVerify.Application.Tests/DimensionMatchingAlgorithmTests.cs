@@ -13,7 +13,7 @@ public sealed class DimensionMatchingAlgorithmTests
     private static readonly Guid StepVersion = Guid.NewGuid();
     private static readonly Guid DxfVersion = Guid.NewGuid();
 
-    [Fact(DisplayName = "TD-APP-001 preserves matched results and classifies unsupported dimensions")]
+    [Fact(DisplayName = "TD-APP-001 compares linear, radial, and angular dimensions with tolerance evidence")]
     public void Matches_linear_radial_and_angular_dimensions_and_emits_missing_features()
     {
         var session = new VerificationSession { StepDocumentVersionId = StepVersion, DxfDocumentVersionId = DxfVersion };
@@ -27,6 +27,7 @@ public sealed class DimensionMatchingAlgorithmTests
         {
             new GeometryFeatureData { Reference = "Edge:1", GeometryType = "Line", Length = 10 },
             new GeometryFeatureData { Reference = "Face:2:Cylinder", GeometryType = "Hole", Radius = 5, Diameter = 10 },
+            new GeometryFeatureData { Reference = "Angle:3", GeometryType = "Angle", AngleDegrees = 45 },
             new GeometryFeatureData { Reference = "Edge:unused", GeometryType = "Line", Length = 20 }
         };
 
@@ -35,9 +36,9 @@ public sealed class DimensionMatchingAlgorithmTests
         Assert.Contains(results, x => x.DxfDimensionReference == 1 && x.Status == DimensionMatchStatus.Matched && x.Confidence == MatchConfidence.High);
         Assert.Contains(results, x => x.DxfDimensionReference == 2 && x.GeometryType == "Hole" && x.Status == DimensionMatchStatus.Matched);
         var angular = Assert.Single(results.Where(x => x.DxfDimensionReference == 3));
-        Assert.Equal(DimensionMatchStatus.Unmatched, angular.Status);
-        Assert.Equal("DimensionTypeNotSupported", angular.ReasonCode);
-        Assert.Contains("not supported", angular.ReasonExplanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(DimensionMatchStatus.Matched, angular.Status);
+        Assert.Equal(45, angular.MeasuredValue);
+        Assert.Equal("degrees", angular.ToleranceUnit);
         Assert.Contains(results, x => x.Status == DimensionMatchStatus.MissingDimension && x.StepGeometryReference == "Edge:unused");
     }
 
@@ -70,5 +71,40 @@ public sealed class DimensionMatchingAlgorithmTests
         Assert.Equal("DimensionTypeNotSupported", result.ReasonCode);
         Assert.True(result.RequiresManualReview);
         Assert.Null(result.StepGeometryReference);
+    }
+
+    [Fact(DisplayName = "TD-APP-001 classifies exact tolerance boundary and explicit asymmetric bounds")]
+    public void Tolerance_boundaries_and_explicit_bounds_are_persisted_in_results()
+    {
+        var session = new VerificationSession { StepDocumentVersionId = StepVersion, DxfDocumentVersionId = DxfVersion };
+        var dimensions = new[]
+        {
+            new CoreDimensionData(Guid.NewGuid(), DxfVersion, 1, DimensionType.Linear, 10),
+            new CoreDimensionData(Guid.NewGuid(), DxfVersion, 2, DimensionType.Linear, 10, -.2, .1),
+            new CoreDimensionData(Guid.NewGuid(), DxfVersion, 3, DimensionType.Radial, 10, radialDimensionKind: RadialDimensionKind.Diameter)
+        };
+        var features = new[]
+        {
+            new GeometryFeatureData { Reference = "boundary", GeometryType = "Edge", Length = 10.1 },
+            new GeometryFeatureData { Reference = "explicit", GeometryType = "Edge", Length = 9.8 },
+            new GeometryFeatureData { Reference = "diameter", GeometryType = "Hole", Diameter = 10.001 }
+        };
+        var results = new DimensionMatchingAlgorithm(new DimensionMatchingConfiguration()).Match(session, dimensions, features);
+        Assert.All(results.Where(x => x.DxfDimensionReference > 0), result => Assert.Equal(DimensionMatchStatus.Matched, result.Status));
+        Assert.Equal(ToleranceSource.Default, results.Single(x => x.DxfDimensionReference == 1).ToleranceSource);
+        Assert.Equal(ToleranceSource.Explicit, results.Single(x => x.DxfDimensionReference == 2).ToleranceSource);
+        Assert.Equal("mm", results.Single(x => x.DxfDimensionReference == 3).ToleranceUnit);
+    }
+
+    [Fact(DisplayName = "TD-APP-001 marks values outside tolerance as mismatched")]
+    public void Values_outside_tolerance_are_mismatched_with_reason()
+    {
+        var session = new VerificationSession { StepDocumentVersionId = StepVersion, DxfDocumentVersionId = DxfVersion };
+        var dimension = new CoreDimensionData(Guid.NewGuid(), DxfVersion, 1, DimensionType.Linear, 10);
+        var result = Assert.Single(new DimensionMatchingAlgorithm(new DimensionMatchingConfiguration()).Match(session, new[] { dimension }, new[] { new GeometryFeatureData { Reference = "edge", GeometryType = "Edge", Length = 10.101 } }));
+        Assert.Equal(DimensionMatchStatus.Mismatched, result.Status);
+        Assert.Equal("OutsideTolerance", result.ReasonCode);
+        Assert.Equal(10.101, result.MeasuredValue);
+        Assert.True(result.RequiresManualReview);
     }
 }

@@ -23,13 +23,19 @@ public sealed class DimensionMatchingService
     public DimensionMatchingService(IDocumentRepository documents, IVerificationSessionRepository sessions, IMatchableGeometryService geometry, ISessionAuthenticationService authentication, DimensionMatchingConfiguration configuration, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null)
     { _documents = documents; _sessions = sessions; _geometry = geometry; _authentication = authentication; _configuration = configuration; _configuration.Validate(); _authorization = authorization ?? new RoleAuthorization(); _logger = logger; }
 
-    public async Task<VerificationSession> MatchDimensionsToGeometryAsync(Guid sessionId, CancellationToken cancellationToken = default)
+    public async Task<VerificationSession> MatchDimensionsToGeometryAsync(Guid sessionId, CancellationToken cancellationToken = default, double? toleranceOverrideMm = null)
     {
         EnsureAuthorized(RolePermission.MatchDimensionsToGeometry);
         var started = Stopwatch.GetTimestamp();
         var session = await _sessions.GetAsync(sessionId, cancellationToken).ConfigureAwait(false) ?? throw new InvalidOperationException("Verification session was not found.");
+        if (toleranceOverrideMm is not null && (!double.IsFinite(toleranceOverrideMm.Value) || toleranceOverrideMm.Value < 0)) throw new ArgumentOutOfRangeException(nameof(toleranceOverrideMm));
+        var effectiveToleranceThresholdMm = toleranceOverrideMm ?? session.ToleranceThresholdMm;
+        if (effectiveToleranceThresholdMm is not null) session = session with { ToleranceThresholdMm = effectiveToleranceThresholdMm };
         Guid? stepDocumentVersionId = session.StepDocumentVersionId;
         Guid? dxfDocumentVersionId = session.DxfDocumentVersionId;
+        using var comparisonTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        comparisonTimeout.CancelAfter(TimeSpan.FromSeconds(_configuration.ComparisonTimeoutSeconds));
+        cancellationToken = comparisonTimeout.Token;
         try
         {
             var step = await _documents.GetAsync(session.StepDocumentId, cancellationToken).ConfigureAwait(false) ?? throw new InvalidOperationException("STEP document was not found.");
@@ -45,11 +51,11 @@ public sealed class DimensionMatchingService
             var extracted = _geometry.ExtractMatchableGeometry(new MatchableGeometryExtractionRequest(stepVersion.StoredRelativePath), cancellationToken);
             if (!extracted.Succeeded) throw new InvalidOperationException(extracted.ErrorMessage ?? "Geometry extraction failed.");
             var matches = new DimensionMatchingAlgorithm(_configuration).Match(current, dimensions, extracted.Features, cancellationToken);
-            var status = matches.Any(match => match.Status != DimensionMatchStatus.Matched) ? VerificationSessionStatus.DimensionsMatched : VerificationSessionStatus.DimensionsMatched;
+            var status = VerificationSessionStatus.DimensionsMatched;
             var completed = current with { Status = status, UpdatedUtc = DateTime.UtcNow };
-            var reasonBreakdown = matches.Where(match => match.Status == DimensionMatchStatus.Unmatched).GroupBy(match => match.ReasonCode ?? throw new InvalidOperationException("Unmatched dimensions must include a reason code.")).ToDictionary(group => group.Key, group => group.Count());
-            var details = JsonSerializer.Serialize(new { verificationSessionId = sessionId, stepDocumentId = step.DocumentId, dxfDocumentId = dxf.DocumentId, stepDocumentVersionId = stepVersion.VersionId, dxfDocumentVersionId = dxfVersion.VersionId, durationMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds, matches = matches.Count(match => match.Status == DimensionMatchStatus.Matched), unmatchedDimensions = matches.Count(match => match.Status == DimensionMatchStatus.Unmatched), reasonBreakdown, missingFeatures = matches.Count(match => match.Status == DimensionMatchStatus.MissingDimension), rematched = session.Status != VerificationSessionStatus.Pending });
-            await _sessions.ReplaceResultsAsync(completed, matches, matches.Any(match => match.Status == DimensionMatchStatus.Unmatched) ? DocumentAuditAction.UnmatchedDimensionsFlagged : matches.Any(match => match.Status == DimensionMatchStatus.MissingDimension) ? DocumentAuditAction.DimensionsMatchedPartial : DocumentAuditAction.DimensionsMatched, _authentication.CurrentUser!.UserId, details, cancellationToken).ConfigureAwait(false);
+            var reasonBreakdown = matches.Where(match => match.ReasonCode is not null).GroupBy(match => match.ReasonCode!).ToDictionary(group => group.Key, group => group.Count());
+            var details = JsonSerializer.Serialize(new { verificationSessionId = sessionId, action = "ToleranceComparisonApplied", toleranceThresholdMm = effectiveToleranceThresholdMm ?? _configuration.ToleranceThresholdMm, angularToleranceDegrees = _configuration.AngularToleranceDegrees, stepDocumentId = step.DocumentId, dxfDocumentId = dxf.DocumentId, stepDocumentVersionId = stepVersion.VersionId, dxfDocumentVersionId = dxfVersion.VersionId, durationMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds, comparedDimensions = dimensions.Count, matchedDimensions = matches.Count(match => match.Status == DimensionMatchStatus.Matched), mismatchedDimensions = matches.Count(match => match.Status == DimensionMatchStatus.Mismatched), unmatchedDimensions = matches.Count(match => match.Status == DimensionMatchStatus.Unmatched), reasonBreakdown, missingFeatures = matches.Count(match => match.Status == DimensionMatchStatus.MissingDimension), rematched = session.Status != VerificationSessionStatus.Pending });
+            await _sessions.ReplaceResultsAsync(completed, matches, DocumentAuditAction.ToleranceComparisonApplied, _authentication.CurrentUser!.UserId, details, cancellationToken).ConfigureAwait(false);
             return completed;
         }
         catch (Exception exception) when (exception is not UnauthorizedAccessException and not OperationCanceledException)
@@ -61,12 +67,24 @@ public sealed class DimensionMatchingService
             throw;
         }
     }
+    public async Task<VerificationSession> UpdateToleranceAndRecompareAsync(Guid sessionId, double toleranceThresholdMm, CancellationToken cancellationToken = default)
+    {
+        EnsureAuthorized(RolePermission.ManageToleranceComparison);
+        if (!double.IsFinite(toleranceThresholdMm) || toleranceThresholdMm < 0) throw new ArgumentOutOfRangeException(nameof(toleranceThresholdMm));
+        return await MatchDimensionsToGeometryAsync(sessionId, cancellationToken, toleranceThresholdMm).ConfigureAwait(false);
+    }
     public Task<VerificationSession> GetOrCreateSessionAsync(Guid stepDocumentId, Guid dxfDocumentId, CancellationToken cancellationToken = default)
     {
         EnsureAuthorized(RolePermission.MatchDimensionsToGeometry);
         return _sessions.GetOrCreateAsync(stepDocumentId, dxfDocumentId, cancellationToken);
     }
     public Task<IReadOnlyList<DimensionMatch>> GetResultsAsync(Guid sessionId, DimensionMatchStatus? status = null, CancellationToken cancellationToken = default) { EnsureAuthorized(RolePermission.ViewDimensionMatchResults); return _sessions.GetMatchesAsync(sessionId, status, cancellationToken); }
+    public async Task<double> GetEffectiveToleranceThresholdAsync(Guid sessionId, CancellationToken cancellationToken = default)
+    {
+        EnsureAuthorized(RolePermission.ViewDimensionMatchResults);
+        var session = await _sessions.GetAsync(sessionId, cancellationToken).ConfigureAwait(false) ?? throw new InvalidOperationException("Verification session was not found.");
+        return session.ToleranceThresholdMm ?? _configuration.ToleranceThresholdMm;
+    }
     private void EnsureAuthorized(RolePermission permission) { if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, permission)) throw new UnauthorizedAccessException("Only authenticated Maker or Checker users may access dimension matching."); }
     private static string SanitizeError(string message) => string.IsNullOrWhiteSpace(message) ? "Matching failed." : message.Length > 512 ? message[..512] : message;
 }
