@@ -9,4 +9,8 @@ public interface IVerificationSessionRepository
     Task ReplaceResultsAsync(VerificationSession session, IReadOnlyCollection<DimensionMatch> matches, DocumentAuditAction auditAction, string userId, string detailsJson, CancellationToken cancellationToken = default);
     Task UpdateReviewAsync(Guid sessionId, Guid dimensionMatchId, DimensionReview review, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("Dimension review persistence is not supported by this repository.");
+    async Task UpdateReviewAsync(Guid sessionId, Guid dimensionMatchId, DimensionReview review, string userId, DocumentAuditAction action, CancellationToken cancellationToken = default)
+    {
+        await UpdateReviewAsync(sessionId, dimensionMatchId, review, cancellationToken).ConfigureAwait(false);
+    }
 }

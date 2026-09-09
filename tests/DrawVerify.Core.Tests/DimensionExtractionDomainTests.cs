@@ -8,6 +8,24 @@ namespace DrawVerify.Core.Tests;
 
 public sealed class DimensionExtractionDomainTests
 {
+    [Fact(DisplayName = "TD-001 preserves optional location metadata and rejects non-finite coordinates")]
+    public void Dimension_data_preserves_location_metadata_and_validates_coordinates()
+    {
+        var document = Guid.NewGuid();
+        var version = Guid.NewGuid();
+        var value = new DimensionData(document, version, 4, DimensionType.Linear, 50, null, null, " 50.00 ",
+            layer: " DIM ", previewAnchor: "10,20", blockName: "TitleBlock", viewName: "Front", locationX: 10.5, locationY: 20.25);
+
+        Assert.Equal("DIM", value.Layer);
+        Assert.Equal("TitleBlock", value.BlockName);
+        Assert.Equal("Front", value.ViewName);
+        Assert.Equal(10.5, value.LocationX);
+        Assert.Equal(20.25, value.LocationY);
+        Assert.Null(value.LowerTolerance);
+        Assert.Equal("50.00", value.DimensionText);
+        Assert.Throws<ArgumentOutOfRangeException>(() => new DimensionData(document, version, 4, DimensionType.Linear, 1, locationX: double.NaN));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new DimensionData(document, version, 4, DimensionType.Linear, 1, locationY: double.PositiveInfinity));
+    }
     [Fact(DisplayName = "TD-KAN24-CORE-001 uses the approved dimension extraction defaults")]
     public void Configuration_defaults_are_valid_and_exposed_by_alias()
     {

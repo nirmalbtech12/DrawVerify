@@ -8,6 +8,20 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class DxfDimensionParserTests
 {
+    [Fact(DisplayName = "TD-002 extracts DXF dimension location metadata")]
+    public async Task Dimension_location_group_codes_are_preserved()
+    {
+        var result = await new DxfDimensionParser().ParseAsync(
+            AsStream("0\nDIMENSION\n70\n0\n42\n50\n1\n50.00\n8\nDIMENSIONS\n2\nTITLE_BLOCK\n410\nFront\n10\n12.5\n20\n25.75\n"), Guid.NewGuid(), Guid.NewGuid());
+
+        var dimension = Assert.Single(result.Dimensions);
+        Assert.Equal("DIMENSIONS", dimension.Layer);
+        Assert.Equal("TITLE_BLOCK", dimension.BlockName);
+        Assert.Equal("Front", dimension.ViewName);
+        Assert.Equal(12.5, dimension.LocationX);
+        Assert.Equal(25.75, dimension.LocationY);
+        Assert.Equal("50.00", dimension.DimensionText);
+    }
     [Fact(DisplayName = "TD-KAN25-APP-001 parses standard linear, angular, and radial dimensions")]
     public async Task Standard_dimension_entities_are_typed_and_linked()
     {

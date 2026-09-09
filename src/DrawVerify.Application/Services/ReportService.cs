@@ -1,5 +1,7 @@
 namespace DrawVerify.Application.Services;
 using System.Text.Json;
+using System.Globalization;
+using System.Text;
 using DrawVerify.Core.Authorization;
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Interfaces;
@@ -40,4 +42,22 @@ public sealed class ReportService
             throw;
         }
     }
+
+    public async Task<string> GenerateMissingDimensionsCsvAsync(Guid sessionId, CancellationToken cancellationToken = default)
+    {
+        if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.GenerateFinalReports)) throw new UnauthorizedAccessException("Only authorized reviewers may export verification results.");
+        try
+        {
+            var matches = await _sessions.GetMatchesAsync(sessionId, DimensionMatchStatus.Unmatched, cancellationToken).ConfigureAwait(false);
+            var builder = new StringBuilder();
+            builder.AppendLine("DimensionMatchId,DimensionValue,Tolerance,Layer,Block,View,X,Y,Annotation,Resolution,Comment");
+            foreach (var m in matches)
+                builder.AppendLine(string.Join(',', new[] { m.DimensionMatchId.ToString(), Value(m.NominalValue), Value(m.EffectiveLowerTolerance) + (m.EffectiveUpperTolerance is null ? string.Empty : "/+" + Value(m.EffectiveUpperTolerance)), m.DxfLayer, m.BlockName, m.ViewName, Value(m.LocationX), Value(m.LocationY), m.DimensionText, m.Review?.Status.ToString(), m.Review?.Comment }.Select(Escape)));
+            return builder.ToString();
+        }
+        catch (Exception exception) when (exception is not UnauthorizedAccessException and not OperationCanceledException)
+        { _logger?.Log(exception, "Missing dimension CSV export", $"Unable to export missing dimensions for verificationSessionId={sessionId}."); throw; }
+    }
+    private static string Value(double? value) => value?.ToString("0.############", CultureInfo.InvariantCulture) ?? string.Empty;
+    private static string Escape(string? value) { value ??= string.Empty; return value.IndexOfAny(new[] { ',', '"', '\r', '\n' }) >= 0 ? '"' + value.Replace("\"", "\"\"") + '"' : value; }
 }

@@ -174,6 +174,8 @@ public sealed class DxfDimensionParser : IDxfDimensionParser
 
             var displayText = FirstString(values, 1);
             var layer = FirstString(values, 8);
+            var blockName = FirstString(values, 2);
+            var viewName = FirstString(values, 410);
             var anchorX = FirstDouble(values, 10);
             var anchorY = FirstDouble(values, 20);
             var previewAnchor = anchorX is double x && anchorY is double y
@@ -182,7 +184,8 @@ public sealed class DxfDimensionParser : IDxfDimensionParser
             var (lowerTolerance, upperTolerance) = ReadTolerances(values, displayText, nominal.Value);
             var radialKind = baseType switch { 3 => RadialDimensionKind.Diameter, 4 => RadialDimensionKind.Radius, _ => RadialDimensionKind.Unknown };
             dimensions.Add(new DimensionData(documentId, documentVersionId, sourceOrdinal, type, nominal.Value,
-                lowerTolerance, upperTolerance, displayText, radialKind, layer, previewAnchor));
+                lowerTolerance, upperTolerance, displayText, radialKind, layer, previewAnchor,
+                blockName, viewName, anchorX, anchorY));
         }
         catch (NotSupportedException exception)
         {

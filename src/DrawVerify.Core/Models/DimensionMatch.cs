@@ -25,6 +25,13 @@ public sealed record DimensionMatch
     public ToleranceSource? ToleranceSource { get; init; }
     public string? DxfLayer { get; init; }
     public string? PreviewAnchor { get; init; }
+    public string? BlockName { get; init; }
+    public string? ViewName { get; init; }
+    public double? LocationX { get; init; }
+    public double? LocationY { get; init; }
+    public double? X => LocationX;
+    public double? Y => LocationY;
+    public string? AnnotationText => DimensionText;
     public DimensionReview? Review { get; init; }
     public double? SignedDelta => IsFinite(NominalValue) && IsFinite(MeasuredValue) ? NominalValue!.Value - MeasuredValue!.Value : null;
     public double? AbsoluteDelta => SignedDelta is double delta && double.IsFinite(delta) ? Math.Abs(delta) : null;
