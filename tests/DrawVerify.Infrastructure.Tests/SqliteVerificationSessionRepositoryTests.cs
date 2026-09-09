@@ -100,4 +100,24 @@ public sealed class SqliteVerificationSessionRepositoryTests
         }
         finally { await DeleteDatabaseAsync(path); }
     }
+
+    [Fact(DisplayName = "TD-05 and TD-09 persist unmatched review metadata, comments, status, and audit across reload")]
+    public async Task Unmatched_review_round_trips_after_repository_reopen()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "drawverify-review-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            var step = Guid.NewGuid(); var dxf = Guid.NewGuid(); var stepVersion = Guid.NewGuid(); var dxfVersion = Guid.NewGuid(); var matchId = Guid.NewGuid();
+            var repository = new SqliteVerificationSessionRepository(path); var session = await repository.GetOrCreateAsync(step, dxf); var sessionId = session.VerificationSessionId;
+            var match = new DimensionMatch { DimensionMatchId = matchId, VerificationSessionId = sessionId, StepDocumentVersionId = stepVersion, DxfDocumentVersionId = dxfVersion, DxfDimensionReference = 12, Status = DimensionMatchStatus.Unmatched, ReasonCode = "NoCorrespondingGeometryFound", NominalValue = 25, DimensionText = "25", DxfLayer = "DIM", PreviewAnchor = "5,6", Review = new DimensionReview { DimensionMatchId = matchId, Comment = "Expected missing", Status = DimensionResolutionStatus.Open } };
+            var details = JsonSerializer.Serialize(new { stepDocumentId = step, dxfDocumentId = dxf, missingDxfCount = 1, timestampUtc = DateTime.UtcNow, triggeredBy = "maker", verificationSessionId = sessionId, stepDocumentVersionId = stepVersion, dxfDocumentVersionId = dxfVersion, extraStepCount = 0 });
+            await repository.ReplaceResultsAsync(session with { StepDocumentVersionId = stepVersion, DxfDocumentVersionId = dxfVersion, Status = VerificationSessionStatus.DimensionsMatched }, new[] { match }, DocumentAuditAction.UnmatchedDimensionsFlagged, "maker", details);
+            await repository.UpdateReviewAsync(sessionId, matchId, match.Review! with { Comment = "Expected missing – reviewed", Status = DimensionResolutionStatus.Accepted });
+            var reloaded = new SqliteVerificationSessionRepository(path); var persisted = Assert.Single(await reloaded.GetMatchesAsync(sessionId));
+            Assert.Equal("DIM", persisted.DxfLayer); Assert.Equal("5,6", persisted.PreviewAnchor); Assert.Equal("Expected missing – reviewed", persisted.Review!.Comment); Assert.Equal(DimensionResolutionStatus.Accepted, persisted.Review.Status);
+            await using var connection = new SqliteConnection($"Data Source={path}"); await connection.OpenAsync(); await using var command = connection.CreateCommand(); command.CommandText = "SELECT DetailsJson FROM DocumentAuditLog WHERE Action=$action"; command.Parameters.AddWithValue("$action", (int)DocumentAuditAction.UnmatchedDimensionsFlagged);
+            using var audit = JsonDocument.Parse((string)(await command.ExecuteScalarAsync())!); Assert.Equal(step, audit.RootElement.GetProperty("stepDocumentId").GetGuid()); Assert.Equal(dxf, audit.RootElement.GetProperty("dxfDocumentId").GetGuid()); Assert.Equal(1, audit.RootElement.GetProperty("missingDxfCount").GetInt32()); Assert.Equal("maker", audit.RootElement.GetProperty("triggeredBy").GetString());
+        }
+        finally { await DeleteDatabaseAsync(path); }
+    }
 }

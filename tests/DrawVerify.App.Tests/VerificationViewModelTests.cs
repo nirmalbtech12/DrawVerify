@@ -229,6 +229,33 @@ public sealed class VerificationViewModelTests
         Assert.Contains("multiple possible", item.ReasonExplanation);
     }
 
+    [Fact(DisplayName = "TD-07 selecting an unmatched item requests DXF highlight and navigation")]
+    public void Selecting_unmatched_item_updates_preview_identity_and_status()
+    {
+        var vm = new VerificationViewModel(new SessionAuthenticationService(), new RoleAuthorization());
+        vm.SelectedUnmatchedDimension = new DimensionMatchItemViewModel(new DimensionMatch { Status = DimensionMatchStatus.Unmatched, DxfDimensionReference = 22, PreviewAnchor = "1,2" });
+        Assert.Equal("22", vm.DxfPreview.SelectedEntityReference); Assert.Equal("1,2", vm.DxfPreview.SelectedAnchor); Assert.True(vm.DxfPreview.IsHighlightVisible); Assert.Contains("highlighted", vm.DxfPreview.PreviewStatus);
+        vm.SelectedUnmatchedDimension = new DimensionMatchItemViewModel(new DimensionMatch { Status = DimensionMatchStatus.Unmatched, DxfDimensionReference = 23 });
+        Assert.False(vm.DxfPreview.IsHighlightVisible); Assert.Contains("unavailable", vm.DxfPreview.PreviewStatus);
+    }
+
+    [Theory(DisplayName = "TD-08 exposes missing summary counts without counting STEP-extra rows")]
+    [InlineData(0, 0)] [InlineData(2, 1)]
+    public void Summary_distinguishes_unmatched_and_extra_step_rows(int unmatched, int extra)
+    {
+        var rows = Enumerable.Range(1, unmatched).Select(i => new DimensionMatch { Status = DimensionMatchStatus.Unmatched, DxfDimensionReference = i }).Concat(Enumerable.Range(1, extra).Select(i => new DimensionMatch { Status = DimensionMatchStatus.MissingDimension, DxfDimensionReference = -i }));
+        var vm = new VerificationViewModel(new SessionAuthenticationService(), new RoleAuthorization()); SetResults(vm, rows); vm.ApplyFilterCommand.Execute(null);
+        Assert.Equal(unmatched, vm.UnmatchedDimensions); Assert.Equal(extra, vm.MissingDimensions); Assert.Equal(unmatched, vm.TotalDimensions);
+    }
+
+    [Theory(DisplayName = "TD-06 and TD-08 role matrix permits only the approved missing-dimension actions")]
+    [InlineData("Maker", true, true, false)] [InlineData("Checker", true, true, true)] [InlineData("Approver", true, true, true)] [InlineData("Viewer", true, false, false)]
+    public void Missing_dimension_permissions_follow_role_matrix(string role, bool canView, bool canComment, bool canResolve)
+    {
+        var auth = new RoleAuthorization(); var user = new AuthenticatedUser(role, new[] { role });
+        Assert.Equal(canView, auth.IsAllowed(user, RolePermission.ViewMissingDimensions)); Assert.Equal(canComment, auth.IsAllowed(user, RolePermission.CommentOnMissingDimensions)); Assert.Equal(canResolve, auth.IsAllowed(user, RolePermission.ResolveUnmatched));
+    }
+
     [Fact(DisplayName = "TD-APPUI-002 filters, searches, and sorts mixed results deterministically")]
     public void Authorized_view_filters_searches_and_sorts_mixed_results_deterministically()
     {

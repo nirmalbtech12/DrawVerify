@@ -47,7 +47,8 @@ public class PdfReportTests
         var markdown = report.ToMarkdown();
         Assert.Contains("## Unmatched Dimensions – Requires Manual Review", markdown);
         Assert.Contains("Reference: `4`", markdown);
-        Assert.Contains("Nominal value: 25", markdown);
+        Assert.Contains("Value: 25", markdown);
+        Assert.Contains("Tolerance:", markdown); Assert.Contains("Layer:", markdown); Assert.Contains("Text:", markdown);
         Assert.Contains("NoCorrespondingGeometryFound", markdown);
         Assert.DoesNotContain("Reference: `5`", markdown);
     }

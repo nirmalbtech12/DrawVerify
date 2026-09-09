@@ -73,6 +73,16 @@ public sealed class DimensionMatchingAlgorithmTests
         Assert.Null(result.StepGeometryReference);
     }
 
+    [Fact(DisplayName = "TD-01 preserves layer, anchor, tolerances, and stable reference for DXF-only rows")]
+    public void Unmatched_result_preserves_preview_and_tolerance_metadata()
+    {
+        var session = new VerificationSession { StepDocumentVersionId = StepVersion, DxfDocumentVersionId = DxfVersion };
+        var dimension = new CoreDimensionData(Guid.NewGuid(), DxfVersion, 11, DimensionType.Linear, 25, -.2, .3, "25 ±0.2/0.3", layer: "DIMENSIONS", previewAnchor: "100,200");
+        var result = Assert.Single(new DimensionMatchingAlgorithm(new DimensionMatchingConfiguration()).Match(session, new[] { dimension }, Array.Empty<GeometryFeatureData>()));
+        Assert.Equal(DimensionMatchStatus.Unmatched, result.Status); Assert.Equal("NoCorrespondingGeometryFound", result.ReasonCode);
+        Assert.Equal("DIMENSIONS", result.DxfLayer); Assert.Equal("100,200", result.PreviewAnchor); Assert.Equal((-.2, .3), (result.EffectiveLowerTolerance, result.EffectiveUpperTolerance)); Assert.Equal(11, result.DxfDimensionReference);
+    }
+
     [Fact(DisplayName = "TD-APP-001 classifies exact tolerance boundary and explicit asymmetric bounds")]
     public void Tolerance_boundaries_and_explicit_bounds_are_persisted_in_results()
     {
