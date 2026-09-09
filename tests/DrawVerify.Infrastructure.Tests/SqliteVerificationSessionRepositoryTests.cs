@@ -151,4 +151,53 @@ public sealed class SqliteVerificationSessionRepositoryTests
         }
         finally { await DeleteDatabaseAsync(path); }
     }
+
+    [Fact(DisplayName = "TD-003 round-trips structured missing-dimension location metadata")]
+    public async Task Structured_location_metadata_survives_reload()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "drawverify-location-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            var step = Guid.NewGuid(); var dxf = Guid.NewGuid(); var stepVersion = Guid.NewGuid(); var dxfVersion = Guid.NewGuid();
+            await CreateCurrentDocumentsAsync(path, step, dxf, stepVersion, dxfVersion);
+            var repository = new SqliteVerificationSessionRepository(path);
+            var session = await repository.GetOrCreateAsync(step, dxf);
+            session = session with { StepDocumentVersionId = stepVersion, DxfDocumentVersionId = dxfVersion, Status = VerificationSessionStatus.DimensionsMatched };
+            var matchId = Guid.NewGuid();
+            var match = new DimensionMatch { DimensionMatchId = matchId, VerificationSessionId = session.VerificationSessionId, DxfDocumentVersionId = dxfVersion, StepDocumentVersionId = stepVersion, DxfDimensionReference = 9, Status = DimensionMatchStatus.Unmatched, ReasonCode = "NoCorrespondingGeometryFound", NominalValue = 50, DimensionText = "50.00", DxfLayer = "DIM", BlockName = "B1", ViewName = "Front", LocationX = 11.25, LocationY = 22.5 };
+            await repository.ReplaceResultsAsync(session, new[] { match }, DocumentAuditAction.UnmatchedDimensionsFlagged, "checker", "{}");
+            var loaded = Assert.Single(await new SqliteVerificationSessionRepository(path).GetMatchesAsync(session.VerificationSessionId));
+            Assert.Equal("B1", loaded.BlockName); Assert.Equal("Front", loaded.ViewName); Assert.Equal(11.25, loaded.LocationX); Assert.Equal(22.5, loaded.LocationY);
+        }
+        finally { await DeleteDatabaseAsync(path); }
+    }
+
+    [Fact(DisplayName = "TD-005 writes review audit payload with actor, identifier, action, and UTC timestamp")]
+    public async Task Review_update_writes_structured_audit_entry()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "drawverify-review-audit-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            var step = Guid.NewGuid(); var dxf = Guid.NewGuid(); var stepVersion = Guid.NewGuid(); var dxfVersion = Guid.NewGuid();
+            await CreateCurrentDocumentsAsync(path, step, dxf, stepVersion, dxfVersion);
+            var repository = new SqliteVerificationSessionRepository(path); var session = await repository.GetOrCreateAsync(step, dxf);
+            session = session with { StepDocumentVersionId = stepVersion, DxfDocumentVersionId = dxfVersion, Status = VerificationSessionStatus.DimensionsMatched }; var matchId = Guid.NewGuid();
+            var match = new DimensionMatch { DimensionMatchId = matchId, VerificationSessionId = session.VerificationSessionId, DxfDocumentVersionId = dxfVersion, StepDocumentVersionId = stepVersion, DxfDimensionReference = 3, Status = DimensionMatchStatus.Unmatched, ReasonCode = "NoCorrespondingGeometryFound" };
+            await repository.ReplaceResultsAsync(session, new[] { match }, DocumentAuditAction.UnmatchedDimensionsFlagged, "checker", "{}");
+            await repository.UpdateReviewAsync(session.VerificationSessionId, matchId, new DimensionReview { DimensionMatchId = matchId, Comment = "Not modeled in 3D", Status = DimensionResolutionStatus.Open }, "checker", DocumentAuditAction.CommentAdded);
+            await using var connection = new SqliteConnection($"Data Source={path}"); await connection.OpenAsync(); await using var command = connection.CreateCommand(); command.CommandText = "SELECT UserId,Action,TimestampUtc,DetailsJson FROM DocumentAuditLog WHERE Action=$action"; command.Parameters.AddWithValue("$action", (int)DocumentAuditAction.CommentAdded);
+            await using var reader = await command.ExecuteReaderAsync(); Assert.True(await reader.ReadAsync()); Assert.Equal("checker", reader.GetString(0)); Assert.Equal((int)DocumentAuditAction.CommentAdded, reader.GetInt32(1)); Assert.Equal(DateTimeKind.Utc, DateTime.Parse(reader.GetString(2), null, System.Globalization.DateTimeStyles.RoundtripKind).Kind);
+            using var details = JsonDocument.Parse(reader.GetString(3)); Assert.Equal(matchId, details.RootElement.GetProperty("dimensionMatchId").GetGuid()); Assert.Equal("checker", details.RootElement.GetProperty("username").GetString());
+        }
+        finally { await DeleteDatabaseAsync(path); }
+    }
+
+    private static async Task CreateCurrentDocumentsAsync(string path, Guid stepId, Guid dxfId, Guid stepVersionId, Guid dxfVersionId)
+    {
+        var documents = new SqliteDocumentRepository(path);
+        var stepVersion = new DocumentVersion { VersionId = stepVersionId, DocumentId = stepId, VersionNumber = 1, StoredRelativePath = "fixture.step", FileSizeBytes = 1 };
+        var dxfVersion = new DocumentVersion { VersionId = dxfVersionId, DocumentId = dxfId, VersionNumber = 1, StoredRelativePath = "fixture.dxf", FileSizeBytes = 1 };
+        await documents.CreateWithVersionAsync(new Document { DocumentId = stepId, OriginalFileName = "fixture.step", FileSizeBytes = 1, DocumentType = DrawVerify.Core.Enums.DocumentType.StepModel, GeometryStatus = DrawVerify.Core.Enums.GeometryStatus.Processed, CurrentVersion = 1, Version = stepVersion, Versions = new[] { stepVersion } }, stepVersion);
+        await documents.CreateWithVersionAsync(new Document { DocumentId = dxfId, OriginalFileName = "fixture.dxf", FileSizeBytes = 1, DocumentType = DrawVerify.Core.Enums.DocumentType.DxfDrawing, VerificationStatus = VerificationStatus.DimensionsExtracted, CurrentVersion = 1, Version = dxfVersion, Versions = new[] { dxfVersion } }, dxfVersion);
+    }
 }

@@ -7,7 +7,7 @@
         <WrapPanel Grid.Row="1" Margin="0,12,0,8">
             <TextBlock Text="Session ID:" VerticalAlignment="Center" />
             <TextBox Width="300" Margin="8,0" Text="{Binding SessionId, UpdateSourceTrigger=PropertyChanged}" />
-            <Button Content="Generate Markdown report" Command="{Binding GenerateCommand}" />
+            <Button Content="Generate Markdown report" Command="{Binding GenerateCommand}" /><Button Content="Export missing dimensions CSV" Command="{Binding ExportMissingDimensionsCommand}" Margin="6,0,0,0" />
         </WrapPanel>
         <Grid Grid.Row="2">
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>

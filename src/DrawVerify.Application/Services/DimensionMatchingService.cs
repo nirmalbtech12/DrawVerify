@@ -108,12 +108,12 @@ public sealed class DimensionMatchingService
     private async Task AddCommentPreservingReviewAsync(Guid sessionId, Guid dimensionMatchId, string comment, CancellationToken cancellationToken)
     {
         var current = await GetUnmatchedReviewAsync(sessionId, dimensionMatchId, cancellationToken).ConfigureAwait(false);
-        await _sessions.UpdateReviewAsync(sessionId, dimensionMatchId, current with { Comment = comment.Trim() }, cancellationToken).ConfigureAwait(false);
+        await _sessions.UpdateReviewAsync(sessionId, dimensionMatchId, current with { Comment = comment.Trim() }, _authentication.CurrentUser!.UserId, DocumentAuditAction.CommentAdded, cancellationToken).ConfigureAwait(false);
     }
     private async Task ResolvePreservingReviewAsync(Guid sessionId, Guid dimensionMatchId, DimensionResolutionStatus status, CancellationToken cancellationToken)
     {
         var current = await GetUnmatchedReviewAsync(sessionId, dimensionMatchId, cancellationToken).ConfigureAwait(false);
-        await _sessions.UpdateReviewAsync(sessionId, dimensionMatchId, current with { Status = status }, cancellationToken).ConfigureAwait(false);
+        await _sessions.UpdateReviewAsync(sessionId, dimensionMatchId, current with { Status = status }, _authentication.CurrentUser!.UserId, DocumentAuditAction.StatusChanged, cancellationToken).ConfigureAwait(false);
     }
     private async Task<DimensionReview> GetUnmatchedReviewAsync(Guid sessionId, Guid dimensionMatchId, CancellationToken cancellationToken)
     {

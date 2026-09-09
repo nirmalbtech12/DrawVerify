@@ -48,7 +48,10 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
     public string StatusFilter { get; set; } = "All";
     public bool SortDescending { get; set; }
     public string SortMode { get; set; } = "Default";
-    public IReadOnlyList<string> SortModes { get; } = new[] { "Default", "Status", "Delta magnitude" };
+    public IReadOnlyList<string> SortModes { get; } = new[] { "Default", "Status", "Delta magnitude", "Layer", "View", "X", "Y" };
+    public string LayerFilter { get; set; } = string.Empty;
+    public string ViewFilter { get; set; } = string.Empty;
+    public string BlockFilter { get; set; } = string.Empty;
     public string SearchText { get; set; } = string.Empty;
     public string UnmatchedDimensionsTitle => "Unmatched Dimensions";
     public IReadOnlyList<string> StatusFilters { get; } = new[] { "All", "Matched", "Mismatched", "Unmatched", "Manual review", "Missing Dimension" };
@@ -76,6 +79,10 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
     public string ToleranceSummary => $"Tolerance: ±{FormatTolerance(_effectiveToleranceThresholdMm ?? _configuredToleranceThresholdMm)} mm (configured/session; explicit dimension tolerances override)";
     public IReadOnlyList<DimensionMatchItemViewModel> MatchResults { get; private set; } = Array.Empty<DimensionMatchItemViewModel>();
     public IReadOnlyList<DimensionMatchItemViewModel> UnmatchedResults => _allMatchResults.Where(item => item.IsUnmatched).ToArray();
+    public string MissingDimensionDetailsLabel => "Missing from 3D (STEP)";
+    public int MissingDimensionLocationTotal => _allMatchResults.Count(item => item.IsUnmatched);
+    public IReadOnlyList<LocationBreakdown> MissingDimensionsByLayer => BuildBreakdown(item => item.Match.DxfLayer);
+    public IReadOnlyList<LocationBreakdown> MissingDimensionsByView => BuildBreakdown(item => item.Match.ViewName);
     public DxfPreviewViewModel DxfPreview { get; } = new();
     private DimensionMatchItemViewModel? _selectedUnmatchedDimension;
     public DimensionMatchItemViewModel? SelectedUnmatchedDimension
@@ -85,7 +92,7 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
         {
             _selectedUnmatchedDimension = value;
             if (value is not null)
-                DxfPreview.SelectDimension(value.Match.DxfDimensionReference, value.Match.PreviewAnchor);
+                DxfPreview.SelectDimension(value.Match.DxfDimensionReference, value.Match.PreviewAnchor, value.Match.LocationX, value.Match.LocationY);
             Notify();
             Notify(nameof(DxfPreview));
             RaiseCommands();
@@ -174,6 +181,9 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
             };
         }
         if (!string.IsNullOrWhiteSpace(SearchText)) filtered = filtered.Where(item => string.Join(" ", item.DimensionText, item.NominalValue, item.DimensionType, item.Reason, item.ReasonExplanation, item.Match.DxfDimensionReference).Contains(SearchText, StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (!string.IsNullOrWhiteSpace(LayerFilter)) filtered = filtered.Where(item => string.Equals(item.Match.DxfLayer, LayerFilter.Trim(), StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (!string.IsNullOrWhiteSpace(ViewFilter)) filtered = filtered.Where(item => string.Equals(item.Match.ViewName, ViewFilter.Trim(), StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (!string.IsNullOrWhiteSpace(BlockFilter)) filtered = filtered.Where(item => string.Equals(item.Match.BlockName, BlockFilter.Trim(), StringComparison.OrdinalIgnoreCase)).ToArray();
         if (string.Equals(SortMode, "Status", StringComparison.OrdinalIgnoreCase))
         {
             var ordered = SortDescending
@@ -186,10 +196,21 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
             var withNullsLast = filtered.OrderBy(item => item.DeltaMagnitude is null);
             MatchResults = (SortDescending ? withNullsLast.ThenByDescending(item => item.DeltaMagnitude) : withNullsLast.ThenBy(item => item.DeltaMagnitude)).ToArray();
         }
+        else if (string.Equals(SortMode, "Layer", StringComparison.OrdinalIgnoreCase))
+            MatchResults = (SortDescending ? filtered.OrderByDescending(item => item.Match.DxfLayer ?? string.Empty).ThenBy(item => item.Match.DxfDimensionReference) : filtered.OrderBy(item => item.Match.DxfLayer ?? string.Empty).ThenBy(item => item.Match.DxfDimensionReference)).ToArray();
+        else if (string.Equals(SortMode, "View", StringComparison.OrdinalIgnoreCase))
+            MatchResults = (SortDescending ? filtered.OrderByDescending(item => item.Match.ViewName ?? string.Empty).ThenBy(item => item.Match.DxfDimensionReference) : filtered.OrderBy(item => item.Match.ViewName ?? string.Empty).ThenBy(item => item.Match.DxfDimensionReference)).ToArray();
+        else if (string.Equals(SortMode, "X", StringComparison.OrdinalIgnoreCase))
+            MatchResults = (SortDescending ? filtered.OrderByDescending(item => item.Match.LocationX is null).ThenByDescending(item => item.Match.LocationX).ThenBy(item => item.Match.DxfDimensionReference) : filtered.OrderBy(item => item.Match.LocationX is null).ThenBy(item => item.Match.LocationX).ThenBy(item => item.Match.DxfDimensionReference)).ToArray();
+        else if (string.Equals(SortMode, "Y", StringComparison.OrdinalIgnoreCase))
+            MatchResults = (SortDescending ? filtered.OrderByDescending(item => item.Match.LocationY is null).ThenByDescending(item => item.Match.LocationY).ThenBy(item => item.Match.DxfDimensionReference) : filtered.OrderBy(item => item.Match.LocationY is null).ThenBy(item => item.Match.LocationY).ThenBy(item => item.Match.DxfDimensionReference)).ToArray();
         else
             MatchResults = (SortDescending ? filtered.OrderByDescending(item => item.DimensionType).ThenByDescending(item => item.NominalValue) : filtered.OrderBy(item => item.DimensionType).ThenBy(item => item.NominalValue)).ToArray();
         Notify(nameof(MatchResults));
         Notify(nameof(UnmatchedResults));
+        Notify(nameof(MissingDimensionLocationTotal));
+        Notify(nameof(MissingDimensionsByLayer));
+        Notify(nameof(MissingDimensionsByView));
     }
     private void UpdateStatusSummaries()
     {
@@ -213,7 +234,11 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
         Notify(nameof(MatchRatio));
         Notify(nameof(DimensionTypeSummaries));
         Notify(nameof(StatusSummaries));
+        Notify(nameof(MissingDimensionLocationTotal));
+        Notify(nameof(MissingDimensionsByLayer));
+        Notify(nameof(MissingDimensionsByView));
     }
+    private IReadOnlyList<LocationBreakdown> BuildBreakdown(Func<DimensionMatchItemViewModel, string?> selector) => _allMatchResults.Where(item => item.IsUnmatched).Select(item => selector(item)).Where(value => !string.IsNullOrWhiteSpace(value)).GroupBy(value => value!, StringComparer.OrdinalIgnoreCase).OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase).Select(group => new LocationBreakdown(group.Key, group.Count())).ToArray();
     private static int StatusPriority(DimensionMatchStatus status) => status switch
     {
         DimensionMatchStatus.Mismatched => 0,
@@ -233,3 +258,5 @@ public sealed record DimensionStatusSummary(DimensionType DimensionType, int Mat
 {
     public int TotalCount => MatchedCount + MismatchedCount + UnmatchedCount;
 }
+
+public sealed record LocationBreakdown(string Location, int Count);

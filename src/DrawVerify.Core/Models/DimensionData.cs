@@ -18,7 +18,11 @@ public sealed record DimensionData
         string? displayText = null,
         RadialDimensionKind radialDimensionKind = RadialDimensionKind.Unknown,
         string? layer = null,
-        string? previewAnchor = null)
+        string? previewAnchor = null,
+        string? blockName = null,
+        string? viewName = null,
+        double? locationX = null,
+        double? locationY = null)
     {
         if (documentId == Guid.Empty)
             throw new ArgumentException("A dimension must reference a document.", nameof(documentId));
@@ -34,6 +38,10 @@ public sealed record DimensionData
             throw new ArgumentOutOfRangeException(nameof(lowerTolerance));
         if (upperTolerance is not null && !double.IsFinite(upperTolerance.Value))
             throw new ArgumentOutOfRangeException(nameof(upperTolerance));
+        if (locationX is not null && !double.IsFinite(locationX.Value))
+            throw new ArgumentOutOfRangeException(nameof(locationX));
+        if (locationY is not null && !double.IsFinite(locationY.Value))
+            throw new ArgumentOutOfRangeException(nameof(locationY));
         if (lowerTolerance is not null && upperTolerance is not null && lowerTolerance > upperTolerance)
             throw new ArgumentException("The lower tolerance cannot exceed the upper tolerance.");
 
@@ -48,6 +56,10 @@ public sealed record DimensionData
         RadialKind = radialDimensionKind;
         Layer = string.IsNullOrWhiteSpace(layer) ? null : layer.Trim();
         PreviewAnchor = string.IsNullOrWhiteSpace(previewAnchor) ? null : previewAnchor.Trim();
+        BlockName = string.IsNullOrWhiteSpace(blockName) ? null : blockName.Trim();
+        ViewName = string.IsNullOrWhiteSpace(viewName) ? null : viewName.Trim();
+        LocationX = locationX;
+        LocationY = locationY;
     }
 
     public Guid DocumentId { get; }
@@ -63,4 +75,10 @@ public sealed record DimensionData
     public RadialDimensionKind RadialKind { get; }
     public string? Layer { get; }
     public string? PreviewAnchor { get; }
+    public string? BlockName { get; }
+    public string? ViewName { get; }
+    public double? LocationX { get; }
+    public double? LocationY { get; }
+    public double? X => LocationX;
+    public double? Y => LocationY;
 }

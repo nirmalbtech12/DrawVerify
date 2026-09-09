@@ -121,6 +121,17 @@ public sealed class ReportServiceStatusTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => new ReportService(new Sessions(Fixtures()), session, generator: generatorFailure).GenerateMarkdownAsync(Guid.NewGuid()));
     }
 
+    [Fact(DisplayName = "TD-004 exports missing dimensions with location fields and CSV escaping")]
+    public async Task Missing_dimension_csv_contains_location_and_escaped_comment()
+    {
+        var authentication = Authenticated("checker", "Checker");
+        var match = new DimensionMatch { Status = DimensionMatchStatus.Unmatched, DxfDimensionReference = 4, NominalValue = 50, DxfLayer = "DIM", BlockName = "B1", ViewName = "Front", LocationX = 1.25, LocationY = 2.5, DimensionText = "50,00", Review = new DimensionReview { DimensionMatchId = Guid.NewGuid(), Comment = "Needs \"design\"\nreview", Status = DimensionResolutionStatus.Open } };
+        var csv = await new ReportService(new Sessions(new[] { match }), authentication).GenerateMissingDimensionsCsvAsync(Guid.NewGuid());
+        Assert.Contains("DimensionMatchId,DimensionValue,Tolerance,Layer,Block,View,X,Y,Annotation,Resolution,Comment", csv);
+        Assert.Contains("DIM,B1,Front,1.25,2.5", csv);
+        Assert.Contains("\"Needs \"\"design\"\"\nreview\"", csv);
+    }
+
     private static SessionAuthenticationService Authenticated(string userId, string role) { var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser(userId, new[] { role }) { UserId = userId }); return auth; }
     private static DimensionMatch[] Fixtures() => new[] { new DimensionMatch { DxfDimensionReference = 1, DimensionType = DimensionType.Linear, Status = DimensionMatchStatus.Matched }, new DimensionMatch { DxfDimensionReference = 2, DimensionType = DimensionType.Linear, Status = DimensionMatchStatus.Mismatched }, new DimensionMatch { DxfDimensionReference = 3, DimensionType = DimensionType.Linear, Status = DimensionMatchStatus.Unmatched }, new DimensionMatch { DxfDimensionReference = 4, DimensionType = DimensionType.Angular, Status = DimensionMatchStatus.Matched } };
     private static string Label(DimensionMatchStatus status) => status.ToString();

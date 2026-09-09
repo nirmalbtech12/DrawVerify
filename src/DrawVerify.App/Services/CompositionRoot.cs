@@ -95,6 +95,11 @@ public static class CompositionRoot
         var database = DatabasePath();
         return new ReportService(new SqliteVerificationSessionRepository(database), Session, Authorization, new MarkdownReportGenerator(), new CentralizedLogger(), new SqliteAuditRepository(database));
     }
+    public static MissingDimensionReviewService CreateMissingDimensionReviewService()
+    {
+        var database = DatabasePath();
+        return new MissingDimensionReviewService(new SqliteVerificationSessionRepository(database), Session, Authorization, new CentralizedLogger());
+    }
     private static StepUploadConfiguration LoadStepUploadConfiguration()
     {
         var logger=new CentralizedLogger();

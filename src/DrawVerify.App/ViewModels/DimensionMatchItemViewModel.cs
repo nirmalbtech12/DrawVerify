@@ -19,6 +19,12 @@ public sealed class DimensionMatchItemViewModel
     public string DimensionText => Match.DimensionText ?? "-";
     public string Layer => Match.DxfLayer ?? "-";
     public string PreviewAnchor => Match.PreviewAnchor ?? "-";
+    public string BlockName => Match.BlockName ?? "-";
+    public string ViewName => Match.ViewName ?? "-";
+    public string LocationX => FormatValue(Match.LocationX);
+    public string LocationY => FormatValue(Match.LocationY);
+    public string Location => Match.LocationX is double x && Match.LocationY is double y ? $"({x.ToString("0.###", CultureInfo.InvariantCulture)}, {y.ToString("0.###", CultureInfo.InvariantCulture)})" : "-";
+    public string MissingFromStepLabel => "Missing from 3D (STEP)";
     public string Comment => Match.Review?.Comment ?? "";
     public string ResolutionStatus => Match.Review?.Status.ToString() ?? "Open";
     public bool IsUnmatched => Match.Status == DimensionMatchStatus.Unmatched;
