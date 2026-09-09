@@ -15,6 +15,41 @@ namespace DrawVerify.App.Tests;
 
 public sealed class VerificationViewModelTests
 {
+    private static void SetResults(VerificationViewModel vm, IEnumerable<DimensionMatch> matches) =>
+        typeof(VerificationViewModel).GetField("_allMatchResults", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(vm, matches.Select(match => new DimensionMatchItemViewModel(match)).ToArray());
+
+    [Fact(DisplayName = "TD-003 filtered result grid does not change overall summary")]
+    public void Filtered_rows_do_not_change_summary_values()
+    {
+        var vm = new VerificationViewModel(new SessionAuthenticationService(), new RoleAuthorization());
+        SetResults(vm, new[]
+        {
+            new DimensionMatch { DimensionType = DimensionType.Linear, Status = DimensionMatchStatus.Matched },
+            new DimensionMatch { DimensionType = DimensionType.Linear, Status = DimensionMatchStatus.Unmatched }
+        });
+        vm.ApplyFilterCommand.Execute(null);
+        vm.StatusFilter = "Matched"; vm.ApplyFilterCommand.Execute(null);
+        Assert.Equal(2, vm.TotalDimensions);
+        Assert.Single(vm.MatchResults);
+    }
+
+    [Fact(DisplayName = "TD-010 500-row summary is exposed through ViewModel")]
+    public void Five_hundred_rows_have_aggregate_summary_fields()
+    {
+        var vm = new VerificationViewModel(new SessionAuthenticationService(), new RoleAuthorization());
+        SetResults(vm, Enumerable.Range(1, 500).Select(i => new DimensionMatchItemViewModel(new DimensionMatch
+        {
+            DimensionType = DimensionType.Linear,
+            Status = i % 2 == 0 ? DimensionMatchStatus.Matched : DimensionMatchStatus.Mismatched,
+            DxfDimensionReference = i
+        }).Match));
+        vm.ApplyFilterCommand.Execute(null);
+        Assert.Equal(500, vm.TotalDimensions);
+        Assert.Equal(250, vm.MatchedDimensions);
+        Assert.Equal(250, vm.MismatchedDimensions);
+    }
+
     [Fact(DisplayName = "TD-APP-004 refreshed results expose the replacement delta")]
     public void Refreshed_match_item_uses_current_persisted_measurement()
     {
@@ -71,15 +106,44 @@ public sealed class VerificationViewModelTests
         Assert.Equal(500, vm.MatchResults.Count); Assert.True(vm.MatchResults.First().DeltaMagnitude >= vm.MatchResults.Last().DeltaMagnitude);
     }
 
-    [Fact(DisplayName = "TD-APPUI-005 clears prior delta rows after authorization failure")]
+    [Fact(DisplayName = "TD-004 clears summary and prior rows after authorization failure")]
     public async Task Unauthorized_refresh_clears_existing_delta_rows()
     {
         var session = new SessionAuthenticationService();
         var vm = new VerificationViewModel(session, new RoleAuthorization(), new DimensionMatchingService(new EmptyDocuments(), new EmptySessions(), new EmptyGeometry(), session, new DimensionMatchingConfiguration()));
         var item = new DimensionMatchItemViewModel(new DimensionMatch { Status = DimensionMatchStatus.Mismatched, NominalValue = 2, MeasuredValue = 1 });
         typeof(VerificationViewModel).GetField("_allMatchResults", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(vm, new[] { item });
+        vm.ApplyFilterCommand.Execute(null);
+        Assert.Equal(1, vm.TotalDimensions);
         await vm.RefreshMatchesAsync(Guid.NewGuid());
         Assert.Empty(vm.MatchResults); Assert.Equal("Access denied.", vm.MatchingStatus);
+        Assert.Equal(0, vm.TotalDimensions); Assert.Equal(0, vm.MissingDimensions); Assert.Null(vm.MatchPercentage); Assert.Equal("N/A (no dimensions)", vm.MatchPercentageText);
+    }
+
+    [Fact(DisplayName = "TD-009 Checker and Approver receive identical summary contract")]
+    public void Approver_is_authorized_for_the_same_summary_surface_as_checker()
+    {
+        var authorization = new RoleAuthorization();
+        var checker = new AuthenticatedUser("checker", new[] { "Checker" });
+        var approver = new AuthenticatedUser("approver", new[] { "Approver" });
+        Assert.True(authorization.IsAllowed(checker, RolePermission.ViewDimensionMatchResults));
+        Assert.True(authorization.IsAllowed(approver, RolePermission.ViewDimensionMatchResults));
+
+        var rows = new[]
+        {
+            new DimensionMatch { DimensionType = DimensionType.Linear, Status = DimensionMatchStatus.Matched },
+            new DimensionMatch { DimensionType = DimensionType.Angular, Status = DimensionMatchStatus.Mismatched },
+            new DimensionMatch { DimensionType = DimensionType.Radial, Status = DimensionMatchStatus.Unmatched }
+        };
+        var checkerVm = new VerificationViewModel(new SessionAuthenticationService(), authorization);
+        var approverVm = new VerificationViewModel(new SessionAuthenticationService(), authorization);
+        SetResults(checkerVm, rows); SetResults(approverVm, rows);
+        checkerVm.ApplyFilterCommand.Execute(null); approverVm.ApplyFilterCommand.Execute(null);
+        Assert.Equal(checkerVm.TotalDimensions, approverVm.TotalDimensions);
+        Assert.Equal(checkerVm.MatchedDimensions, approverVm.MatchedDimensions);
+        Assert.Equal(checkerVm.MismatchedDimensions, approverVm.MismatchedDimensions);
+        Assert.Equal(checkerVm.UnmatchedDimensions, approverVm.UnmatchedDimensions);
+        Assert.Equal(checkerVm.DimensionTypeSummaries, approverVm.DimensionTypeSummaries);
     }
     [Theory(DisplayName = "TD-APPUI-002 review guard follows Checker-or-Approver authorization")]
     [InlineData("Checker", true)]

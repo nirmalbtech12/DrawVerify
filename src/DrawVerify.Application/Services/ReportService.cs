@@ -20,7 +20,7 @@ public sealed class ReportService
     { _sessions = sessions; _authentication = authentication; _authorization = authorization ?? new RoleAuthorization(); _generator = generator ?? new MarkdownReportGenerator(); _logger = logger; _audit = audit; }
     public async Task<string> GenerateMarkdownAsync(Guid sessionId, CancellationToken cancellationToken = default)
     {
-        if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ViewDimensionMatchResults)) throw new UnauthorizedAccessException("Only authenticated Maker or Checker users may access verification reports.");
+        if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ViewDimensionMatchResults)) throw new UnauthorizedAccessException("Only authenticated Maker, Checker, or Approver users may access verification reports.");
         try
         {
             var matches = await _sessions.GetMatchesAsync(sessionId, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -28,7 +28,8 @@ public sealed class ReportService
             var content = await _generator.GenerateMarkdownAsync(report, cancellationToken).ConfigureAwait(false);
             if (_audit is not null)
             {
-                var details = JsonSerializer.Serialize(new { verificationSessionId = sessionId, matchedDimensions = report.DimensionMatches.Count(match => match.Status == DimensionMatchStatus.Matched), mismatchedDimensions = report.MismatchedDimensions.Count, unmatchedDimensions = report.UnmatchedDimensions.Count, reportFormat = "Markdown" });
+                var summary = report.ComparisonSummary;
+                var details = JsonSerializer.Serialize(new { verificationSessionId = sessionId, totalDimensions = summary.TotalDimensions, matchedDimensions = summary.MatchedDimensions, mismatchedDimensions = summary.MismatchedDimensions, unmatchedDimensions = summary.UnmatchedDimensions, missingDimensions = summary.MissingDimensions, matchPercentage = summary.MatchPercentage, reportFormat = "Markdown" });
                 await _audit.WriteAsync(new AuditEntry { DocumentId = sessionId, UserId = _authentication.CurrentUser!.UserId, Action = DocumentAuditAction.VerificationReportGenerated, TimestampUtc = DateTime.UtcNow, DetailsJson = details }, cancellationToken).ConfigureAwait(false);
             }
             return content;

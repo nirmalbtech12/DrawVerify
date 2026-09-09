@@ -41,6 +41,16 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
     public string UnmatchedDimensionsTitle => "Unmatched Dimensions";
     public IReadOnlyList<string> StatusFilters { get; } = new[] { "All", "Matched", "Mismatched", "Unmatched", "Manual review", "Missing Dimension" };
     public IReadOnlyList<DimensionStatusSummary> StatusSummaries { get; private set; } = Array.Empty<DimensionStatusSummary>();
+    public ComparisonSummary ComparisonSummary { get; private set; } = new();
+    public int TotalDimensions => ComparisonSummary.TotalDimensions;
+    public int MatchedDimensions => ComparisonSummary.MatchedDimensions;
+    public int MismatchedDimensions => ComparisonSummary.MismatchedDimensions;
+    public int UnmatchedDimensions => ComparisonSummary.UnmatchedDimensions;
+    public int MissingDimensions => ComparisonSummary.MissingDimensions;
+    public double? MatchPercentage => ComparisonSummary.MatchPercentage;
+    public string MatchPercentageText => MatchPercentage is double percentage ? $"{percentage.ToString("0.##", CultureInfo.InvariantCulture)}% Matched" : "N/A (no dimensions)";
+    public string MatchRatio => TotalDimensions == 0 ? "0/0 Matched" : $"{MatchedDimensions}/{TotalDimensions} Matched";
+    public IReadOnlyList<DimensionTypeSummary> DimensionTypeSummaries => ComparisonSummary.DimensionTypes;
     public ICommand SelectPairCommand { get; }
     public ICommand MatchDimensionsCommand { get; }
     public ICommand RefreshMatchesCommand { get; }
@@ -53,14 +63,14 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
     private IReadOnlyList<DimensionMatchItemViewModel> _allMatchResults = Array.Empty<DimensionMatchItemViewModel>();
     public async Task<bool> MatchDimensionsAsync(Guid sessionId, CancellationToken cancellationToken = default)
     {
-        if (!CanMatchDimensions) { MatchingStatus = "Only authenticated Maker or Checker users may match dimensions."; return false; }
+        if (!CanMatchDimensions) { ClearResults("Access denied."); return false; }
         try { SelectedSessionId = sessionId; var session = await _matching!.MatchDimensionsToGeometryAsync(sessionId, cancellationToken); SetEffectiveTolerance(session.ToleranceThresholdMm ?? _configuredToleranceThresholdMm, updateInput: true); MatchingStatus = session.Status.ToString(); await RefreshMatchesAsync(sessionId, cancellationToken); Notify(nameof(SelectedSessionId)); return true; }
-        catch (UnauthorizedAccessException) { MatchResults = Array.Empty<DimensionMatchItemViewModel>(); MatchingStatus = "Access denied."; return false; }
-        catch (Exception exception) { MatchResults = Array.Empty<DimensionMatchItemViewModel>(); MatchingStatus = exception.Message; return false; }
+        catch (UnauthorizedAccessException) { ClearResults("Access denied."); return false; }
+        catch (Exception exception) { _logger?.Log(exception, "Dimension matching", $"Unable to match verificationSessionId={sessionId}."); ClearResults(exception.Message); return false; }
     }
     public async Task RefreshMatchesAsync(Guid sessionId, CancellationToken cancellationToken = default)
     {
-        if (!CanViewDimensionMatches) { MatchResults = Array.Empty<DimensionMatchItemViewModel>(); MatchingStatus = "Access denied."; return; }
+        if (!CanViewDimensionMatches) { ClearResults("Access denied."); return; }
         try { SetEffectiveTolerance(await _matching!.GetEffectiveToleranceThresholdAsync(sessionId, cancellationToken)); _allMatchResults = (await _matching!.GetResultsAsync(sessionId, cancellationToken: cancellationToken)).Select(match => new DimensionMatchItemViewModel(match)).ToArray(); ApplyResultView(); }
         catch (UnauthorizedAccessException) { ClearResults("Access denied."); }
         catch (Exception exception) { _logger?.Log(exception, "Load dimension matching results", $"Unable to load verificationSessionId={sessionId}."); ClearResults("Unable to load matching results."); }
@@ -74,7 +84,7 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
     }
     private async Task MatchSelectedDimensionsAsync() { if (SelectedSessionId is Guid id) { IsBusy = true; Notify(nameof(IsBusy)); RaiseCommands(); try { await MatchDimensionsAsync(id); } finally { IsBusy = false; Notify(nameof(IsBusy)); RaiseCommands(); } } }
     private async Task RefreshSelectedMatchesAsync() { if (SelectedSessionId is Guid id) { IsBusy = true; Notify(nameof(IsBusy)); try { await RefreshMatchesAsync(id); } finally { IsBusy = false; Notify(nameof(IsBusy)); } } }
-    private async Task UpdateToleranceAsync() { if (SelectedSessionId is not Guid id || !double.TryParse(ToleranceThresholdInput, NumberStyles.Float, CultureInfo.InvariantCulture, out var tolerance) || !double.IsFinite(tolerance) || tolerance < 0) { MatchingStatus = "Enter a non-negative tolerance in millimetres."; Notify(nameof(MatchingStatus)); return; } IsBusy = true; Notify(nameof(IsBusy)); try { var session = await _matching!.UpdateToleranceAndRecompareAsync(id, tolerance); SetEffectiveTolerance(session.ToleranceThresholdMm ?? tolerance, updateInput: true); await RefreshMatchesAsync(id); MatchingStatus = $"Tolerance comparison completed using ±{FormatTolerance(tolerance)} mm."; Notify(nameof(MatchingStatus)); } catch (Exception exception) { _logger?.Log(exception, "Tolerance re-comparison", $"Unable to recompare verificationSessionId={id}."); MatchingStatus = exception is UnauthorizedAccessException ? "Access denied." : exception.Message; Notify(nameof(MatchingStatus)); } finally { IsBusy = false; RaiseCommands(); } }
+    private async Task UpdateToleranceAsync() { if (SelectedSessionId is not Guid id || !double.TryParse(ToleranceThresholdInput, NumberStyles.Float, CultureInfo.InvariantCulture, out var tolerance) || !double.IsFinite(tolerance) || tolerance < 0) { MatchingStatus = "Enter a non-negative tolerance in millimetres."; Notify(nameof(MatchingStatus)); return; } IsBusy = true; Notify(nameof(IsBusy)); try { var session = await _matching!.UpdateToleranceAndRecompareAsync(id, tolerance); SetEffectiveTolerance(session.ToleranceThresholdMm ?? tolerance, updateInput: true); await RefreshMatchesAsync(id); MatchingStatus = $"Tolerance comparison completed using ±{FormatTolerance(tolerance)} mm."; Notify(nameof(MatchingStatus)); } catch (Exception exception) { if (exception is not UnauthorizedAccessException) _logger?.Log(exception, "Tolerance re-comparison", $"Unable to recompare verificationSessionId={id}."); ClearResults(exception is UnauthorizedAccessException ? "Access denied." : exception.Message); } finally { IsBusy = false; RaiseCommands(); } }
     private void ApplyResultView()
     {
         UpdateStatusSummaries();
@@ -108,6 +118,7 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
     }
     private void UpdateStatusSummaries()
     {
+        ComparisonSummary = DrawVerify.Core.Models.ComparisonSummary.From(_allMatchResults.Select(item => item.Match));
         StatusSummaries = Enum.GetValues<DimensionType>().Select(type =>
         {
             var matches = _allMatchResults.Where(item => item.Match.DimensionType == type).Select(item => item.Match);
@@ -116,6 +127,16 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
                 matches.Count(match => match.Status == DimensionMatchStatus.Mismatched),
                 matches.Count(match => match.Status == DimensionMatchStatus.Unmatched));
         }).ToArray();
+        Notify(nameof(ComparisonSummary));
+        Notify(nameof(TotalDimensions));
+        Notify(nameof(MatchedDimensions));
+        Notify(nameof(MismatchedDimensions));
+        Notify(nameof(UnmatchedDimensions));
+        Notify(nameof(MissingDimensions));
+        Notify(nameof(MatchPercentage));
+        Notify(nameof(MatchPercentageText));
+        Notify(nameof(MatchRatio));
+        Notify(nameof(DimensionTypeSummaries));
         Notify(nameof(StatusSummaries));
     }
     private static int StatusPriority(DimensionMatchStatus status) => status switch

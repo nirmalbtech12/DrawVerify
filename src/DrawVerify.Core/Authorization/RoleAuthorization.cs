@@ -9,7 +9,7 @@ public sealed class RoleAuthorization
         [SystemRoles.Admin] = new HashSet<RolePermission> { RolePermission.ManageUsersAndRoles, RolePermission.ViewAuditLog, RolePermission.ManageGlobalConfiguration },
         [SystemRoles.Maker] = new HashSet<RolePermission> { RolePermission.Upload, RolePermission.TriggerExtraction, RolePermission.TriggerDxfDimensionExtraction, RolePermission.ViewDxfDimensionResults, RolePermission.StartVerification, RolePermission.MatchDimensionsToGeometry, RolePermission.ViewDimensionMatchResults, RolePermission.ManageToleranceComparison },
         [SystemRoles.Checker] = new HashSet<RolePermission> { RolePermission.ReviewVerification, RolePermission.ResolveUnmatched, RolePermission.ApproveVerification, RolePermission.TriggerDxfDimensionExtraction, RolePermission.ViewDxfDimensionResults, RolePermission.MatchDimensionsToGeometry, RolePermission.ViewDimensionMatchResults, RolePermission.ManageToleranceComparison },
-        [SystemRoles.Approver] = new HashSet<RolePermission> { RolePermission.ReviewVerification, RolePermission.FinalApproval, RolePermission.ControlDocumentAccess, RolePermission.GenerateFinalReports },
+        [SystemRoles.Approver] = new HashSet<RolePermission> { RolePermission.ReviewVerification, RolePermission.FinalApproval, RolePermission.ControlDocumentAccess, RolePermission.GenerateFinalReports, RolePermission.ViewDimensionMatchResults },
         [SystemRoles.Viewer] = new HashSet<RolePermission> { RolePermission.ReadApprovedDocuments, RolePermission.ReadApprovedReports }
     };
     public bool IsAllowed(AuthenticatedUser? user, RolePermission permission)
