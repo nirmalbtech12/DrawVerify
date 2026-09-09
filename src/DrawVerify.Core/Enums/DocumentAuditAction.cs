@@ -12,5 +12,5 @@ public enum DocumentAuditAction
     DimensionsMatchedPartial = 13,
     DimensionMatchingFailed = 14,
     UnmatchedDimensionsFlagged = 15,
-    ToleranceComparisonApplied = 16
+    ToleranceComparisonApplied = 16, VerificationReportGenerated = 17
 }

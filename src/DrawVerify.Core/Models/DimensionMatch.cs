@@ -23,4 +23,9 @@ public sealed record DimensionMatch
     public double? EffectiveUpperTolerance { get; init; }
     public string? ToleranceUnit { get; init; }
     public ToleranceSource? ToleranceSource { get; init; }
+    public double? SignedDelta => IsFinite(NominalValue) && IsFinite(MeasuredValue) ? NominalValue!.Value - MeasuredValue!.Value : null;
+    public double? AbsoluteDelta => SignedDelta is double delta && double.IsFinite(delta) ? Math.Abs(delta) : null;
+    public double? DeltaMagnitude => AbsoluteDelta;
+    public string DeltaUnit => DimensionType == Enums.DimensionType.Angular ? "°" : "mm";
+    private static bool IsFinite(double? value) => value is double number && double.IsFinite(number);
 }
