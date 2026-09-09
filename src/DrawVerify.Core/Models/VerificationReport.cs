@@ -3,16 +3,29 @@ namespace DrawVerify.Core.Models;
 public sealed class VerificationReport
 {
     public IReadOnlyList<DimensionMatch> DimensionMatches { get; init; } = Array.Empty<DimensionMatch>();
+    public ComparisonSummary ComparisonSummary => DrawVerify.Core.Models.ComparisonSummary.From(DimensionMatches);
     public IReadOnlyList<DimensionMatch> UnmatchedDimensions => DimensionMatches.Where(match => match.Status == Enums.DimensionMatchStatus.Unmatched).ToArray();
     public IReadOnlyList<DimensionMatch> MismatchedDimensions => DimensionMatches.Where(match => match.Status == Enums.DimensionMatchStatus.Mismatched).ToArray();
     public string ToMarkdown()
     {
-        var lines = new List<string> { "# Verification Report", string.Empty, "## Dimension Status Summary", string.Empty };
-        foreach (var type in Enum.GetValues<Enums.DimensionType>())
-        {
-            var typeMatches = DimensionMatches.Where(match => match.DimensionType == type).ToArray();
-            lines.Add($"- {type}: {typeMatches.Count(match => match.Status == Enums.DimensionMatchStatus.Matched)} Matched, {typeMatches.Count(match => match.Status == Enums.DimensionMatchStatus.Mismatched)} Mismatched, {typeMatches.Count(match => match.Status == Enums.DimensionMatchStatus.Unmatched)} Unmatched");
-        }
+        var summary = ComparisonSummary;
+        var lines = new List<string> { "# Verification Report", string.Empty, "## Comparison Summary", string.Empty,
+            $"- Total Dimensions: {summary.TotalDimensions}",
+            $"- Matched: {summary.MatchedDimensions}",
+            $"- Mismatched: {summary.MismatchedDimensions}",
+            $"- Unmatched: {summary.UnmatchedDimensions}",
+            $"- Missing Dimensions: {summary.MissingDimensions}",
+            $"- Match Percentage: {(summary.MatchPercentage is double percentage ? percentage.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + "%" : "N/A")}",
+            string.Empty,
+            "### Summary by Dimension Type",
+            string.Empty };
+        foreach (var type in summary.DimensionTypes)
+            lines.Add($"- {type.DimensionType}: {type.MatchedDimensions} Matched, {type.MismatchedDimensions} Mismatched, {type.UnmatchedDimensions} Unmatched");
+        lines.Add(string.Empty);
+        lines.Add("## Dimension Status Summary");
+        lines.Add(string.Empty);
+        foreach (var type in summary.DimensionTypes)
+            lines.Add($"- {type.DimensionType}: {type.MatchedDimensions} Matched, {type.MismatchedDimensions} Mismatched, {type.UnmatchedDimensions} Unmatched");
         lines.Add(string.Empty);
         lines.Add("## Dimension Status Details");
         lines.Add(string.Empty);

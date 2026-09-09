@@ -13,6 +13,21 @@
             <TextBlock Text="Verification session selection" FontWeight="Bold" />
             <WrapPanel Margin="0,6,0,4"><TextBox Width="260" Text="{Binding StepDocumentId, UpdateSourceTrigger=PropertyChanged}" ToolTip="STEP document ID"/><TextBox Width="260" Margin="6,0,0,0" Text="{Binding DxfDocumentId, UpdateSourceTrigger=PropertyChanged}" ToolTip="DXF document ID"/><Button Content="Select pair/session" Command="{Binding SelectPairCommand}" Margin="6,0,0,0"/><Button Content="Match dimensions" Command="{Binding MatchDimensionsCommand}" Margin="6,0,0,0"/><Button Content="Refresh" Command="{Binding RefreshMatchesCommand}" Margin="6,0,0,0"/><TextBox Width="70" Margin="6,0,0,0" Text="{Binding ToleranceThresholdInput, UpdateSourceTrigger=PropertyChanged}" ToolTip="Tolerance in mm"/><Button Content="Re-run tolerance" Command="{Binding UpdateToleranceCommand}" Margin="6,0,0,0"/></WrapPanel>
             <TextBlock Text="{Binding UnmatchedDimensionsTitle}" FontWeight="Bold" Foreground="DarkRed" Margin="0,4,0,2"/>
+            <GroupBox Header="Comparison Summary" Margin="0,0,0,6">
+                <StackPanel Margin="6">
+                    <WrapPanel>
+                        <TextBlock Text="Total Dimensions: " FontWeight="Bold"/><TextBlock Text="{Binding TotalDimensions}" Margin="0,0,12,0"/>
+                        <TextBlock Text="Matched: " FontWeight="Bold"/><TextBlock Text="{Binding MatchedDimensions}" Margin="0,0,12,0"/>
+                        <TextBlock Text="Mismatched: " FontWeight="Bold"/><TextBlock Text="{Binding MismatchedDimensions}" Margin="0,0,12,0"/>
+                        <TextBlock Text="Unmatched: " FontWeight="Bold"/><TextBlock Text="{Binding UnmatchedDimensions}" Margin="0,0,12,0"/>
+                        <TextBlock Text="Missing Dimensions: " FontWeight="Bold"/><TextBlock Text="{Binding MissingDimensions}" Margin="0,0,12,0"/>
+                        <TextBlock Text="Match: " FontWeight="Bold"/><TextBlock Text="{Binding MatchPercentageText}"/>
+                    </WrapPanel>
+                    <ItemsControl ItemsSource="{Binding DimensionTypeSummaries}" Margin="0,4,0,0">
+                        <ItemsControl.ItemTemplate><DataTemplate><TextBlock><Run Text="{Binding DimensionType}"/><Run Text=": "/><Run Text="{Binding MatchedDimensions}"/><Run Text=" Matched, "/><Run Text="{Binding MismatchedDimensions}"/><Run Text=" Mismatched, "/><Run Text="{Binding UnmatchedDimensions}"/><Run Text=" Unmatched"/></TextBlock></DataTemplate></ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </GroupBox>
             <ItemsControl ItemsSource="{Binding StatusSummaries}" Margin="0,0,0,4">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>

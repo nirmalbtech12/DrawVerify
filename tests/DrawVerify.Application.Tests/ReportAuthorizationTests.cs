@@ -8,12 +8,22 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class ReportAuthorizationTests
 {
-    [Theory(DisplayName = "TD-SVC-003 denies unauthenticated and unauthorized report access")]
+    [Fact(DisplayName = "TD-009 Approver has the same report permission as Checker")]
+    public void Approver_and_checker_are_authorized_for_summary_report()
+    {
+        var authorization = new RoleAuthorization();
+        Assert.True(authorization.IsAllowed(new AuthenticatedUser("checker", new[] { "Checker" }), RolePermission.ViewDimensionMatchResults));
+        Assert.True(authorization.IsAllowed(new AuthenticatedUser("approver", new[] { "Approver" }), RolePermission.ViewDimensionMatchResults));
+        Assert.False(authorization.IsAllowed(new AuthenticatedUser("viewer", new[] { "Viewer" }), RolePermission.ViewDimensionMatchResults));
+    }
+
+    [Theory(DisplayName = "TD-008 denies unauthenticated and unauthorized report access")]
     [InlineData(null, false)]
     [InlineData("Viewer", false)]
     [InlineData("Checker", true)]
     [InlineData("Maker", true)]
-    public async Task Existing_report_authorization_boundary_is_preserved(string? role, bool allowed)
+    [InlineData("Approver", true)]
+    public async Task TD_008_report_authorization_matrix_has_no_data_for_denied_roles(string? role, bool allowed)
     {
         var auth = new SessionAuthenticationService(); if (role is not null) auth.SignIn(new AuthenticatedUser("user", new[] { role }));
         var task = new ReportService(new Sessions(), auth).GenerateMarkdownAsync(Guid.NewGuid());

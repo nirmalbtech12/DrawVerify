@@ -12,7 +12,43 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class ReportServiceStatusTests
 {
-    [Fact(DisplayName = "TD-SVC-001 generates complete canonical status summary and details")]
+    [Fact(DisplayName = "TD-001 derives overall counts and excludes MissingDimension from total")]
+    public void Comparison_summary_counts_zero_and_missing_rows_separately()
+    {
+        var empty = ComparisonSummary.From(Array.Empty<DimensionMatch>());
+        Assert.Equal(0, empty.TotalDimensions);
+        Assert.Null(empty.MatchPercentage);
+
+        var summary = ComparisonSummary.From(Fixtures().Append(new DimensionMatch
+        {
+            DxfDimensionReference = -1,
+            DimensionType = DimensionType.Radial,
+            Status = DimensionMatchStatus.MissingDimension
+        }));
+
+        Assert.Equal(4, summary.TotalDimensions);
+        Assert.Equal(2, summary.MatchedDimensions);
+        Assert.Equal(1, summary.MismatchedDimensions);
+        Assert.Equal(1, summary.UnmatchedDimensions);
+        Assert.Equal(1, summary.MissingDimensions);
+    }
+
+    [Fact(DisplayName = "TD-002 calculates exact percentage and typed breakdown")]
+    public void Comparison_summary_calculates_percentage_and_all_dimension_types()
+    {
+        var rows = Enumerable.Range(1, 17).Select(i => new DimensionMatch { DxfDimensionReference = i, DimensionType = DimensionType.Linear, Status = DimensionMatchStatus.Matched })
+            .Concat(Enumerable.Range(18, 3).Select(i => new DimensionMatch { DxfDimensionReference = i, DimensionType = DimensionType.Angular, Status = DimensionMatchStatus.Mismatched }))
+            .Concat(Enumerable.Range(21, 3).Select(i => new DimensionMatch { DxfDimensionReference = i, DimensionType = DimensionType.Radial, Status = DimensionMatchStatus.Unmatched }));
+        var summary = ComparisonSummary.From(rows);
+
+        Assert.NotNull(summary.MatchPercentage);
+        Assert.Equal(17d / 23d * 100d, summary.MatchPercentage!.Value, precision: 12);
+        Assert.Equal((17, 0, 0), TypeCounts(summary, DimensionType.Linear));
+        Assert.Equal((0, 3, 0), TypeCounts(summary, DimensionType.Angular));
+        Assert.Equal((0, 0, 3), TypeCounts(summary, DimensionType.Radial));
+    }
+
+    [Fact(DisplayName = "TD-005 generates complete Comparison Summary and preserves detail sections")]
     public async Task Markdown_report_contains_every_dimension_and_derived_counts()
     {
         var sessionId = Guid.NewGuid();
@@ -21,6 +57,13 @@ public sealed class ReportServiceStatusTests
         var content = await new ReportService(new Sessions(matches), auth).GenerateMarkdownAsync(sessionId);
 
         Assert.Contains("## Dimension Status Summary", content);
+        Assert.Contains("## Comparison Summary", content);
+        Assert.Contains("Total Dimensions: 4", content);
+        Assert.Contains("Matched: 2", content);
+        Assert.Contains("Mismatched: 1", content);
+        Assert.Contains("Unmatched: 1", content);
+        Assert.Contains("Missing Dimensions: 0", content);
+        Assert.Contains("Match Percentage: 50%", content);
         Assert.Contains("Linear: 1 Matched, 1 Mismatched, 1 Unmatched", content);
         Assert.Contains("Angular: 1 Matched, 0 Mismatched, 0 Unmatched", content);
         foreach (var match in matches)
@@ -30,7 +73,7 @@ public sealed class ReportServiceStatusTests
         }
     }
 
-    [Fact(DisplayName = "TD-SVC-002 persists Markdown export audit details")]
+    [Fact(DisplayName = "TD-006 persists Markdown export audit DetailsJson")]
     public async Task Markdown_export_writes_sqlite_audit_with_status_counts_and_format()
     {
         var path = Path.Combine(Path.GetTempPath(), $"drawverify-{Guid.NewGuid():N}.db");
@@ -46,16 +89,44 @@ public sealed class ReportServiceStatusTests
                 await using var reader = await command.ExecuteReaderAsync(); Assert.True(await reader.ReadAsync());
                 Assert.Equal(sessionId.ToString(), reader.GetString(0)); Assert.Equal("checker-id", reader.GetString(1)); Assert.Equal((int)DocumentAuditAction.VerificationReportGenerated, reader.GetInt32(2)); Assert.True(DateTime.TryParse(reader.GetString(3), out _));
                 using var details = JsonDocument.Parse(reader.GetString(4)); var root = details.RootElement;
+                Assert.Equal(sessionId.ToString(), root.GetProperty("verificationSessionId").GetGuid().ToString());
+                Assert.Equal(4, root.GetProperty("totalDimensions").GetInt32());
                 Assert.Equal(2, root.GetProperty("matchedDimensions").GetInt32()); Assert.Equal(1, root.GetProperty("mismatchedDimensions").GetInt32()); Assert.Equal(1, root.GetProperty("unmatchedDimensions").GetInt32()); Assert.Equal("Markdown", root.GetProperty("reportFormat").GetString());
+                Assert.Equal(0, root.GetProperty("missingDimensions").GetInt32()); Assert.Equal(50, root.GetProperty("matchPercentage").GetDouble());
             }
             SqliteConnection.ClearAllPools();
         }
         finally { if (File.Exists(path)) File.Delete(path); }
     }
 
+    [Fact(DisplayName = "TD-007 propagates audit and generator failures")]
+    public async Task Report_failures_are_visible_and_not_returned_as_partial_success()
+    {
+        var session = new SessionAuthenticationService();
+        session.SignIn(new AuthenticatedUser("checker", new[] { "Checker" }));
+        var auditFailure = new FailingAudit();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new ReportService(new Sessions(Fixtures()), session, audit: auditFailure).GenerateMarkdownAsync(Guid.NewGuid()));
+
+        var generatorFailure = new FailingGenerator();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new ReportService(new Sessions(Fixtures()), session, generator: generatorFailure).GenerateMarkdownAsync(Guid.NewGuid()));
+    }
+
     private static SessionAuthenticationService Authenticated(string userId, string role) { var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser(userId, new[] { role }) { UserId = userId }); return auth; }
     private static DimensionMatch[] Fixtures() => new[] { new DimensionMatch { DxfDimensionReference = 1, DimensionType = DimensionType.Linear, Status = DimensionMatchStatus.Matched }, new DimensionMatch { DxfDimensionReference = 2, DimensionType = DimensionType.Linear, Status = DimensionMatchStatus.Mismatched }, new DimensionMatch { DxfDimensionReference = 3, DimensionType = DimensionType.Linear, Status = DimensionMatchStatus.Unmatched }, new DimensionMatch { DxfDimensionReference = 4, DimensionType = DimensionType.Angular, Status = DimensionMatchStatus.Matched } };
     private static string Label(DimensionMatchStatus status) => status.ToString();
+    private static (int, int, int) TypeCounts(ComparisonSummary summary, DimensionType type)
+    {
+        var item = Assert.Single(summary.DimensionTypes.Where(item => item.DimensionType == type));
+        return (item.MatchedDimensions, item.MismatchedDimensions, item.UnmatchedDimensions);
+    }
+    private sealed class FailingAudit : IAuditLogger
+    {
+        public Task WriteAsync(AuditEntry entry, CancellationToken cancellationToken = default) => Task.FromException(new InvalidOperationException("audit failure"));
+    }
+    private sealed class FailingGenerator : IReportGenerator
+    {
+        public Task<string> GenerateMarkdownAsync(VerificationReport report, CancellationToken cancellationToken = default) => Task.FromException<string>(new InvalidOperationException("generator failure"));
+    }
     private sealed class Sessions(IReadOnlyList<DimensionMatch> matches) : IVerificationSessionRepository
     {
         public Task<VerificationSession?> GetAsync(Guid id, CancellationToken token = default) => Task.FromResult<VerificationSession?>(new VerificationSession { VerificationSessionId = id });
