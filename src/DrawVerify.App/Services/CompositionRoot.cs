@@ -93,7 +93,7 @@ public static class CompositionRoot
     public static ReportService CreateReportService()
     {
         var database = DatabasePath();
-        return new ReportService(new SqliteVerificationSessionRepository(database), Session, Authorization, new MarkdownReportGenerator(), new CentralizedLogger());
+        return new ReportService(new SqliteVerificationSessionRepository(database), Session, Authorization, new MarkdownReportGenerator(), new CentralizedLogger(), new SqliteAuditRepository(database));
     }
     private static StepUploadConfiguration LoadStepUploadConfiguration()
     {

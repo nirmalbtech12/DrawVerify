@@ -1,4 +1,5 @@
 namespace DrawVerify.Application.Services;
+using System.Text.Json;
 using DrawVerify.Core.Authorization;
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Interfaces;
@@ -14,15 +15,23 @@ public sealed class ReportService
     private readonly RoleAuthorization _authorization;
     private readonly IReportGenerator _generator;
     private readonly ICentralizedLogger? _logger;
-    public ReportService(IVerificationSessionRepository sessions, ISessionAuthenticationService authentication, RoleAuthorization? authorization = null, IReportGenerator? generator = null, ICentralizedLogger? logger = null)
-    { _sessions = sessions; _authentication = authentication; _authorization = authorization ?? new RoleAuthorization(); _generator = generator ?? new MarkdownReportGenerator(); _logger = logger; }
+    private readonly IAuditLogger? _audit;
+    public ReportService(IVerificationSessionRepository sessions, ISessionAuthenticationService authentication, RoleAuthorization? authorization = null, IReportGenerator? generator = null, ICentralizedLogger? logger = null, IAuditLogger? audit = null)
+    { _sessions = sessions; _authentication = authentication; _authorization = authorization ?? new RoleAuthorization(); _generator = generator ?? new MarkdownReportGenerator(); _logger = logger; _audit = audit; }
     public async Task<string> GenerateMarkdownAsync(Guid sessionId, CancellationToken cancellationToken = default)
     {
         if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ViewDimensionMatchResults)) throw new UnauthorizedAccessException("Only authenticated Maker or Checker users may access verification reports.");
         try
         {
             var matches = await _sessions.GetMatchesAsync(sessionId, cancellationToken: cancellationToken).ConfigureAwait(false);
-            return await _generator.GenerateMarkdownAsync(new VerificationReport { DimensionMatches = matches }, cancellationToken).ConfigureAwait(false);
+            var report = new VerificationReport { DimensionMatches = matches };
+            var content = await _generator.GenerateMarkdownAsync(report, cancellationToken).ConfigureAwait(false);
+            if (_audit is not null)
+            {
+                var details = JsonSerializer.Serialize(new { verificationSessionId = sessionId, mismatchedDimensions = report.MismatchedDimensions.Count, reportFormat = "Markdown" });
+                await _audit.WriteAsync(new AuditEntry { DocumentId = sessionId, UserId = _authentication.CurrentUser!.UserId, Action = DocumentAuditAction.VerificationReportGenerated, TimestampUtc = DateTime.UtcNow, DetailsJson = details }, cancellationToken).ConfigureAwait(false);
+            }
+            return content;
         }
         catch (Exception exception) when (exception is not UnauthorizedAccessException and not OperationCanceledException)
         {

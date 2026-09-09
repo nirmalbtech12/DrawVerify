@@ -17,6 +17,22 @@ using System.Text.Json;
 
 public sealed class DimensionMatchingServiceTests
 {
+    [Fact(DisplayName = "TD-APP-004 replaces stale deltas after recomparison")]
+    public async Task Recomparison_replaces_previous_match_values_and_delta()
+    {
+        var step = NewDocument(CoreDocumentType.StepModel, CoreGeometryStatus.Processed, VerificationStatus.Unknown);
+        var dxf = NewDocument(CoreDocumentType.DxfDrawing, CoreGeometryStatus.NotExtracted, VerificationStatus.DimensionsExtracted);
+        var session = new VerificationSession { VerificationSessionId = Guid.NewGuid(), StepDocumentId = step.DocumentId, DxfDocumentId = dxf.DocumentId };
+        var docs = new DocumentsFake(step, dxf, new[] { new CoreDimensionData(dxf.DocumentId, dxf.Version!.VersionId, 1, DimensionType.Linear, 10) });
+        var sessions = new SessionFake(session); var geometry = new GeometryFake(new GeometryFeatureData { Reference = "Edge:1", GeometryType = "Line", Length = 9.85 });
+        var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser("checker", new[] { "Checker" }) { UserId = "checker" });
+        var service = new DimensionMatchingService(docs, sessions, geometry, auth, new DimensionMatchingConfiguration());
+        await service.MatchDimensionsToGeometryAsync(session.VerificationSessionId);
+        Assert.Equal(.15, Assert.Single(sessions.Matches).SignedDelta!.Value, 12);
+        geometry.Features = new[] { new GeometryFeatureData { Reference = "Edge:1", GeometryType = "Line", Length = 10.275 } };
+        await service.UpdateToleranceAndRecompareAsync(session.VerificationSessionId, .1);
+        var replacement = Assert.Single(sessions.Matches); Assert.Equal(-.275, replacement.SignedDelta!.Value, 12); Assert.DoesNotContain(sessions.Matches, x => x.SignedDelta is double delta && Math.Abs(delta - .15) < 1e-12); Assert.Equal(DocumentAuditAction.ToleranceComparisonApplied, sessions.Action);
+    }
     [Fact(DisplayName = "TD-APP-002 denies matching before session or geometry access")]
     public async Task Unauthorized_matching_does_not_lookup_session_or_geometry()
     {
@@ -174,5 +190,5 @@ public sealed class DimensionMatchingServiceTests
         public Task ReplaceResultsAsync(VerificationSession session, IReadOnlyCollection<DimensionMatch> matches, DocumentAuditAction action, string userId, string detailsJson, CancellationToken cancellationToken = default) { ReplaceCount++; Action = action; UserId = userId; DetailsJson = detailsJson; Matches = matches.ToArray(); return Task.CompletedTask; }
     }
     private sealed class GeometryFake(params GeometryFeatureData[] features) : IMatchableGeometryService
-    { public int CallCount; public MatchableGeometryExtractionResult ExtractMatchableGeometry(MatchableGeometryExtractionRequest request, CancellationToken cancellationToken = default) { CallCount++; return new(true, features); } }
+    { public int CallCount; public GeometryFeatureData[] Features { get; set; } = features; public MatchableGeometryExtractionResult ExtractMatchableGeometry(MatchableGeometryExtractionRequest request, CancellationToken cancellationToken = default) { CallCount++; return new(true, Features); } }
 }

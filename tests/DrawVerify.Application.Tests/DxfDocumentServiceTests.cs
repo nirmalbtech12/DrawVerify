@@ -100,7 +100,7 @@ public sealed class DxfDocumentServiceTests
         var confirmedRequest = new DxfUploadRequest("a.dxf", new MemoryStream(Dxf()));
         var confirmation = await confirmedFakes.Service.PrepareDxfUploadAsync(confirmedRequest);
         var copied = new List<long>();
-        confirmedRequest = new DxfUploadRequest("a.dxf", new MemoryStream(Dxf())) { Progress = new Progress<long>(copied.Add) };
+        confirmedRequest = new DxfUploadRequest("a.dxf", new MemoryStream(Dxf())) { Progress = new InlineProgress(copied.Add) };
         var versioned = await confirmedFakes.Service.UploadDxfAsync(confirmedRequest, confirmation.Preparation!);
         Assert.Equal(DxfUploadResultKind.Success, versioned.Kind);
         Assert.NotEmpty(copied);
@@ -119,4 +119,6 @@ public sealed class DxfDocumentServiceTests
     { public Document? Duplicate; public Document? Created; public Task<Document?> FindByOriginalNameAndSizeAsync(string n,long s,CancellationToken t=default)=>Task.FromResult(Duplicate); public Task<Document?> GetAsync(Guid id,CancellationToken t=default)=>Task.FromResult(Created); public Task CreateWithVersionAsync(Document d,DocumentVersion v,CancellationToken t=default){Created=d;return Task.CompletedTask;} public Task AddVersionAsync(Guid id,DocumentVersion v,CancellationToken t=default)=>Task.CompletedTask; public Task CreateWithVersionAndAuditAsync(Document d,DocumentVersion v,AuditEntry a,CancellationToken t=default){Created=d;audit.Entries.Add(a);return Task.CompletedTask;} public Task AddVersionWithAuditAsync(Guid id,DocumentVersion v,AuditEntry a,CancellationToken t=default){audit.Entries.Add(a);return Task.CompletedTask;} }
     private sealed class StoreFake : IDxfUploadFileStore
     { public List<string> Created { get; } = new(); public Task<DxfUploadStagingFile> CreateStagingFileAsync(string n,CancellationToken t=default){Created.Add(n);return Task.FromResult(new DxfUploadStagingFile("uploads/dxf/stage",new MemoryStream()));} public Task<string> MoveToFinalAsync(DxfUploadStagingFile s,CancellationToken t=default)=>Task.FromResult("uploads/dxf/final.dxf"); public Task DeleteAsync(string p,CancellationToken t=default)=>Task.CompletedTask; }
+    private sealed class InlineProgress(Action<long> report) : IProgress<long>
+    { public void Report(long value) => report(value); }
 }

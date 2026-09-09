@@ -15,6 +15,72 @@ namespace DrawVerify.App.Tests;
 
 public sealed class VerificationViewModelTests
 {
+    [Fact(DisplayName = "TD-APP-004 refreshed results expose the replacement delta")]
+    public void Refreshed_match_item_uses_current_persisted_measurement()
+    {
+        var item = new DimensionMatchItemViewModel(new DimensionMatch { Status = DimensionMatchStatus.Mismatched, DimensionType = DimensionType.Linear, NominalValue = 10, MeasuredValue = 10.275 });
+        Assert.Equal(-.275, item.Match.SignedDelta!.Value, 12); Assert.Equal(.275, item.DeltaMagnitude!.Value, 12); Assert.Equal("Δ = -0.275 mm", item.SignedDelta);
+    }
+    [Fact(DisplayName = "TD-APPUI-001 formats signed and absolute deltas with invariant precision")]
+    public void Delta_values_use_explicit_sign_three_decimals_and_units()
+    {
+        var item = new DimensionMatchItemViewModel(new DimensionMatch { Status = DimensionMatchStatus.Mismatched, DimensionType = DimensionType.Linear, NominalValue = 10, MeasuredValue = 9.85 });
+        var negative = new DimensionMatchItemViewModel(new DimensionMatch { Status = DimensionMatchStatus.Mismatched, DimensionType = DimensionType.Radial, NominalValue = 9.92, MeasuredValue = 10 });
+        var angle = new DimensionMatchItemViewModel(new DimensionMatch { Status = DimensionMatchStatus.Mismatched, DimensionType = DimensionType.Angular, NominalValue = 45, MeasuredValue = 42.5 });
+        Assert.Equal("Δ = +0.150 mm", item.SignedDelta); Assert.Equal("Δ = 0.150 mm", item.AbsoluteDelta);
+        Assert.Equal("Δ = -0.080 mm", negative.SignedDelta); Assert.Equal("Δ = 0.080 mm", negative.AbsoluteDelta);
+        Assert.Equal("Δ = +2.500 °", angle.SignedDelta); Assert.Equal("°", angle.DeltaUnit);
+    }
+
+    [Fact(DisplayName = "TD-APPUI-002 applies tolerance-based delta severity and handles invalid values")]
+    public void Delta_styling_uses_unrounded_effective_tolerance()
+    {
+        var significant = new DimensionMatchItemViewModel(new DimensionMatch { Status = DimensionMatchStatus.Mismatched, NominalValue = 10, MeasuredValue = 9.4, EffectiveLowerTolerance = -.5, EffectiveUpperTolerance = .5 });
+        var moderate = new DimensionMatchItemViewModel(new DimensionMatch { Status = DimensionMatchStatus.Mismatched, NominalValue = 10, MeasuredValue = 9.6, EffectiveLowerTolerance = -.5, EffectiveUpperTolerance = .5 });
+        var invalid = new DimensionMatchItemViewModel(new DimensionMatch { Status = DimensionMatchStatus.Mismatched, NominalValue = double.NaN, MeasuredValue = 1, EffectiveLowerTolerance = -.5, EffectiveUpperTolerance = .5 });
+        var matched = new DimensionMatchItemViewModel(new DimensionMatch { Status = DimensionMatchStatus.Matched, NominalValue = 10, MeasuredValue = 9 });
+        Assert.Equal(System.Windows.Media.Brushes.Red, significant.DeltaBrush); Assert.Equal(System.Windows.FontWeights.Bold, significant.DeltaFontWeight);
+        Assert.Equal(System.Windows.Media.Brushes.DarkOrange, moderate.DeltaBrush); Assert.Equal(System.Windows.FontWeights.Normal, moderate.DeltaFontWeight);
+        Assert.Equal("-", invalid.SignedDelta); Assert.Equal(System.Windows.Media.Brushes.Gray, invalid.DeltaBrush); Assert.Equal(System.Windows.Media.Brushes.Gray, matched.DeltaBrush);
+    }
+
+    [Fact(DisplayName = "TD-APPUI-003 sorts numeric delta magnitude while preserving filters")]
+    public void Delta_sort_is_numeric_with_nulls_last_and_filters_preserved()
+    {
+        var vm = new VerificationViewModel(new SessionAuthenticationService(), new RoleAuthorization());
+        var all = new[]
+        {
+            new DimensionMatchItemViewModel(new DimensionMatch { Status = DimensionMatchStatus.Mismatched, DimensionType = DimensionType.Linear, NominalValue = 10, MeasuredValue = 9.5, DxfDimensionReference = 1, DimensionText = "large" }),
+            new DimensionMatchItemViewModel(new DimensionMatch { Status = DimensionMatchStatus.Mismatched, DimensionType = DimensionType.Linear, NominalValue = 10, MeasuredValue = 9.85, DxfDimensionReference = 2, DimensionText = "small" }),
+            new DimensionMatchItemViewModel(new DimensionMatch { Status = DimensionMatchStatus.Unmatched, DxfDimensionReference = 3, DimensionText = "none" })
+        };
+        typeof(VerificationViewModel).GetField("_allMatchResults", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(vm, all);
+        vm.SortMode = "Delta magnitude"; vm.SortDescending = true; vm.ApplyFilterCommand.Execute(null);
+        Assert.Equal(new[] { 1, 2, 3 }, vm.MatchResults.Select(x => x.Match.DxfDimensionReference));
+        vm.StatusFilter = "Mismatched"; vm.SortDescending = false; vm.ApplyFilterCommand.Execute(null);
+        Assert.Equal(new[] { 2, 1 }, vm.MatchResults.Select(x => x.Match.DxfDimensionReference));
+    }
+
+    [Fact(DisplayName = "TD-APPUI-004 handles approximately 500 display, sort, and filter results")]
+    public void Five_hundred_delta_items_are_processed_in_memory()
+    {
+        var vm = new VerificationViewModel(new SessionAuthenticationService(), new RoleAuthorization());
+        var all = Enumerable.Range(1, 500).Select(i => new DimensionMatchItemViewModel(new DimensionMatch { Status = DimensionMatchStatus.Mismatched, DimensionType = DimensionType.Linear, NominalValue = i, MeasuredValue = i - (i % 7) / 10.0, DxfDimensionReference = i })).ToArray();
+        typeof(VerificationViewModel).GetField("_allMatchResults", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(vm, all);
+        vm.SortMode = "Delta magnitude"; vm.SortDescending = true; vm.ApplyFilterCommand.Execute(null);
+        Assert.Equal(500, vm.MatchResults.Count); Assert.True(vm.MatchResults.First().DeltaMagnitude >= vm.MatchResults.Last().DeltaMagnitude);
+    }
+
+    [Fact(DisplayName = "TD-APPUI-005 clears prior delta rows after authorization failure")]
+    public async Task Unauthorized_refresh_clears_existing_delta_rows()
+    {
+        var session = new SessionAuthenticationService();
+        var vm = new VerificationViewModel(session, new RoleAuthorization(), new DimensionMatchingService(new EmptyDocuments(), new EmptySessions(), new EmptyGeometry(), session, new DimensionMatchingConfiguration()));
+        var item = new DimensionMatchItemViewModel(new DimensionMatch { Status = DimensionMatchStatus.Mismatched, NominalValue = 2, MeasuredValue = 1 });
+        typeof(VerificationViewModel).GetField("_allMatchResults", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(vm, new[] { item });
+        await vm.RefreshMatchesAsync(Guid.NewGuid());
+        Assert.Empty(vm.MatchResults); Assert.Equal("Access denied.", vm.MatchingStatus);
+    }
     [Theory(DisplayName = "TD-APPUI-002 review guard follows Checker-or-Approver authorization")]
     [InlineData("Checker", true)]
     [InlineData("Approver", true)]
