@@ -256,6 +256,32 @@ public sealed class VerificationViewModelTests
         Assert.Equal(canView, auth.IsAllowed(user, RolePermission.ViewMissingDimensions)); Assert.Equal(canComment, auth.IsAllowed(user, RolePermission.CommentOnMissingDimensions)); Assert.Equal(canResolve, auth.IsAllowed(user, RolePermission.ResolveUnmatched));
     }
 
+    [Fact(DisplayName = "TD-REVIEW-02 Viewer refresh loads unmatched rows through the missing-dimension path")]
+    public async Task Viewer_refresh_uses_missing_results_and_disables_mutations()
+    {
+        var session = new SessionAuthenticationService();
+        session.SignIn(new AuthenticatedUser("viewer", new[] { "Viewer" }));
+        var sessionId = Guid.NewGuid();
+        var repository = new ViewerSessionRepository(sessionId, new DimensionMatch
+        {
+            DimensionMatchId = Guid.NewGuid(), VerificationSessionId = sessionId,
+            DxfDocumentVersionId = Guid.NewGuid(), DxfDimensionReference = 17,
+            Status = DimensionMatchStatus.Unmatched, ReasonCode = "NoCorrespondingGeometryFound"
+        });
+        var matching = new DimensionMatchingService(new EmptyDocuments(), repository, new EmptyGeometry(), session, new DimensionMatchingConfiguration());
+        var viewModel = new VerificationViewModel(session, new RoleAuthorization(), matching);
+        typeof(VerificationViewModel).GetField("<SelectedSessionId>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, sessionId);
+
+        await viewModel.RefreshMatchesAsync(sessionId);
+
+        var result = Assert.Single(viewModel.UnmatchedResults);
+        Assert.Equal(17, result.Match.DxfDimensionReference);
+        Assert.Equal(1, repository.MissingResultsCallCount);
+        viewModel.SelectedUnmatchedDimension = result;
+        Assert.False(viewModel.AddMissingDimensionCommentCommand.CanExecute(null));
+        Assert.False(viewModel.ResolveMissingDimensionCommand.CanExecute("Accepted"));
+    }
+
     [Fact(DisplayName = "TD-APPUI-002 filters, searches, and sorts mixed results deterministically")]
     public void Authorized_view_filters_searches_and_sorts_mixed_results_deterministically()
     {
@@ -324,6 +350,19 @@ public sealed class VerificationViewModelTests
         public Task<VerificationSession> GetOrCreateAsync(Guid stepDocumentId, Guid dxfDocumentId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<VerificationSession?> GetAsync(Guid sessionId, CancellationToken cancellationToken = default) => Task.FromResult<VerificationSession?>(null);
         public Task<IReadOnlyList<DimensionMatch>> GetMatchesAsync(Guid sessionId, DimensionMatchStatus? status = null, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DimensionMatch>>(Array.Empty<DimensionMatch>());
+        public Task ReplaceResultsAsync(VerificationSession session, IReadOnlyCollection<DimensionMatch> matches, DocumentAuditAction auditAction, string userId, string detailsJson, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+    private sealed class ViewerSessionRepository(Guid sessionId, DimensionMatch unmatched) : IVerificationSessionRepository
+    {
+        public int MissingResultsCallCount { get; private set; }
+        public Task<VerificationSession> GetOrCreateAsync(Guid stepDocumentId, Guid dxfDocumentId, CancellationToken cancellationToken = default) => Task.FromResult(new VerificationSession { VerificationSessionId = sessionId, StepDocumentId = stepDocumentId, DxfDocumentId = dxfDocumentId });
+        public Task<VerificationSession?> GetAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<VerificationSession?>(new VerificationSession { VerificationSessionId = sessionId });
+        public Task<IReadOnlyList<DimensionMatch>> GetMatchesAsync(Guid id, DimensionMatchStatus? status = null, CancellationToken cancellationToken = default)
+        {
+            if (status == DimensionMatchStatus.Unmatched) MissingResultsCallCount++;
+            IReadOnlyList<DimensionMatch> result = status is null || status == DimensionMatchStatus.Unmatched ? new[] { unmatched } : Array.Empty<DimensionMatch>();
+            return Task.FromResult(result);
+        }
         public Task ReplaceResultsAsync(VerificationSession session, IReadOnlyCollection<DimensionMatch> matches, DocumentAuditAction auditAction, string userId, string detailsJson, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
     private sealed class EmptyGeometry : IMatchableGeometryService

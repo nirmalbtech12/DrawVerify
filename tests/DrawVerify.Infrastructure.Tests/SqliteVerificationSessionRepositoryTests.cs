@@ -120,4 +120,35 @@ public sealed class SqliteVerificationSessionRepositoryTests
         }
         finally { await DeleteDatabaseAsync(path); }
     }
+
+    [Fact(DisplayName = "TD-REVIEW-01 preserves unmatched review state across result replacement")]
+    public async Task Unmatched_review_survives_recomparison_for_same_dxf_entity()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "drawverify-recompare-review-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            var repository = new SqliteVerificationSessionRepository(path);
+            var session = await repository.GetOrCreateAsync(Guid.NewGuid(), Guid.NewGuid());
+            var stepVersion = Guid.NewGuid(); var dxfVersion = Guid.NewGuid(); var matchId = Guid.NewGuid();
+            var persistedSession = session with { StepDocumentVersionId = stepVersion, DxfDocumentVersionId = dxfVersion, Status = VerificationSessionStatus.DimensionsMatched };
+            var initial = new DimensionMatch
+            {
+                DimensionMatchId = matchId, VerificationSessionId = session.VerificationSessionId,
+                StepDocumentVersionId = stepVersion, DxfDocumentVersionId = dxfVersion,
+                DxfDimensionReference = 42, Status = DimensionMatchStatus.Unmatched,
+                ReasonCode = "NoCorrespondingGeometryFound",
+                Review = new DimensionReview { DimensionMatchId = matchId, Comment = "Review this missing dimension", Status = DimensionResolutionStatus.Rejected }
+            };
+            await repository.ReplaceResultsAsync(persistedSession, new[] { initial }, DocumentAuditAction.UnmatchedDimensionsFlagged, "maker", "{}");
+
+            var replacement = initial with { DimensionMatchId = Guid.NewGuid(), Review = null, ReasonExplanation = "No corresponding geometry found in the re-comparison." };
+            await repository.ReplaceResultsAsync(persistedSession, new[] { replacement }, DocumentAuditAction.ToleranceComparisonApplied, "maker", "{}");
+
+            var result = Assert.Single(await repository.GetMatchesAsync(session.VerificationSessionId));
+            Assert.Equal(42, result.DxfDimensionReference);
+            Assert.Equal("Review this missing dimension", result.Review!.Comment);
+            Assert.Equal(DimensionResolutionStatus.Rejected, result.Review.Status);
+        }
+        finally { await DeleteDatabaseAsync(path); }
+    }
 }
