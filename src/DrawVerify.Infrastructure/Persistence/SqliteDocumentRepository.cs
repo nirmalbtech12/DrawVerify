@@ -89,7 +89,11 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
             if (!Exists(connection, transaction, "DimensionData"))
                 Execute(connection, transaction, CreateDimensionDataSql());
             else
+            {
                 AddColumnIfMissing(connection, transaction, "DimensionData", "RadialKind", "INTEGER NOT NULL DEFAULT 0");
+                AddColumnIfMissing(connection, transaction, "DimensionData", "Layer", "TEXT NULL");
+                AddColumnIfMissing(connection, transaction, "DimensionData", "PreviewAnchor", "TEXT NULL");
+            }
             Execute(connection, transaction, "CREATE UNIQUE INDEX IF NOT EXISTS IX_DimensionData_VersionOrdinal ON DimensionData(DocumentVersionId,SourceEntityOrdinal)");
 
             Execute(connection, transaction, "CREATE UNIQUE INDEX IF NOT EXISTS IX_Document_NameSize ON Document(OriginalFileName,FileSizeBytes)");
@@ -217,7 +221,7 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
             {
                 await using var insert = connection.CreateCommand();
                 insert.Transaction = transaction;
-                insert.CommandText = "INSERT INTO DimensionData (DimensionDataId,DocumentId,DocumentVersionId,SourceEntityOrdinal,DimensionType,NominalValue,LowerTolerance,UpperTolerance,DisplayText,RadialKind) VALUES ($id,$documentId,$versionId,$ordinal,$type,$nominal,$lower,$upper,$text,$radialKind)";
+                insert.CommandText = "INSERT INTO DimensionData (DimensionDataId,DocumentId,DocumentVersionId,SourceEntityOrdinal,DimensionType,NominalValue,LowerTolerance,UpperTolerance,DisplayText,RadialKind,Layer,PreviewAnchor) VALUES ($id,$documentId,$versionId,$ordinal,$type,$nominal,$lower,$upper,$text,$radialKind,$layer,$anchor)";
                 Add(insert, "$id", Guid.NewGuid());
                 Add(insert, "$documentId", dimension.DocumentId);
                 Add(insert, "$versionId", dimension.DocumentVersionId);
@@ -228,6 +232,8 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
                 insert.Parameters.AddWithValue("$upper", (object?)dimension.UpperTolerance ?? DBNull.Value);
                 insert.Parameters.AddWithValue("$text", (object?)dimension.DisplayText ?? DBNull.Value);
                 Add(insert, "$radialKind", dimension.RadialKind);
+                insert.Parameters.AddWithValue("$layer", (object?)dimension.Layer ?? DBNull.Value);
+                insert.Parameters.AddWithValue("$anchor", (object?)dimension.PreviewAnchor ?? DBNull.Value);
                 await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
@@ -261,7 +267,7 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
         await using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT d.DimensionDataId,d.DocumentId,d.DocumentVersionId,d.SourceEntityOrdinal,d.DimensionType,d.NominalValue,d.LowerTolerance,d.UpperTolerance,d.DisplayText,d.RadialKind FROM DimensionData d INNER JOIN Document doc ON doc.DocumentId=d.DocumentId INNER JOIN DocumentVersion v ON v.VersionId=d.DocumentVersionId AND v.DocumentId=doc.DocumentId AND v.VersionNumber=doc.CurrentVersion WHERE d.DocumentId=$documentId ORDER BY d.SourceEntityOrdinal";
+        command.CommandText = "SELECT d.DimensionDataId,d.DocumentId,d.DocumentVersionId,d.SourceEntityOrdinal,d.DimensionType,d.NominalValue,d.LowerTolerance,d.UpperTolerance,d.DisplayText,d.RadialKind,d.Layer,d.PreviewAnchor FROM DimensionData d INNER JOIN Document doc ON doc.DocumentId=d.DocumentId INNER JOIN DocumentVersion v ON v.VersionId=d.DocumentVersionId AND v.DocumentId=doc.DocumentId AND v.VersionNumber=doc.CurrentVersion WHERE d.DocumentId=$documentId ORDER BY d.SourceEntityOrdinal";
         command.Parameters.AddWithValue("$documentId", documentId.ToString());
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         var dimensions = new List<DimensionData>();
@@ -276,7 +282,9 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
                 reader.IsDBNull(6) ? null : reader.GetDouble(6),
                 reader.IsDBNull(7) ? null : reader.GetDouble(7),
                 reader.IsDBNull(8) ? null : reader.GetString(8),
-                (DrawVerify.Core.Enums.RadialDimensionKind)reader.GetInt32(9)));
+                 (DrawVerify.Core.Enums.RadialDimensionKind)reader.GetInt32(9),
+                 reader.IsDBNull(10) ? null : reader.GetString(10),
+                 reader.IsDBNull(11) ? null : reader.GetString(11)));
         }
         return dimensions;
     }
@@ -432,7 +440,7 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
 
     private static string CreateDocumentVersionSql() => "CREATE TABLE DocumentVersion (VersionId TEXT PRIMARY KEY, DocumentId TEXT NOT NULL, VersionNumber INTEGER NOT NULL, StoredRelativePath TEXT NOT NULL, FileSizeBytes INTEGER NOT NULL, CreatedUtc TEXT NOT NULL, FOREIGN KEY(DocumentId) REFERENCES Document(DocumentId))";
     private static string CreateAuditSql() => "CREATE TABLE DocumentAuditLog (AuditId TEXT PRIMARY KEY, DocumentId TEXT NULL, Action INTEGER NOT NULL, UserId TEXT NULL, TimestampUtc TEXT NOT NULL, DetailsJson TEXT NOT NULL)";
-    private static string CreateDimensionDataSql() => "CREATE TABLE DimensionData (DimensionDataId TEXT PRIMARY KEY, DocumentId TEXT NOT NULL, DocumentVersionId TEXT NOT NULL, SourceEntityOrdinal INTEGER NOT NULL, DimensionType INTEGER NOT NULL, NominalValue REAL NOT NULL, LowerTolerance REAL NULL, UpperTolerance REAL NULL, DisplayText TEXT NULL, RadialKind INTEGER NOT NULL DEFAULT 0, FOREIGN KEY(DocumentId) REFERENCES Document(DocumentId), FOREIGN KEY(DocumentVersionId) REFERENCES DocumentVersion(VersionId), UNIQUE(DocumentVersionId,SourceEntityOrdinal))";
+    private static string CreateDimensionDataSql() => "CREATE TABLE DimensionData (DimensionDataId TEXT PRIMARY KEY, DocumentId TEXT NOT NULL, DocumentVersionId TEXT NOT NULL, SourceEntityOrdinal INTEGER NOT NULL, DimensionType INTEGER NOT NULL, NominalValue REAL NOT NULL, LowerTolerance REAL NULL, UpperTolerance REAL NULL, DisplayText TEXT NULL, RadialKind INTEGER NOT NULL DEFAULT 0, Layer TEXT NULL, PreviewAnchor TEXT NULL, FOREIGN KEY(DocumentId) REFERENCES Document(DocumentId), FOREIGN KEY(DocumentVersionId) REFERENCES DocumentVersion(VersionId), UNIQUE(DocumentVersionId,SourceEntityOrdinal))";
 
     private static void RebuildDocumentWithoutRemovedIdentityColumns(
         SqliteConnection connection,

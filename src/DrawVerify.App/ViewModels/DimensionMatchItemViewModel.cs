@@ -17,6 +17,10 @@ public sealed class DimensionMatchItemViewModel
     public string DimensionType => Match.DimensionType?.ToString() ?? "-";
     public string NominalValue => FormatValue(Match.NominalValue);
     public string DimensionText => Match.DimensionText ?? "-";
+    public string Layer => Match.DxfLayer ?? "-";
+    public string PreviewAnchor => Match.PreviewAnchor ?? "-";
+    public string Comment => Match.Review?.Comment ?? "";
+    public string ResolutionStatus => Match.Review?.Status.ToString() ?? "Open";
     public bool IsUnmatched => Match.Status == DimensionMatchStatus.Unmatched;
     public string MeasuredValue => FormatValue(Match.MeasuredValue);
     public string DeltaUnit => Match.DeltaUnit;

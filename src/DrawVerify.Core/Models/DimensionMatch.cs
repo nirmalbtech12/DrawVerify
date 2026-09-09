@@ -23,6 +23,9 @@ public sealed record DimensionMatch
     public double? EffectiveUpperTolerance { get; init; }
     public string? ToleranceUnit { get; init; }
     public ToleranceSource? ToleranceSource { get; init; }
+    public string? DxfLayer { get; init; }
+    public string? PreviewAnchor { get; init; }
+    public DimensionReview? Review { get; init; }
     public double? SignedDelta => IsFinite(NominalValue) && IsFinite(MeasuredValue) ? NominalValue!.Value - MeasuredValue!.Value : null;
     public double? AbsoluteDelta => SignedDelta is double delta && double.IsFinite(delta) ? Math.Abs(delta) : null;
     public double? DeltaMagnitude => AbsoluteDelta;

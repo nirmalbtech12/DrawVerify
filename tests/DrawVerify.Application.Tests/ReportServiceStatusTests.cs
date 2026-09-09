@@ -73,6 +73,16 @@ public sealed class ReportServiceStatusTests
         }
     }
 
+    [Fact(DisplayName = "TD-04 renders unmatched report fields and distinct extra-STEP count")]
+    public void Report_contains_unmatched_metadata_and_distinct_directional_counts()
+    {
+        var unmatched = new DimensionMatch { Status = DimensionMatchStatus.Unmatched, DxfDimensionReference = 8, NominalValue = 18, EffectiveLowerTolerance = -.2, EffectiveUpperTolerance = .3, ToleranceUnit = "mm", DxfLayer = "DIM", DimensionText = "18 ±0.2/0.3", ReasonCode = "NoCorrespondingGeometryFound", Review = new DimensionReview { DimensionMatchId = Guid.NewGuid(), Comment = "To be reviewed", Status = DimensionResolutionStatus.Open } };
+        var report = new VerificationReport { DimensionMatches = new[] { unmatched, new DimensionMatch { Status = DimensionMatchStatus.MissingDimension, DxfDimensionReference = -1 } } };
+        var markdown = report.ToMarkdown();
+        Assert.Contains("Missing from 3D:", markdown); Assert.Contains("Value: 18 mm", markdown); Assert.Contains("Tolerance: -0.2 / +0.3 mm", markdown); Assert.Contains("Layer: DIM", markdown); Assert.Contains("Text: 18 ±0.2/0.3", markdown); Assert.Contains("Comment: To be reviewed", markdown);
+        var summary = ComparisonSummary.From(report.DimensionMatches); Assert.Equal(1, summary.UnmatchedDimensions); Assert.Equal(1, summary.MissingDimensions);
+    }
+
     [Fact(DisplayName = "TD-006 persists Markdown export audit DetailsJson")]
     public async Task Markdown_export_writes_sqlite_audit_with_status_counts_and_format()
     {

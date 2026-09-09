@@ -8,6 +8,12 @@ namespace DrawVerify.App.Tests;
 
 public sealed class DimensionMatchItemViewModelTests
 {
+    [Fact(DisplayName = "TD-06 exposes unmatched metadata, comments, and resolution state")]
+    public void Unmatched_item_exposes_review_metadata()
+    {
+        var item = new DimensionMatchItemViewModel(new DimensionMatch { Status = DimensionMatchStatus.Unmatched, DxfDimensionReference = 14, NominalValue = 30, EffectiveLowerTolerance = -.1, EffectiveUpperTolerance = .2, ToleranceUnit = "mm", DxfLayer = "DIM", PreviewAnchor = "10,20", DimensionText = "30", ReasonCode = "NoCorrespondingGeometryFound", Review = new DimensionReview { DimensionMatchId = Guid.NewGuid(), Comment = "Expected missing", Status = DimensionResolutionStatus.Open } });
+        Assert.True(item.IsUnmatched); Assert.Equal("DIM", item.Layer); Assert.Equal("10,20", item.PreviewAnchor); Assert.Equal("Expected missing", item.Comment); Assert.Equal("Open", item.ResolutionStatus); Assert.Equal("30", item.NominalValue);
+    }
     [Fact(DisplayName = "TD-APP-001 maps canonical statuses to labels and distinct visual metadata")]
     public void Canonical_statuses_have_consistent_labels_and_colors()
     {

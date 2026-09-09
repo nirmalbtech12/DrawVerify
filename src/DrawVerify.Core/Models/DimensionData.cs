@@ -16,7 +16,9 @@ public sealed record DimensionData
         double? lowerTolerance = null,
         double? upperTolerance = null,
         string? displayText = null,
-        RadialDimensionKind radialDimensionKind = RadialDimensionKind.Unknown)
+        RadialDimensionKind radialDimensionKind = RadialDimensionKind.Unknown,
+        string? layer = null,
+        string? previewAnchor = null)
     {
         if (documentId == Guid.Empty)
             throw new ArgumentException("A dimension must reference a document.", nameof(documentId));
@@ -44,6 +46,8 @@ public sealed record DimensionData
         UpperTolerance = upperTolerance;
         DisplayText = string.IsNullOrWhiteSpace(displayText) ? null : displayText.Trim();
         RadialKind = radialDimensionKind;
+        Layer = string.IsNullOrWhiteSpace(layer) ? null : layer.Trim();
+        PreviewAnchor = string.IsNullOrWhiteSpace(previewAnchor) ? null : previewAnchor.Trim();
     }
 
     public Guid DocumentId { get; }
@@ -57,4 +61,6 @@ public sealed record DimensionData
     public string? DisplayText { get; }
     public string? DimensionText => DisplayText;
     public RadialDimensionKind RadialKind { get; }
+    public string? Layer { get; }
+    public string? PreviewAnchor { get; }
 }

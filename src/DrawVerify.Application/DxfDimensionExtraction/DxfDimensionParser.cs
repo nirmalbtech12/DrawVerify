@@ -173,10 +173,16 @@ public sealed class DxfDimensionParser : IDxfDimensionParser
                 throw new InvalidDataException("DIMENSION entity has no readable nominal measurement.");
 
             var displayText = FirstString(values, 1);
+            var layer = FirstString(values, 8);
+            var anchorX = FirstDouble(values, 10);
+            var anchorY = FirstDouble(values, 20);
+            var previewAnchor = anchorX is double x && anchorY is double y
+                ? $"{x.ToString("R", CultureInfo.InvariantCulture)},{y.ToString("R", CultureInfo.InvariantCulture)}"
+                : null;
             var (lowerTolerance, upperTolerance) = ReadTolerances(values, displayText, nominal.Value);
             var radialKind = baseType switch { 3 => RadialDimensionKind.Diameter, 4 => RadialDimensionKind.Radius, _ => RadialDimensionKind.Unknown };
             dimensions.Add(new DimensionData(documentId, documentVersionId, sourceOrdinal, type, nominal.Value,
-                lowerTolerance, upperTolerance, displayText, radialKind));
+                lowerTolerance, upperTolerance, displayText, radialKind, layer, previewAnchor));
         }
         catch (NotSupportedException exception)
         {

@@ -54,7 +54,9 @@ public sealed class DimensionMatchingService
             var status = VerificationSessionStatus.DimensionsMatched;
             var completed = current with { Status = status, UpdatedUtc = DateTime.UtcNow };
             var reasonBreakdown = matches.Where(match => match.ReasonCode is not null).GroupBy(match => match.ReasonCode!).ToDictionary(group => group.Key, group => group.Count());
-            var details = JsonSerializer.Serialize(new { verificationSessionId = sessionId, action = "ToleranceComparisonApplied", toleranceThresholdMm = effectiveToleranceThresholdMm ?? _configuration.ToleranceThresholdMm, angularToleranceDegrees = _configuration.AngularToleranceDegrees, stepDocumentId = step.DocumentId, dxfDocumentId = dxf.DocumentId, stepDocumentVersionId = stepVersion.VersionId, dxfDocumentVersionId = dxfVersion.VersionId, durationMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds, comparedDimensions = dimensions.Count, matchedDimensions = matches.Count(match => match.Status == DimensionMatchStatus.Matched), mismatchedDimensions = matches.Count(match => match.Status == DimensionMatchStatus.Mismatched), unmatchedDimensions = matches.Count(match => match.Status == DimensionMatchStatus.Unmatched), reasonBreakdown, missingFeatures = matches.Count(match => match.Status == DimensionMatchStatus.MissingDimension), rematched = session.Status != VerificationSessionStatus.Pending });
+            var missingDxfCount = matches.Count(match => match.Status == DimensionMatchStatus.Unmatched);
+            var extraStepCount = matches.Count(match => match.Status == DimensionMatchStatus.MissingDimension);
+            var details = JsonSerializer.Serialize(new { verificationSessionId = sessionId, action = DocumentAuditAction.ToleranceComparisonApplied.ToString(), toleranceThresholdMm = effectiveToleranceThresholdMm ?? _configuration.ToleranceThresholdMm, angularToleranceDegrees = _configuration.AngularToleranceDegrees, stepDocumentId = step.DocumentId, dxfDocumentId = dxf.DocumentId, stepDocumentVersionId = stepVersion.VersionId, dxfDocumentVersionId = dxfVersion.VersionId, timestampUtc = DateTime.UtcNow, triggeredBy = _authentication.CurrentUser!.UserId, durationMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds, comparedDimensions = dimensions.Count, matchedDimensions = matches.Count(match => match.Status == DimensionMatchStatus.Matched), mismatchedDimensions = matches.Count(match => match.Status == DimensionMatchStatus.Mismatched), unmatchedDimensions = missingDxfCount, missingDxfCount, unmatchedDimensionsFlagged = missingDxfCount > 0, reasonBreakdown, missingFeatures = extraStepCount, extraStepCount, rematched = session.Status != VerificationSessionStatus.Pending });
             await _sessions.ReplaceResultsAsync(completed, matches, DocumentAuditAction.ToleranceComparisonApplied, _authentication.CurrentUser!.UserId, details, cancellationToken).ConfigureAwait(false);
             return completed;
         }
@@ -79,6 +81,23 @@ public sealed class DimensionMatchingService
         return _sessions.GetOrCreateAsync(stepDocumentId, dxfDocumentId, cancellationToken);
     }
     public Task<IReadOnlyList<DimensionMatch>> GetResultsAsync(Guid sessionId, DimensionMatchStatus? status = null, CancellationToken cancellationToken = default) { EnsureAuthorized(RolePermission.ViewDimensionMatchResults); return _sessions.GetMatchesAsync(sessionId, status, cancellationToken); }
+    public Task<IReadOnlyList<DimensionMatch>> GetMissingResultsAsync(Guid sessionId, CancellationToken cancellationToken = default)
+    {
+        EnsureAuthorized(RolePermission.ViewMissingDimensions);
+        return _sessions.GetMatchesAsync(sessionId, DimensionMatchStatus.Unmatched, cancellationToken);
+    }
+    public Task AddCommentAsync(Guid sessionId, Guid dimensionMatchId, string comment, CancellationToken cancellationToken = default)
+    {
+        EnsureAuthorized(RolePermission.CommentOnMissingDimensions);
+        if (string.IsNullOrWhiteSpace(comment)) throw new ArgumentException("A dimension comment is required.", nameof(comment));
+        return AddCommentPreservingReviewAsync(sessionId, dimensionMatchId, comment, cancellationToken);
+    }
+    public Task ResolveMissingDimensionAsync(Guid sessionId, Guid dimensionMatchId, DimensionResolutionStatus status, CancellationToken cancellationToken = default)
+    {
+        EnsureAuthorized(RolePermission.ResolveUnmatched);
+        if (status == DimensionResolutionStatus.Open) throw new ArgumentException("A resolved dimension must have a final status.", nameof(status));
+        return ResolvePreservingReviewAsync(sessionId, dimensionMatchId, status, cancellationToken);
+    }
     public async Task<double> GetEffectiveToleranceThresholdAsync(Guid sessionId, CancellationToken cancellationToken = default)
     {
         EnsureAuthorized(RolePermission.ViewDimensionMatchResults);
@@ -86,5 +105,22 @@ public sealed class DimensionMatchingService
         return session.ToleranceThresholdMm ?? _configuration.ToleranceThresholdMm;
     }
     private void EnsureAuthorized(RolePermission permission) { if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, permission)) throw new UnauthorizedAccessException("Only authenticated Maker or Checker users may access dimension matching."); }
+    private async Task AddCommentPreservingReviewAsync(Guid sessionId, Guid dimensionMatchId, string comment, CancellationToken cancellationToken)
+    {
+        var current = await GetUnmatchedReviewAsync(sessionId, dimensionMatchId, cancellationToken).ConfigureAwait(false);
+        await _sessions.UpdateReviewAsync(sessionId, dimensionMatchId, current with { Comment = comment.Trim() }, cancellationToken).ConfigureAwait(false);
+    }
+    private async Task ResolvePreservingReviewAsync(Guid sessionId, Guid dimensionMatchId, DimensionResolutionStatus status, CancellationToken cancellationToken)
+    {
+        var current = await GetUnmatchedReviewAsync(sessionId, dimensionMatchId, cancellationToken).ConfigureAwait(false);
+        await _sessions.UpdateReviewAsync(sessionId, dimensionMatchId, current with { Status = status }, cancellationToken).ConfigureAwait(false);
+    }
+    private async Task<DimensionReview> GetUnmatchedReviewAsync(Guid sessionId, Guid dimensionMatchId, CancellationToken cancellationToken)
+    {
+        if (sessionId == Guid.Empty || dimensionMatchId == Guid.Empty) throw new ArgumentException("Session and dimension match IDs are required.");
+        var match = (await _sessions.GetMatchesAsync(sessionId, DimensionMatchStatus.Unmatched, cancellationToken).ConfigureAwait(false)).SingleOrDefault(item => item.DimensionMatchId == dimensionMatchId);
+        if (match is null) throw new InvalidOperationException("The unmatched dimension was not found in the verification session.");
+        return match.Review ?? new DimensionReview { DimensionMatchId = dimensionMatchId };
+    }
     private static string SanitizeError(string message) => string.IsNullOrWhiteSpace(message) ? "Matching failed." : message.Length > 512 ? message[..512] : message;
 }
