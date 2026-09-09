@@ -9,7 +9,7 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteVerificationSessionRepositoryTests
 {
-    [Fact(DisplayName = "TD-INFRA-001 replaces SQLite results and persists unmatched audit details atomically")]
+    [Fact(DisplayName = "TD-INF-001 replaces SQLite results and persists unmatched audit details atomically")]
     public async Task Session_pair_is_unique_and_results_are_replaced_atomically()
     {
         var path = Path.Combine(Path.GetTempPath(), "drawverify-session-" + Guid.NewGuid().ToString("N") + ".db");
@@ -40,6 +40,30 @@ public sealed class SqliteVerificationSessionRepositoryTests
         finally { await DeleteDatabaseAsync(path); }
     }
 
+    [Fact(DisplayName = "TD-INF-001 round-trips tolerance evidence and audit counts")]
+    public async Task Tolerance_metadata_and_audit_details_round_trip()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "drawverify-tolerance-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            var repository = new SqliteVerificationSessionRepository(path);
+            var session = await repository.GetOrCreateAsync(Guid.NewGuid(), Guid.NewGuid());
+            var stepVersion = Guid.NewGuid(); var dxfVersion = Guid.NewGuid();
+            var match = new DimensionMatch { VerificationSessionId = session.VerificationSessionId, StepDocumentVersionId = stepVersion, DxfDocumentVersionId = dxfVersion, DxfDimensionReference = 1, StepGeometryReference = "Edge:1", GeometryType = "Line", Status = DimensionMatchStatus.Mismatched, ReasonCode = "OutsideTolerance", Confidence = MatchConfidence.High, ConfidenceScore = 1, DimensionType = DimensionType.Linear, NominalValue = 10, MeasuredValue = 10.2, EffectiveLowerTolerance = -.1, EffectiveUpperTolerance = .1, ToleranceUnit = "mm", ToleranceSource = ToleranceSource.Default, RequiresManualReview = true };
+            var details = JsonSerializer.Serialize(new { verificationSessionId = session.VerificationSessionId, toleranceSource = "Default", toleranceThresholdMm = .1, comparedDimensions = 1, matchedDimensions = 0, mismatchedDimensions = 1, recomparison = false });
+            await repository.ReplaceResultsAsync(session with { StepDocumentVersionId = stepVersion, DxfDocumentVersionId = dxfVersion, ToleranceThresholdMm = .1 }, new[] { match }, DocumentAuditAction.ToleranceComparisonApplied, "checker", details);
+            var persisted = Assert.Single(await repository.GetMatchesAsync(session.VerificationSessionId));
+            Assert.Equal(10.2, persisted.MeasuredValue); Assert.Equal((-.1, .1), (persisted.EffectiveLowerTolerance, persisted.EffectiveUpperTolerance));
+            Assert.Equal(ToleranceSource.Default, persisted.ToleranceSource); Assert.Equal(DimensionMatchStatus.Mismatched, persisted.Status);
+            var loadedSession = await repository.GetAsync(session.VerificationSessionId); Assert.Equal(.1, loadedSession!.ToleranceThresholdMm);
+            await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString()); await connection.OpenAsync();
+            await using var command = connection.CreateCommand(); command.CommandText = "SELECT Action,UserId,DetailsJson FROM DocumentAuditLog";
+            await using var reader = await command.ExecuteReaderAsync(); Assert.True(await reader.ReadAsync()); Assert.Equal((int)DocumentAuditAction.ToleranceComparisonApplied, reader.GetInt32(0)); Assert.Equal("checker", reader.GetString(1));
+            using var audit = JsonDocument.Parse(reader.GetString(2)); Assert.Equal(1, audit.RootElement.GetProperty("comparedDimensions").GetInt32()); Assert.Equal(1, audit.RootElement.GetProperty("mismatchedDimensions").GetInt32());
+        }
+        finally { await DeleteDatabaseAsync(path); }
+    }
+
     private static async Task DeleteDatabaseAsync(string path)
     {
         if (!File.Exists(path)) return;
@@ -59,7 +83,7 @@ public sealed class SqliteVerificationSessionRepositoryTests
         }
     }
 
-    [Fact(DisplayName = "TD-INFRA-001 migrates legacy match metadata and retains unmatched audit rows")]
+    [Fact(DisplayName = "TD-INF-001 migrates legacy match metadata and retains unmatched audit rows")]
     public async Task Legacy_dimension_match_schema_is_migrated_and_audit_rows_are_retained()
     {
         var path = Path.Combine(Path.GetTempPath(), "drawverify-legacy-" + Guid.NewGuid().ToString("N") + ".db");
@@ -69,8 +93,8 @@ public sealed class SqliteVerificationSessionRepositoryTests
             { await connection.OpenAsync(); await using var command = connection.CreateCommand(); command.CommandText = "CREATE TABLE DimensionMatch (DimensionMatchId TEXT PRIMARY KEY, VerificationSessionId TEXT NOT NULL, DxfDocumentVersionId TEXT NOT NULL, DxfDimensionReference INTEGER NOT NULL, StepDocumentVersionId TEXT NOT NULL, StepGeometryReference TEXT NULL, GeometryType TEXT NULL, ConfidenceScore REAL NULL, Confidence INTEGER NULL, RequiresManualReview INTEGER NOT NULL, Status INTEGER NOT NULL, ReasonCode TEXT NULL)"; await command.ExecuteNonQueryAsync(); }
             _ = new SqliteVerificationSessionRepository(path);
             await using var verify = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString()); await verify.OpenAsync();
-            await using var columns = verify.CreateCommand(); columns.CommandText = "SELECT COUNT(*) FROM pragma_table_info('DimensionMatch') WHERE name IN ('DimensionType','NominalValue','DimensionText','ReasonExplanation')";
-            Assert.Equal(4L, await columns.ExecuteScalarAsync());
+            await using var columns = verify.CreateCommand(); columns.CommandText = "SELECT COUNT(*) FROM pragma_table_info('DimensionMatch') WHERE name IN ('DimensionType','NominalValue','DimensionText','ReasonExplanation','MeasuredValue','EffectiveLowerTolerance','EffectiveUpperTolerance','ToleranceUnit','ToleranceSource')";
+            Assert.Equal(9L, await columns.ExecuteScalarAsync());
             await using var insert = verify.CreateCommand(); insert.CommandText = "INSERT INTO DocumentAuditLog (AuditId,DocumentId,Action,UserId,TimestampUtc,DetailsJson) VALUES ('audit',NULL,15,'maker','2026-01-01T00:00:00Z','{}')"; await insert.ExecuteNonQueryAsync();
             await using var count = verify.CreateCommand(); count.CommandText = "SELECT COUNT(*) FROM DocumentAuditLog"; Assert.Equal(1L, await count.ExecuteScalarAsync());
         }

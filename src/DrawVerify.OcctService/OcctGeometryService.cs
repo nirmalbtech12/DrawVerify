@@ -75,7 +75,7 @@ public sealed class OcctGeometryService : IGeometryService, IMatchableGeometrySe
                 if (double.IsFinite(face.Area) && face.Area > 0)
                 {
                     var height = Math.Abs(face.BoundingBox.MaximumZ - face.BoundingBox.MinimumZ);
-                    features.Add(new GeometryFeatureData { Reference = $"Face:{face.Id}", GeometryType = face.SurfaceType, Height = double.IsFinite(height) && height > 0 ? height : null });
+                    features.Add(new GeometryFeatureData { Reference = $"Face:{face.Id}", GeometryType = face.SurfaceType, Height = double.IsFinite(height) && height > 0 ? height : null, AngleDegrees = double.IsFinite(face.SemiAngle) && Math.Abs(face.SemiAngle) > 1e-12 ? Math.Abs(face.SemiAngle) * 180d / Math.PI : null });
                 }
                 if (string.Equals(face.SurfaceType, "Cylinder", StringComparison.OrdinalIgnoreCase) && double.IsFinite(face.Radius) && face.Radius > 0)
                     features.Add(new GeometryFeatureData { Reference = $"Face:{face.Id}:Cylinder", GeometryType = face.Orientation == -1 ? "Hole" : "CylindricalFace", Radius = face.Radius, Diameter = face.Radius * 2 });

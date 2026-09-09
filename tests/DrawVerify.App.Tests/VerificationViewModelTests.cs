@@ -5,7 +5,11 @@ using DrawVerify.Application.Services;
 using Xunit;
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Interfaces;
+using DrawVerify.Core.Configuration;
 using System.Reflection;
+using DrawVerify.Geometry.Models;
+using DrawVerify.Geometry;
+using CoreDimensionData = DrawVerify.Core.Models.DimensionData;
 
 namespace DrawVerify.App.Tests;
 
@@ -50,8 +54,29 @@ public sealed class VerificationViewModelTests
             new DimensionMatchItemViewModel(new DimensionMatch { VerificationSessionId = sessionId, DxfDocumentVersionId = version, StepDocumentVersionId = version, Status = DimensionMatchStatus.MissingDimension })
         };
         Assert.Equal(new[] { "Matched", "Unmatched", "Missing Dimension" }, items.Select(x => x.StatusLabel));
+        Assert.Equal("Green", items[0].StatusColor); Assert.Equal("Gray", items[1].StatusColor);
         Assert.Equal("Edge:1", items[0].GeometryReference);
         Assert.Equal("NoCorrespondingGeometryFound", items[1].Reason);
+    }
+
+    [Fact(DisplayName = "TD-UI-001 presents tolerance evidence, units, and matched/mismatched colors")]
+    public void Tolerance_result_presentation_is_visible()
+    {
+        var version = Guid.NewGuid();
+        var matched = new DimensionMatchItemViewModel(new DimensionMatch { DxfDocumentVersionId = version, StepDocumentVersionId = version, Status = DimensionMatchStatus.Matched, MeasuredValue = 10.05, EffectiveLowerTolerance = -.1, EffectiveUpperTolerance = .1, ToleranceUnit = "mm", ToleranceSource = ToleranceSource.Default });
+        var mismatched = new DimensionMatchItemViewModel(new DimensionMatch { DxfDocumentVersionId = version, StepDocumentVersionId = version, Status = DimensionMatchStatus.Mismatched, MeasuredValue = 10.2, EffectiveLowerTolerance = -.1, EffectiveUpperTolerance = .1, ToleranceUnit = "mm", ToleranceSource = ToleranceSource.Session, ReasonCode = "OutsideTolerance" });
+        Assert.Equal("10.05", matched.MeasuredValue); Assert.Contains("mm", matched.Tolerance); Assert.Equal("Default", matched.ToleranceSource); Assert.Equal("Green", matched.StatusColor);
+        Assert.Equal("Mismatched", mismatched.StatusLabel); Assert.Equal("Red", mismatched.StatusColor); Assert.Equal("Session", mismatched.ToleranceSource);
+        Assert.Contains("Tolerance: ±0.1 mm", new VerificationViewModel(new SessionAuthenticationService(), new RoleAuthorization()).ToleranceSummary);
+    }
+
+    [Theory(DisplayName = "TD-UI-001 only Maker and Checker can manage tolerance")]
+    [InlineData(null, false)] [InlineData("Viewer", false)] [InlineData("Approver", false)] [InlineData("Maker", true)] [InlineData("Checker", true)]
+    public void Tolerance_management_permission_is_role_restricted(string? role, bool expected)
+    {
+        var session = new SessionAuthenticationService(); if (role is not null) session.SignIn(new AuthenticatedUser("user", new[] { role }));
+        var vm = new VerificationViewModel(session, new RoleAuthorization(), new DimensionMatchingService(new EmptyDocuments(), new EmptySessions(), new EmptyGeometry(), session, new DimensionMatchingConfiguration()));
+        Assert.Equal(expected, vm.CanManageTolerance);
     }
 
     [Fact(DisplayName = "TD-APPUI-001 exposes the Unmatched Dimensions list and required metadata")]
@@ -129,6 +154,24 @@ public sealed class VerificationViewModelTests
         public Task<VerificationSession?> GetAsync(Guid sessionId, CancellationToken cancellationToken = default) => Task.FromResult<VerificationSession?>(new VerificationSession { VerificationSessionId = SessionId });
         public Task<IReadOnlyList<DimensionMatch>> GetMatchesAsync(Guid sessionId, DimensionMatchStatus? status = null, CancellationToken cancellationToken = default) => ThrowOnRead ? Task.FromException<IReadOnlyList<DimensionMatch>>(new InvalidOperationException("repository failure")) : Task.FromResult<IReadOnlyList<DimensionMatch>>(new[] { match });
         public Task ReplaceResultsAsync(VerificationSession session, IReadOnlyCollection<DimensionMatch> matches, DocumentAuditAction auditAction, string userId, string detailsJson, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class EmptyDocuments : IDocumentRepository
+    {
+        public Task<Document?> GetAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<Document?>(null);
+        public Document? Get(Guid id) => null; public DocumentVersion? GetCurrentVersion(Guid id) => null;
+        public Task<IReadOnlyList<CoreDimensionData>> GetDimensionsAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<CoreDimensionData>>(Array.Empty<CoreDimensionData>());
+    }
+    private sealed class EmptySessions : IVerificationSessionRepository
+    {
+        public Task<VerificationSession> GetOrCreateAsync(Guid stepDocumentId, Guid dxfDocumentId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<VerificationSession?> GetAsync(Guid sessionId, CancellationToken cancellationToken = default) => Task.FromResult<VerificationSession?>(null);
+        public Task<IReadOnlyList<DimensionMatch>> GetMatchesAsync(Guid sessionId, DimensionMatchStatus? status = null, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DimensionMatch>>(Array.Empty<DimensionMatch>());
+        public Task ReplaceResultsAsync(VerificationSession session, IReadOnlyCollection<DimensionMatch> matches, DocumentAuditAction auditAction, string userId, string detailsJson, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+    private sealed class EmptyGeometry : IMatchableGeometryService
+    {
+        public MatchableGeometryExtractionResult ExtractMatchableGeometry(MatchableGeometryExtractionRequest request, CancellationToken cancellationToken = default) => new(true, Array.Empty<GeometryFeatureData>());
     }
 
 }

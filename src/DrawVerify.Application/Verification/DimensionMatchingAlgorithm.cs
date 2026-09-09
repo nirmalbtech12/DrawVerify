@@ -1,3 +1,4 @@
+using System.Globalization;
 using DrawVerify.Core.Configuration;
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Models;
@@ -23,15 +24,15 @@ public sealed class DimensionMatchingAlgorithm
                 results.Add(Unmatched(session, dimension, "DimensionTypeNotSupported", "Dimension type not supported for matching (unknown radial subtype)."));
                 continue;
             }
-            var candidates = features.Where(feature => IsCandidate(dimension, feature)).Select(feature => (feature, score: Score(dimension, feature))).OrderByDescending(candidate => candidate.score).ToList();
-            if (dimension.DimensionType == DimensionType.Angular)
+            var candidates = features.Where(feature => !used.Contains(feature.Reference) && IsCandidate(dimension, feature)).Select(feature =>
             {
-                results.Add(Unmatched(session, dimension, "DimensionTypeNotSupported", "Dimension type not supported for matching (angular dimensions)."));
-                continue;
-            }
+                var value = Measure(dimension, feature)!.Value;
+                var tolerance = ToleranceComparer.Compare(dimension, value, _configuration, session.ToleranceThresholdMm);
+                return (feature, score: Score(dimension, feature), withinTolerance: tolerance.IsWithinTolerance);
+            }).OrderByDescending(candidate => candidate.withinTolerance).ThenByDescending(candidate => candidate.score).ToList();
             if (candidates.Count == 0) { results.Add(Unmatched(session, dimension, "NoCorrespondingGeometryFound", "No corresponding geometry found in STEP model.")); continue; }
             var selected = candidates[0];
-            if (candidates.Count > 1 && Math.Abs(selected.score - candidates[1].score) < 0.05)
+            if (candidates.Count > 1 && selected.withinTolerance == candidates[1].withinTolerance && Math.Abs(selected.score - candidates[1].score) < 0.05)
             {
                 results.Add(Unmatched(session, dimension, "AmbiguousReference", "Ambiguous reference – multiple possible matches."));
                 continue;
@@ -39,7 +40,13 @@ public sealed class DimensionMatchingAlgorithm
             var confidence = selected.score >= _configuration.HighConfidenceThreshold ? MatchConfidence.High : selected.score >= _configuration.MediumConfidenceThreshold ? MatchConfidence.Medium : MatchConfidence.Low;
             var review = confidence != MatchConfidence.High || candidates.Count > 1 && Math.Abs(selected.score - candidates[1].score) < 0.05;
             used.Add(selected.feature.Reference);
-            results.Add(new DimensionMatch { VerificationSessionId = session.VerificationSessionId, DxfDocumentVersionId = dimension.DocumentVersionId, DxfDimensionReference = dimension.SourceEntityOrdinal, StepDocumentVersionId = session.StepDocumentVersionId ?? Guid.Empty, StepGeometryReference = selected.feature.Reference, GeometryType = selected.feature.GeometryType, ConfidenceScore = selected.score, Confidence = confidence, RequiresManualReview = review, Status = DimensionMatchStatus.Matched, DimensionType = dimension.DimensionType, NominalValue = dimension.NominalValue, DimensionText = dimension.DimensionText });
+            var measured = Measure(dimension, selected.feature);
+            if (measured is null) { results.Add(Unmatched(session, dimension, "MeasuredValueUnavailable", "The selected STEP geometry did not provide a finite measurement.")); continue; }
+            var tolerance = ToleranceComparer.Compare(dimension, measured.Value, _configuration, session.ToleranceThresholdMm);
+            var status = tolerance.IsWithinTolerance ? DimensionMatchStatus.Matched : DimensionMatchStatus.Mismatched;
+            var reason = tolerance.IsWithinTolerance ? null : "OutsideTolerance";
+            var explanation = tolerance.IsWithinTolerance ? null : $"Measured value {FormatValue(measured.Value)} is outside [{FormatValue(dimension.NominalValue + tolerance.Lower)}, {FormatValue(dimension.NominalValue + tolerance.Upper)}] {tolerance.Unit}.";
+            results.Add(new DimensionMatch { VerificationSessionId = session.VerificationSessionId, DxfDocumentVersionId = dimension.DocumentVersionId, DxfDimensionReference = dimension.SourceEntityOrdinal, StepDocumentVersionId = session.StepDocumentVersionId ?? Guid.Empty, StepGeometryReference = selected.feature.Reference, GeometryType = selected.feature.GeometryType, ConfidenceScore = selected.score, Confidence = confidence, RequiresManualReview = review || !tolerance.IsWithinTolerance, Status = status, ReasonCode = reason, ReasonExplanation = explanation, DimensionType = dimension.DimensionType, NominalValue = dimension.NominalValue, DimensionText = dimension.DimensionText, MeasuredValue = measured, EffectiveLowerTolerance = tolerance.Lower, EffectiveUpperTolerance = tolerance.Upper, ToleranceUnit = tolerance.Unit, ToleranceSource = tolerance.Source });
         }
         foreach (var feature in features.Where(feature => !used.Contains(feature.Reference)))
             results.Add(new DimensionMatch { VerificationSessionId = session.VerificationSessionId, DxfDocumentVersionId = session.DxfDocumentVersionId ?? Guid.Empty, DxfDimensionReference = -1, StepDocumentVersionId = session.StepDocumentVersionId ?? Guid.Empty, StepGeometryReference = feature.Reference, GeometryType = feature.GeometryType, Status = DimensionMatchStatus.MissingDimension, RequiresManualReview = true, ReasonCode = "NoCorrespondingDimension" });
@@ -48,16 +55,17 @@ public sealed class DimensionMatchingAlgorithm
 
     private bool IsCandidate(CoreDimensionData dimension, GeometryFeatureData feature)
     {
-        var value = dimension.DimensionType == DimensionType.Radial && dimension.RadialKind == RadialDimensionKind.Radius ? feature.Radius : dimension.DimensionType == DimensionType.Radial && dimension.RadialKind == RadialDimensionKind.Diameter ? feature.Diameter : feature.Length ?? feature.Width ?? feature.Height ?? feature.Distance;
-        return value is not null && double.IsFinite(value.Value) && Within(value.Value, dimension.NominalValue);
+        var value = Measure(dimension, feature);
+        return value is not null && double.IsFinite(value.Value) && Score(dimension, feature) >= 0.5;
     }
     private double Score(CoreDimensionData dimension, GeometryFeatureData feature)
     {
-        var value = dimension.DimensionType == DimensionType.Radial && dimension.RadialKind == RadialDimensionKind.Radius ? feature.Radius : dimension.DimensionType == DimensionType.Radial && dimension.RadialKind == RadialDimensionKind.Diameter ? feature.Diameter : feature.Length ?? feature.Width ?? feature.Height ?? feature.Distance;
+        var value = Measure(dimension, feature);
         if (value is null) return 0;
         var difference = Math.Abs(value.Value - dimension.NominalValue);
         return Math.Max(0, 1 - difference / Math.Max(Math.Abs(dimension.NominalValue), 1));
     }
-    private bool Within(double actual, double expected) => Math.Abs(actual - expected) <= _configuration.AbsoluteTolerance + Math.Abs(expected) * _configuration.RelativeTolerance;
+    private static double? Measure(CoreDimensionData dimension, GeometryFeatureData feature) => dimension.DimensionType == DimensionType.Angular ? feature.AngleDegrees : dimension.DimensionType == DimensionType.Radial && dimension.RadialKind == RadialDimensionKind.Radius ? feature.Radius : dimension.DimensionType == DimensionType.Radial && dimension.RadialKind == RadialDimensionKind.Diameter ? feature.Diameter : feature.Length ?? feature.Width ?? feature.Height ?? feature.Distance;
+    private static string FormatValue(double value) => value.ToString("0.############", CultureInfo.InvariantCulture);
     private static DimensionMatch Unmatched(VerificationSession session, CoreDimensionData dimension, string reason, string explanation) => new() { VerificationSessionId = session.VerificationSessionId, DxfDocumentVersionId = dimension.DocumentVersionId, DxfDimensionReference = dimension.SourceEntityOrdinal, StepDocumentVersionId = session.StepDocumentVersionId ?? Guid.Empty, Status = DimensionMatchStatus.Unmatched, RequiresManualReview = true, ReasonCode = reason, ReasonExplanation = explanation, DimensionType = dimension.DimensionType, NominalValue = dimension.NominalValue, DimensionText = dimension.DimensionText };
 }

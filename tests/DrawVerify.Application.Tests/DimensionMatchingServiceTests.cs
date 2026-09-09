@@ -44,8 +44,15 @@ public sealed class DimensionMatchingServiceTests
         var result = await service.MatchDimensionsToGeometryAsync(session.VerificationSessionId);
 
         Assert.Equal(VerificationSessionStatus.DimensionsMatched, result.Status);
-        Assert.Equal(DocumentAuditAction.DimensionsMatched, sessions.Action);
+        Assert.Equal(DocumentAuditAction.ToleranceComparisonApplied, sessions.Action);
         Assert.Single(sessions.Matches);
+        Assert.Equal(DimensionMatchStatus.Matched, sessions.Matches[0].Status);
+        using (var details = JsonDocument.Parse(sessions.DetailsJson!))
+        {
+            Assert.Equal(1, details.RootElement.GetProperty("comparedDimensions").GetInt32());
+            Assert.Equal(1, details.RootElement.GetProperty("matchedDimensions").GetInt32());
+            Assert.Equal(0, details.RootElement.GetProperty("mismatchedDimensions").GetInt32());
+        }
         Assert.Equal(1, geometry.CallCount);
     }
 
@@ -68,7 +75,7 @@ public sealed class DimensionMatchingServiceTests
 
         await service.MatchDimensionsToGeometryAsync(session.VerificationSessionId);
 
-        Assert.Equal(DocumentAuditAction.UnmatchedDimensionsFlagged, sessions.Action);
+        Assert.Equal(DocumentAuditAction.ToleranceComparisonApplied, sessions.Action);
         var unmatched = Assert.Single(sessions.Matches, x => x.Status == DimensionMatchStatus.Unmatched);
         Assert.Equal("NoCorrespondingGeometryFound", unmatched.ReasonCode);
         Assert.Equal(DimensionType.Linear, unmatched.DimensionType);
@@ -77,6 +84,7 @@ public sealed class DimensionMatchingServiceTests
         using var details = JsonDocument.Parse(sessions.DetailsJson!);
         Assert.Equal(session.VerificationSessionId, details.RootElement.GetProperty("verificationSessionId").GetGuid());
         Assert.Equal("checker-id", sessions.UserId);
+        Assert.Equal(2, details.RootElement.GetProperty("comparedDimensions").GetInt32());
         Assert.Equal(1, details.RootElement.GetProperty("unmatchedDimensions").GetInt32());
         Assert.Equal(1, details.RootElement.GetProperty("reasonBreakdown").GetProperty("NoCorrespondingGeometryFound").GetInt32());
     }
@@ -99,6 +107,46 @@ public sealed class DimensionMatchingServiceTests
         Assert.Single(unmatched);
         Assert.Equal(DimensionMatchStatus.Unmatched, unmatched[0].Status);
         Assert.Equal(1, sessions.MatchLookupCount);
+    }
+
+    [Fact(DisplayName = "TD-APP-002 supports a 500-dimension bounded comparison")]
+    public async Task Five_hundred_dimensions_complete_through_the_matching_service()
+    {
+        var step = NewDocument(CoreDocumentType.StepModel, CoreGeometryStatus.Processed, VerificationStatus.Unknown);
+        var dxf = NewDocument(CoreDocumentType.DxfDrawing, CoreGeometryStatus.NotExtracted, VerificationStatus.DimensionsExtracted);
+        var dimensions = Enumerable.Range(1, 500).Select(i => new CoreDimensionData(dxf.DocumentId, dxf.Version!.VersionId, i, DimensionType.Linear, i)).ToArray();
+        var session = new VerificationSession { VerificationSessionId = Guid.NewGuid(), StepDocumentId = step.DocumentId, DxfDocumentId = dxf.DocumentId };
+        var sessions = new SessionFake(session);
+        var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser("checker", new[] { "Checker" }) { UserId = "checker" });
+        var features = Enumerable.Range(1, 500).Select(i => new GeometryFeatureData { Reference = $"Edge:{i}", GeometryType = "Line", Length = i }).ToArray();
+        var service = new DimensionMatchingService(new DocumentsFake(step, dxf, dimensions), sessions, new GeometryFake(features), auth, new DimensionMatchingConfiguration());
+        await service.MatchDimensionsToGeometryAsync(session.VerificationSessionId);
+        Assert.Equal(500, sessions.Matches.Count(x => x.DxfDimensionReference > 0));
+        using var details = JsonDocument.Parse(sessions.DetailsJson!);
+        Assert.Equal(500, details.RootElement.GetProperty("comparedDimensions").GetInt32());
+    }
+
+    [Fact(DisplayName = "TD-APP-002 denies tolerance management to unauthenticated and Viewer users")]
+    public async Task Tolerance_update_requires_maker_or_checker()
+    {
+        var sessions = new SessionFake();
+        var auth = new SessionAuthenticationService();
+        var service = new DimensionMatchingService(new DocumentsFake(), sessions, new GeometryFake(), auth, new DimensionMatchingConfiguration());
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.UpdateToleranceAndRecompareAsync(Guid.NewGuid(), .2));
+        auth.SignIn(new AuthenticatedUser("viewer", new[] { "Viewer" }));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.UpdateToleranceAndRecompareAsync(Guid.NewGuid(), .2));
+        Assert.Equal(0, sessions.ReplaceCount);
+    }
+
+    [Fact(DisplayName = "TD-APP-002 propagates cancellation as a failed comparison")]
+    public async Task Cancellation_is_not_reported_as_success()
+    {
+        var step = NewDocument(CoreDocumentType.StepModel, CoreGeometryStatus.Processed, VerificationStatus.Unknown);
+        var dxf = NewDocument(CoreDocumentType.DxfDrawing, CoreGeometryStatus.NotExtracted, VerificationStatus.DimensionsExtracted);
+        var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser("maker", new[] { "Maker" }));
+        var service = new DimensionMatchingService(new DocumentsFake(step, dxf, new[] { new CoreDimensionData(dxf.DocumentId, dxf.Version!.VersionId, 1, DimensionType.Linear, 1) }), new SessionFake(new VerificationSession { StepDocumentId = step.DocumentId, DxfDocumentId = dxf.DocumentId }), new GeometryFake(new GeometryFeatureData { Reference = "edge", Length = 1 }), auth, new DimensionMatchingConfiguration());
+        using var cancellation = new CancellationTokenSource(); cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.MatchDimensionsToGeometryAsync(Guid.NewGuid(), cancellation.Token));
     }
 
     private static Document NewDocument(CoreDocumentType type, CoreGeometryStatus geometry, VerificationStatus verification)

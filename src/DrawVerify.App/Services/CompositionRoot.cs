@@ -30,6 +30,7 @@ public static class CompositionRoot
     public static void Initialize() { }
     public static ISessionAuthenticationService SessionAuthentication => Session;
     public static RoleAuthorization RoleAuthorization => Authorization;
+    public static DimensionMatchingConfiguration ConfiguredDimensionMatching => DimensionMatchingConfiguration;
     public static UsernamePasswordAuthenticationService CreateAuthenticationService()
     {
         var logger=new CentralizedLogger(); var database=DatabasePath();
@@ -170,7 +171,7 @@ public static class CompositionRoot
     {
         using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "appsettings.json")));
         var section = document.RootElement.GetProperty("DimensionMatching");
-        var config = new DimensionMatchingConfiguration { MaximumStepFileSizeBytes = section.GetProperty("MaximumStepFileSizeBytes").GetInt64(), TimeoutSeconds = section.GetProperty("TimeoutSeconds").GetInt32(), AbsoluteTolerance = section.GetProperty("AbsoluteTolerance").GetDouble(), RelativeTolerance = section.GetProperty("RelativeTolerance").GetDouble(), HighConfidenceThreshold = section.GetProperty("HighConfidenceThreshold").GetDouble(), MediumConfidenceThreshold = section.GetProperty("MediumConfidenceThreshold").GetDouble(), WorkerPath = section.GetProperty("WorkerPath").GetString() ?? string.Empty };
+        var config = new DimensionMatchingConfiguration { MaximumStepFileSizeBytes = section.GetProperty("MaximumStepFileSizeBytes").GetInt64(), TimeoutSeconds = section.GetProperty("TimeoutSeconds").GetInt32(), AbsoluteTolerance = section.GetProperty("AbsoluteTolerance").GetDouble(), RelativeTolerance = section.GetProperty("RelativeTolerance").GetDouble(), ToleranceThresholdMm = section.GetProperty("ToleranceThresholdMm").GetDouble(), AngularToleranceDegrees = section.GetProperty("AngularToleranceDegrees").GetDouble(), ComparisonTimeoutSeconds = section.GetProperty("ComparisonTimeoutSeconds").GetInt32(), HighConfidenceThreshold = section.GetProperty("HighConfidenceThreshold").GetDouble(), MediumConfidenceThreshold = section.GetProperty("MediumConfidenceThreshold").GetDouble(), WorkerPath = section.GetProperty("WorkerPath").GetString() ?? string.Empty };
         config.Validate(); return config;
     }
 }
