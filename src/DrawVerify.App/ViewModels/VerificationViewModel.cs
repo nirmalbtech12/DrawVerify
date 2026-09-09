@@ -36,10 +36,11 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
     public string StatusFilter { get; set; } = "All";
     public bool SortDescending { get; set; }
     public string SortMode { get; set; } = "Default";
-    public IReadOnlyList<string> SortModes { get; } = new[] { "Default", "Delta magnitude" };
+    public IReadOnlyList<string> SortModes { get; } = new[] { "Default", "Status", "Delta magnitude" };
     public string SearchText { get; set; } = string.Empty;
     public string UnmatchedDimensionsTitle => "Unmatched Dimensions";
-    public IReadOnlyList<string> StatusFilters { get; } = new[] { "All", "Matched", "Manual review", "Unmatched", "Missing Dimension" };
+    public IReadOnlyList<string> StatusFilters { get; } = new[] { "All", "Matched", "Mismatched", "Unmatched", "Manual review", "Missing Dimension" };
+    public IReadOnlyList<DimensionStatusSummary> StatusSummaries { get; private set; } = Array.Empty<DimensionStatusSummary>();
     public ICommand SelectPairCommand { get; }
     public ICommand MatchDimensionsCommand { get; }
     public ICommand RefreshMatchesCommand { get; }
@@ -76,11 +77,27 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
     private async Task UpdateToleranceAsync() { if (SelectedSessionId is not Guid id || !double.TryParse(ToleranceThresholdInput, NumberStyles.Float, CultureInfo.InvariantCulture, out var tolerance) || !double.IsFinite(tolerance) || tolerance < 0) { MatchingStatus = "Enter a non-negative tolerance in millimetres."; Notify(nameof(MatchingStatus)); return; } IsBusy = true; Notify(nameof(IsBusy)); try { var session = await _matching!.UpdateToleranceAndRecompareAsync(id, tolerance); SetEffectiveTolerance(session.ToleranceThresholdMm ?? tolerance, updateInput: true); await RefreshMatchesAsync(id); MatchingStatus = $"Tolerance comparison completed using ±{FormatTolerance(tolerance)} mm."; Notify(nameof(MatchingStatus)); } catch (Exception exception) { _logger?.Log(exception, "Tolerance re-comparison", $"Unable to recompare verificationSessionId={id}."); MatchingStatus = exception is UnauthorizedAccessException ? "Access denied." : exception.Message; Notify(nameof(MatchingStatus)); } finally { IsBusy = false; RaiseCommands(); } }
     private void ApplyResultView()
     {
-        var filtered = MatchResults;
-        filtered = _allMatchResults;
-        if (!string.Equals(StatusFilter, "All", StringComparison.OrdinalIgnoreCase)) filtered = filtered.Where(item => string.Equals(item.StatusLabel, StatusFilter, StringComparison.OrdinalIgnoreCase)).ToArray();
+        UpdateStatusSummaries();
+        var filtered = _allMatchResults;
+        if (!string.Equals(StatusFilter, "All", StringComparison.OrdinalIgnoreCase))
+        {
+            filtered = StatusFilter switch
+            {
+                "Matched" => filtered.Where(item => item.Match.Status == DimensionMatchStatus.Matched).ToArray(),
+                "Mismatched" => filtered.Where(item => item.Match.Status == DimensionMatchStatus.Mismatched).ToArray(),
+                "Unmatched" => filtered.Where(item => item.Match.Status == DimensionMatchStatus.Unmatched).ToArray(),
+                _ => filtered.Where(item => string.Equals(item.StatusLabel, StatusFilter, StringComparison.OrdinalIgnoreCase)).ToArray()
+            };
+        }
         if (!string.IsNullOrWhiteSpace(SearchText)) filtered = filtered.Where(item => string.Join(" ", item.DimensionText, item.NominalValue, item.DimensionType, item.Reason, item.ReasonExplanation, item.Match.DxfDimensionReference).Contains(SearchText, StringComparison.OrdinalIgnoreCase)).ToArray();
-        if (string.Equals(SortMode, "Delta magnitude", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(SortMode, "Status", StringComparison.OrdinalIgnoreCase))
+        {
+            var ordered = SortDescending
+                ? filtered.OrderByDescending(item => StatusPriority(item.Match.Status))
+                : filtered.OrderBy(item => StatusPriority(item.Match.Status));
+            MatchResults = ordered.ToArray();
+        }
+        else if (string.Equals(SortMode, "Delta magnitude", StringComparison.OrdinalIgnoreCase))
         {
             var withNullsLast = filtered.OrderBy(item => item.DeltaMagnitude is null);
             MatchResults = (SortDescending ? withNullsLast.ThenByDescending(item => item.DeltaMagnitude) : withNullsLast.ThenBy(item => item.DeltaMagnitude)).ToArray();
@@ -89,10 +106,34 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
             MatchResults = (SortDescending ? filtered.OrderByDescending(item => item.DimensionType).ThenByDescending(item => item.NominalValue) : filtered.OrderBy(item => item.DimensionType).ThenBy(item => item.NominalValue)).ToArray();
         Notify(nameof(MatchResults));
     }
+    private void UpdateStatusSummaries()
+    {
+        StatusSummaries = Enum.GetValues<DimensionType>().Select(type =>
+        {
+            var matches = _allMatchResults.Where(item => item.Match.DimensionType == type).Select(item => item.Match);
+            return new DimensionStatusSummary(type,
+                matches.Count(match => match.Status == DimensionMatchStatus.Matched),
+                matches.Count(match => match.Status == DimensionMatchStatus.Mismatched),
+                matches.Count(match => match.Status == DimensionMatchStatus.Unmatched));
+        }).ToArray();
+        Notify(nameof(StatusSummaries));
+    }
+    private static int StatusPriority(DimensionMatchStatus status) => status switch
+    {
+        DimensionMatchStatus.Mismatched => 0,
+        DimensionMatchStatus.Unmatched => 1,
+        DimensionMatchStatus.Matched => 2,
+        _ => 3
+    };
     private void RaiseCommands() { ((RelayCommand)SelectPairCommand).Raise(); ((RelayCommand)MatchDimensionsCommand).Raise(); ((RelayCommand)RefreshMatchesCommand).Raise(); ((RelayCommand)UpdateToleranceCommand).Raise(); }
     private void Notify([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
-    private void ClearResults(string message) { _allMatchResults = Array.Empty<DimensionMatchItemViewModel>(); MatchResults = Array.Empty<DimensionMatchItemViewModel>(); MatchingStatus = message; Notify(nameof(MatchResults)); Notify(nameof(MatchingStatus)); }
+    private void ClearResults(string message) { _allMatchResults = Array.Empty<DimensionMatchItemViewModel>(); MatchResults = Array.Empty<DimensionMatchItemViewModel>(); UpdateStatusSummaries(); MatchingStatus = message; Notify(nameof(MatchResults)); Notify(nameof(MatchingStatus)); }
     private void SetEffectiveTolerance(double value, bool updateInput = false) { _effectiveToleranceThresholdMm = value; if (updateInput) { ToleranceThresholdInput = FormatTolerance(value); Notify(nameof(ToleranceThresholdInput)); } Notify(nameof(ToleranceSummary)); }
     private static string FormatTolerance(double value) => value.ToString("0.############", CultureInfo.InvariantCulture);
     private sealed class RelayCommand(Action<object?> execute, Predicate<object?>? canExecute = null) : ICommand { public event EventHandler? CanExecuteChanged; public bool CanExecute(object? parameter) => canExecute?.Invoke(parameter) ?? true; public void Execute(object? parameter) => execute(parameter); public void Raise() => CanExecuteChanged?.Invoke(this, EventArgs.Empty); }
+}
+
+public sealed record DimensionStatusSummary(DimensionType DimensionType, int MatchedCount, int MismatchedCount, int UnmatchedCount)
+{
+    public int TotalCount => MatchedCount + MismatchedCount + UnmatchedCount;
 }
