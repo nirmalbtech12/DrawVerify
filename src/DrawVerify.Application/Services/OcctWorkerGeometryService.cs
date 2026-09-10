@@ -7,7 +7,7 @@ using ManagedGeometryService = DrawVerify.Geometry.IGeometryService;
 
 namespace DrawVerify.Application.Services;
 
-public sealed class OcctWorkerGeometryService : ManagedGeometryService, IMatchableGeometryService
+public sealed class OcctWorkerGeometryService : ManagedGeometryService, IMatchableGeometryService, IGdtAnnotationService
 {
     private readonly string _workerPath;
     private readonly long _maximumFileSizeBytes;
@@ -21,6 +21,34 @@ public sealed class OcctWorkerGeometryService : ManagedGeometryService, IMatchab
         _maximumFileSizeBytes = maximumFileSizeBytes;
         _timeout = TimeSpan.FromSeconds(timeoutSeconds);
         _logger = logger;
+    }
+
+    public GdtAnnotationExtractionResult ExtractAnnotations(string filePath, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(filePath)) throw new ArgumentException("A STEP file path is required.", nameof(filePath));
+        if (!File.Exists(filePath)) return GdtAnnotationExtractionResult.Failure("FileNotFound", "GD&T extraction failed: stored STEP file was not found.");
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(_timeout);
+        using var process = new Process { StartInfo = new ProcessStartInfo(_workerPath) { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true } };
+        try
+        {
+            if (!process.Start()) return GdtAnnotationExtractionResult.Failure("WorkerStart", "GD&T extraction failed: worker could not be started.");
+            process.StandardInput.Write(JsonSerializer.Serialize(new GdtAnnotationWorkerRequest(1, filePath)));
+            process.StandardInput.Close();
+            try { process.WaitForExitAsync(timeout.Token).GetAwaiter().GetResult(); }
+            catch (OperationCanceledException) { Terminate(process, "GD&T worker", filePath); return GdtAnnotationExtractionResult.Failure("Timeout", "GD&T extraction failed: operation exceeded the configured timeout."); }
+            var diagnostics = ReadDiagnostics(process);
+            var output = process.StandardOutput.ReadToEnd();
+            if (string.IsNullOrWhiteSpace(output)) return GdtAnnotationExtractionResult.Failure("WorkerProtocol", $"GD&T extraction failed: worker returned no result.{FormatDiagnostics(diagnostics)}");
+            var response = JsonSerializer.Deserialize<GdtAnnotationWorkerResponse>(output);
+            if (response is null || response.ProtocolVersion != 1 || process.ExitCode != 0) return GdtAnnotationExtractionResult.Failure("WorkerProtocol", $"GD&T extraction failed: unsupported or failed worker response.{FormatDiagnostics(diagnostics)}");
+            return response.Result;
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException or IOException)
+        {
+            _logger?.Log(exception, "GD&T worker", $"Worker operation failed for file '{filePath}'.");
+            return GdtAnnotationExtractionResult.Failure("Worker", $"GD&T extraction failed: {exception.Message}");
+        }
     }
 
     public MatchableGeometryExtractionResult ExtractMatchableGeometry(MatchableGeometryExtractionRequest request, CancellationToken cancellationToken = default)
@@ -105,4 +133,6 @@ public sealed class OcctWorkerGeometryService : ManagedGeometryService, IMatchab
     private static string ReadDiagnostics(Process process) { try { return process.StandardError.ReadToEnd(); } catch (Exception exception) { return $"Unable to read worker diagnostics: {exception.Message}"; } }
     private static string FormatDiagnostics(string diagnostics) => string.IsNullOrWhiteSpace(diagnostics) ? string.Empty : $" Diagnostics: {SafeDiagnostics(diagnostics)}";
     private static string SafeDiagnostics(string diagnostics) => string.IsNullOrWhiteSpace(diagnostics) ? "No worker diagnostics." : diagnostics.Length > 512 ? diagnostics[..512] : diagnostics;
+    private sealed record GdtAnnotationWorkerRequest(int ProtocolVersion, string FilePath) { }
+    private sealed record GdtAnnotationWorkerResponse(int ProtocolVersion, GdtAnnotationExtractionResult Result) { }
 }

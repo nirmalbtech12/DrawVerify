@@ -201,6 +201,30 @@ public sealed class SqliteVerificationSessionRepositoryTests
         finally { await DeleteDatabaseAsync(path); }
     }
 
+    [Fact(DisplayName = "TD-REVIEW-04 round-trips GD&T source metadata and review audit payloads")]
+    public async Task Gdt_source_metadata_and_review_survive_reload()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "drawverify-gdt-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            var repository = new SqliteVerificationSessionRepository(path);
+            var session = await repository.GetOrCreateAsync(Guid.NewGuid(), Guid.NewGuid());
+            var result = new GdtResult
+            {
+                VerificationSessionId = session.VerificationSessionId, Identifier = "DXF:gdt-1", ControlType = GdtControlType.Unknown,
+                SourceDocument = "DXF:drawing", SourceDocumentVersion = "v1", SourceLocation = "entity:17", RawText = "◇ 0.2",
+                EntityHandle = "17", Layer = "GD&T", BlockName = "BLOCK_A", ViewName = "VIEW_1", Diagnostics = new[] { "malformed modifier retained" },
+                Status = VerificationStatus.NotVerified, Reason = GdtResult.UnsupportedReason
+            };
+            await repository.ReplaceGdtResultsAsync(session.VerificationSessionId, new[] { result }, "checker");
+            var reloaded = Assert.Single(await repository.GetGdtResultsAsync(session.VerificationSessionId));
+            Assert.Equal(result.EntityHandle, reloaded.EntityHandle); Assert.Equal(result.Layer, reloaded.Layer); Assert.Equal(result.BlockName, reloaded.BlockName); Assert.Equal(result.ViewName, reloaded.ViewName); Assert.Equal(result.Diagnostics, reloaded.Diagnostics);
+            await repository.UpdateGdtReviewAsync(session.VerificationSessionId, reloaded.GdtResultId, "Review", true, "checker");
+            await using var connection = new SqliteConnection($"Data Source={path}"); await connection.OpenAsync(); await using var command = connection.CreateCommand(); command.CommandText = "SELECT COUNT(*) FROM DocumentAuditLog WHERE Action=$action"; command.Parameters.AddWithValue("$action", (int)DocumentAuditAction.UnsupportedGdtReviewChanged); Assert.Equal(1L, await command.ExecuteScalarAsync());
+        }
+        finally { await DeleteDatabaseAsync(path); }
+    }
+
     [Fact(DisplayName = "TD-003 round-trips structured missing-dimension location metadata")]
     public async Task Structured_location_metadata_survives_reload()
     {

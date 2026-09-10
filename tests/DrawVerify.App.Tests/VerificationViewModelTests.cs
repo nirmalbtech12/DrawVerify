@@ -310,6 +310,21 @@ public sealed class VerificationViewModelTests
         Assert.False(viewModel.ResolveMissingDimensionCommand.CanExecute("Accepted"));
     }
 
+    [Fact(DisplayName = "TD-REVIEW-03 selecting a DXF GD&T result navigates to its persisted source reference")]
+    public void Gdt_selection_navigates_to_dxf_source()
+    {
+        var viewModel = new VerificationViewModel(new SessionAuthenticationService(), new RoleAuthorization());
+        viewModel.SelectedGdtResult = new GdtResultItemViewModel(new GdtResult
+        {
+            Identifier = "DXF:gdt-1", SourceDocument = "DXF:drawing", SourceLocation = "entity:17",
+            EntityHandle = "17", Status = VerificationStatus.NotVerified, Reason = GdtResult.UnsupportedReason
+        });
+
+        Assert.Equal("17", viewModel.DxfPreview.SelectedEntityReference);
+        Assert.True(viewModel.DxfPreview.IsHighlightVisible);
+        Assert.Contains("highlighted", viewModel.MatchingStatus, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact(DisplayName = "TD-APPUI-002 filters, searches, and sorts mixed results deterministically")]
     public void Authorized_view_filters_searches_and_sorts_mixed_results_deterministically()
     {

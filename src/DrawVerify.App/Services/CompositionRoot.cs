@@ -96,7 +96,12 @@ public static class CompositionRoot
         var database = DatabasePath();
         var logger = new CentralizedLogger();
         var workerPath = Path.Combine(AppContext.BaseDirectory, DimensionMatchingConfiguration.WorkerPath);
-        return new DimensionMatchingService(new SqliteDocumentRepository(database, logger), new SqliteVerificationSessionRepository(database), new OcctWorkerGeometryService(workerPath, DimensionMatchingConfiguration.MaximumStepFileSizeBytes, DimensionMatchingConfiguration.TimeoutSeconds, logger), Session, DimensionMatchingConfiguration, Authorization, logger);
+        var documents = new SqliteDocumentRepository(database, logger);
+        var sessions = new SqliteVerificationSessionRepository(database);
+        var dxfFiles = new DxfDocumentFileStore(AppContext.BaseDirectory, DxfUploadConfiguration);
+        var worker = new OcctWorkerGeometryService(workerPath, DimensionMatchingConfiguration.MaximumStepFileSizeBytes, DimensionMatchingConfiguration.TimeoutSeconds, logger);
+        var gdtVerification = new VerificationService(CreateVerificationEngine(), sessions);
+        return new DimensionMatchingService(documents, sessions, worker, Session, DimensionMatchingConfiguration, Authorization, logger, gdtVerification, dxfFiles, new DxfGdtParser(), worker);
     }
     public static ReportService CreateReportService()
     {

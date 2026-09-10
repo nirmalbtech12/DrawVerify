@@ -72,7 +72,18 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
     public int ExtraDimensions => ComparisonSummary.ExtraDimensions;
     public int NotVerifiedGdtControls => ComparisonSummary.NotVerifiedGdtControls;
     public IReadOnlyList<GdtResultItemViewModel> NotVerifiedGdtResults { get; private set; } = Array.Empty<GdtResultItemViewModel>();
-    public GdtResultItemViewModel? SelectedGdtResult { get; set; }
+    private GdtResultItemViewModel? _selectedGdtResult;
+    public GdtResultItemViewModel? SelectedGdtResult
+    {
+        get => _selectedGdtResult;
+        set
+        {
+            _selectedGdtResult = value;
+            if (value is not null) NavigateToGdtSource(value.Result);
+            Notify();
+            RaiseCommands();
+        }
+    }
     public string GdtReviewComment { get; set; } = string.Empty;
     public string NotVerifiedGdtTitle => "Not Verified GD&T Controls";
     public double? MatchPercentage => ComparisonSummary.MatchPercentage;
@@ -168,6 +179,30 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
             MatchingStatus = exception is UnauthorizedAccessException ? "Access denied." : $"Unable to save extra dimension comment: {exception.Message}"; Notify(nameof(MatchingStatus));
         }
         finally { IsBusy = false; Notify(nameof(IsBusy)); RaiseCommands(); }
+    }
+    private void NavigateToGdtSource(GdtResult result)
+    {
+        var isDxf = result.SourceDocument.Contains("DXF", StringComparison.OrdinalIgnoreCase) || result.SourceDocument.EndsWith(".dxf", StringComparison.OrdinalIgnoreCase);
+        if (isDxf)
+        {
+            var reference = result.EntityHandle;
+            if (!int.TryParse(reference, System.Globalization.NumberStyles.Integer, CultureInfo.InvariantCulture, out var entityReference))
+                int.TryParse(reference, System.Globalization.NumberStyles.HexNumber, CultureInfo.InvariantCulture, out entityReference);
+            if (entityReference == 0)
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(result.SourceLocation ?? string.Empty, @"(?:entity|ordinal)[:=](\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                int.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out entityReference);
+            }
+            if (!DxfPreview.SelectDimension(entityReference, result.SourceLocation))
+                MatchingStatus = "DXF preview unavailable for the selected GD&T control.";
+            else
+                MatchingStatus = "DXF source location highlighted for the selected GD&T control.";
+        }
+        else if (!StepPreview.HighlightAndFit(result.EntityHandle ?? result.SourceLocation, null, null))
+            MatchingStatus = "STEP preview unavailable for the selected GD&T control.";
+        Notify(nameof(MatchingStatus));
+        Notify(nameof(DxfPreview));
+        Notify(nameof(StepPreview));
     }
     private async Task AddGdtCommentAsync()
     {

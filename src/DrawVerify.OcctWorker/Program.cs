@@ -20,6 +20,15 @@ public static class Program
                 Console.Out.Write(response.Serialize());
                 return response.Result.Succeeded ? 0 : 2;
             }
+            if (string.Equals(operation, "GdtAnnotations", StringComparison.Ordinal))
+            {
+                var request = JsonSerializer.Deserialize<GdtAnnotationWorkerRequest>(json) ?? throw new InvalidDataException("GD&T worker request is missing.");
+                if (request.ProtocolVersion != 1) throw new InvalidDataException("Unsupported worker protocol version.");
+                var gdtResult = new GdtAnnotationService().ExtractAnnotations(request.FilePath);
+                var response = new GdtAnnotationWorkerResponse(1, gdtResult);
+                Console.Out.Write(response.Serialize());
+                return gdtResult.Succeeded ? 0 : 2;
+            }
             var measurement = WorkerRequest.Parse(json);
             if (measurement.ProtocolVersion != 1) throw new InvalidDataException("Unsupported worker protocol version.");
             var result = new MeasurementExtractionWorker(new OcctGeometryService()).Execute(measurement);

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using DrawVerify.Application.DxfDimensionExtraction;
 using DrawVerify.Application.Verification;
 using DrawVerify.Core.Authorization;
 using DrawVerify.Core.Configuration;
@@ -20,9 +21,13 @@ public sealed class DimensionMatchingService
     private readonly RoleAuthorization _authorization;
     private readonly DimensionMatchingConfiguration _configuration;
     private readonly ICentralizedLogger? _logger;
+    private readonly VerificationService? _gdtVerification;
+    private readonly IDxfUploadFileStore? _dxfFiles;
+    private readonly IDxfGdtParser? _dxfGdtParser;
+    private readonly IGdtAnnotationService? _stepGdtService;
     private readonly Dictionary<(Guid SessionId, Guid MatchId), DimensionReview> _extraReviews = new();
-    public DimensionMatchingService(IDocumentRepository documents, IVerificationSessionRepository sessions, IMatchableGeometryService geometry, ISessionAuthenticationService authentication, DimensionMatchingConfiguration configuration, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null)
-    { _documents = documents; _sessions = sessions; _geometry = geometry; _authentication = authentication; _configuration = configuration; _configuration.Validate(); _authorization = authorization ?? new RoleAuthorization(); _logger = logger; }
+    public DimensionMatchingService(IDocumentRepository documents, IVerificationSessionRepository sessions, IMatchableGeometryService geometry, ISessionAuthenticationService authentication, DimensionMatchingConfiguration configuration, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null, VerificationService? gdtVerification = null, IDxfUploadFileStore? dxfFiles = null, IDxfGdtParser? dxfGdtParser = null, IGdtAnnotationService? stepGdtService = null)
+    { _documents = documents; _sessions = sessions; _geometry = geometry; _authentication = authentication; _configuration = configuration; _configuration.Validate(); _authorization = authorization ?? new RoleAuthorization(); _logger = logger; _gdtVerification = gdtVerification; _dxfFiles = dxfFiles; _dxfGdtParser = dxfGdtParser; _stepGdtService = stepGdtService; }
 
     public async Task<VerificationSession> MatchDimensionsToGeometryAsync(Guid sessionId, CancellationToken cancellationToken = default, double? toleranceOverrideMm = null)
     {
@@ -48,6 +53,7 @@ public sealed class DimensionMatchingService
             stepDocumentVersionId = stepVersion.VersionId;
             dxfDocumentVersionId = dxfVersion.VersionId;
             var current = session with { StepDocumentVersionId = stepVersion.VersionId, DxfDocumentVersionId = dxfVersion.VersionId, Status = VerificationSessionStatus.Pending, ErrorMessage = null };
+            await ExtractAndPersistGdtAsync(current, stepVersion, dxfVersion, cancellationToken).ConfigureAwait(false);
             var dimensions = await _documents.GetDimensionsAsync(dxf.DocumentId, cancellationToken).ConfigureAwait(false);
             var extracted = _geometry.ExtractMatchableGeometry(new MatchableGeometryExtractionRequest(stepVersion.StoredRelativePath), cancellationToken);
             if (!extracted.Succeeded) throw new InvalidOperationException(extracted.ErrorMessage ?? "Geometry extraction failed.");
@@ -69,6 +75,20 @@ public sealed class DimensionMatchingService
             try { await _sessions.ReplaceResultsAsync(failed, Array.Empty<DimensionMatch>(), DocumentAuditAction.DimensionMatchingFailed, _authentication.CurrentUser!.UserId, details, CancellationToken.None).ConfigureAwait(false); } catch (Exception persistenceException) { _logger?.Log(persistenceException, "Dimension matching failure persistence", $"Unable to persist failed verificationSessionId={sessionId}."); throw; }
             throw;
         }
+    }
+    private async Task ExtractAndPersistGdtAsync(VerificationSession session, DocumentVersion stepVersion, DocumentVersion dxfVersion, CancellationToken cancellationToken)
+    {
+        if (_gdtVerification is null || _dxfFiles is null || _dxfGdtParser is null || _stepGdtService is null) return;
+        var annotations = new List<GdtAnnotationData>();
+        await using (var dxf = await _dxfFiles.OpenReadAsync(dxfVersion.StoredRelativePath, cancellationToken).ConfigureAwait(false))
+            annotations.AddRange(await _dxfGdtParser.ParseAsync(dxf, session.DxfDocumentId, dxfVersion.VersionId, cancellationToken).ConfigureAwait(false));
+        var step = _stepGdtService.ExtractAnnotations(stepVersion.StoredRelativePath, cancellationToken);
+        if (step.Succeeded) annotations.AddRange(step.Annotations);
+        else if (step.ErrorCategory is not "CapabilityUnavailable")
+            throw new InvalidOperationException(step.ErrorMessage ?? "STEP GD&T extraction failed.");
+        else
+            _logger?.Log(new NotSupportedException(step.ErrorMessage ?? "STEP GD&T extraction is unavailable."), "STEP GD&T extraction", $"Explicit capability limitation for verificationSessionId={session.VerificationSessionId}.");
+        await _gdtVerification.VerifyGdtAsync(session.VerificationSessionId, annotations, _authentication.CurrentUser?.UserId ?? throw new UnauthorizedAccessException("An authenticated user is required."), cancellationToken).ConfigureAwait(false);
     }
     public async Task<VerificationSession> UpdateToleranceAndRecompareAsync(Guid sessionId, double toleranceThresholdMm, CancellationToken cancellationToken = default)
     {
