@@ -6,7 +6,7 @@
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
             <TextBlock Text="STEP 3D Preview" FontWeight="Bold" />
             <Viewport3D Grid.Row="1" Margin="0,6" ClipToBounds="True">
-                <Viewport3D.Camera><PerspectiveCamera Position="0,0,250" LookDirection="0,0,-250" UpDirection="0,1,0" FieldOfView="45" /></Viewport3D.Camera>
+                <Viewport3D.Camera><PerspectiveCamera Position="{Binding CameraPosition}" LookDirection="{Binding CameraLookDirection}" UpDirection="{Binding CameraUpDirection}" FieldOfView="45" /></Viewport3D.Camera>
                 <ModelVisual3D Content="{Binding ModelContent}" />
                 <ModelVisual3D Content="{Binding HighlightContent}" />
                 <ModelVisual3D><ModelVisual3D.Content><AmbientLight Color="#808080" /></ModelVisual3D.Content></ModelVisual3D>
