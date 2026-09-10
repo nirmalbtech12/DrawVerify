@@ -32,6 +32,8 @@ x86/
 bld/
 [Bb]in/[Dd]ebug/
 [Bb]in/[Rr]elease/
+buildobj*/
+buildbin*/
 
 # Native OCCT build output
 native/build/
