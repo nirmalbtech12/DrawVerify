@@ -4,6 +4,7 @@ using DrawVerify.Core.Enums;
 using DrawVerify.Core.Models;
 using DrawVerify.Core.Configuration;
 using System.Globalization;
+using System.IO;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
@@ -38,7 +39,7 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
     public string DenialMessage => "The Checker or Approver role is required to review verification results.";
     public bool TryEnterReview(out string message) { if (CanReview) { message = string.Empty; return true; } message = DenialMessage; return false; }
     public bool CanMatchDimensions => _matching is not null && _authorization.IsAllowed(_session.CurrentUser, RolePermission.MatchDimensionsToGeometry);
-    public bool CanViewDimensionMatches => _matching is not null && (_authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewDimensionMatchResults) || _authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewMissingDimensions));
+    public bool CanViewDimensionMatches => _matching is not null && (_authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewDimensionMatchResults) || _authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewMissingDimensions) || _authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewExtraDimensions));
     public bool CanManageTolerance => _matching is not null && _authorization.IsAllowed(_session.CurrentUser, RolePermission.ManageToleranceComparison);
     public bool CanCommentMissingDimensions => _matching is not null && _authorization.IsAllowed(_session.CurrentUser, RolePermission.CommentOnMissingDimensions);
     public bool CanResolveMissingDimensions => _matching is not null && _authorization.IsAllowed(_session.CurrentUser, RolePermission.ResolveUnmatched);
@@ -209,9 +210,37 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
         {
             if (_authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewDimensionMatchResults))
                 SetEffectiveTolerance(await _matching!.GetEffectiveToleranceThresholdAsync(sessionId, cancellationToken));
-            var matches = _authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewDimensionMatchResults)
-                ? await _matching!.GetResultsAsync(sessionId, cancellationToken: cancellationToken)
-                : await _matching!.GetMissingResultsAsync(sessionId, cancellationToken);
+            var canViewAll = _authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewDimensionMatchResults);
+            var canViewMissing = _authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewMissingDimensions);
+            var canViewExtra = _authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewExtraDimensions);
+            IReadOnlyList<DimensionMatch> matches;
+            if (canViewAll)
+                matches = await _matching!.GetResultsAsync(sessionId, cancellationToken: cancellationToken);
+            else
+            {
+                var authorizedRows = new List<DimensionMatch>();
+                if (canViewMissing)
+                    authorizedRows.AddRange(await _matching!.GetMissingResultsAsync(sessionId, cancellationToken));
+                if (canViewExtra)
+                    authorizedRows.AddRange(await _matching!.GetExtraResultsAsync(sessionId, cancellationToken));
+                matches = authorizedRows;
+            }
+            if (canViewExtra)
+            {
+                try
+                {
+                    var storedPath = await _matching!.GetStepPreviewPathAsync(sessionId, cancellationToken);
+                    var previewPath = Path.IsPathRooted(storedPath) ? storedPath : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, storedPath));
+                    if (!StepPreview.LoadModel(previewPath))
+                        MatchingStatus = "STEP preview unavailable: the model could not be loaded.";
+                }
+                catch (Exception exception) when (exception is InvalidOperationException or IOException)
+                {
+                    _logger?.Log(exception, "STEP preview model load", $"Unable to prepare preview for verificationSessionId={sessionId}; result rows remain available.");
+                    MatchingStatus = "STEP preview unavailable: the model could not be loaded.";
+                    Notify(nameof(MatchingStatus));
+                }
+            }
             _allMatchResults = matches.Select(match => new DimensionMatchItemViewModel(match)).ToArray(); ApplyResultView();
         }
         catch (UnauthorizedAccessException) { ClearResults("Access denied."); }

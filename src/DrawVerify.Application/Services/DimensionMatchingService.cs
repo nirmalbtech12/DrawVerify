@@ -93,6 +93,17 @@ public sealed class DimensionMatchingService
         var matches = await _sessions.GetMatchesAsync(sessionId, cancellationToken: cancellationToken).ConfigureAwait(false);
         return matches.Where(item => IsExtraDimensionStatus(item.Status)).ToArray();
     }
+    public async Task<string> GetStepPreviewPathAsync(Guid sessionId, CancellationToken cancellationToken = default)
+    {
+        EnsureAuthorized(RolePermission.ViewExtraDimensions);
+        var session = await _sessions.GetAsync(sessionId, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("The verification session was not found.");
+        var step = await _documents.GetAsync(session.StepDocumentId, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("The STEP document was not found.");
+        if (step.Version is null || string.IsNullOrWhiteSpace(step.Version.StoredRelativePath))
+            throw new InvalidOperationException("The STEP document has no stored model version.");
+        return step.Version.StoredRelativePath;
+    }
     public Task AddExtraCommentAsync(Guid sessionId, Guid dimensionMatchId, string comment, CancellationToken cancellationToken = default)
     {
         EnsureAuthorized(RolePermission.CommentOnExtraDimensions);
