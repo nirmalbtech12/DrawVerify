@@ -56,6 +56,7 @@ public sealed class DxfGdtParserTests
         Assert.Equal(GdtControlType.Unknown, result.ControlType);
         Assert.Equal("◇ 0.2", result.RawText);
         Assert.StartsWith("entity:", result.SourceLocation);
+        Assert.Equal(result.SourceOrdinal.ToString(System.Globalization.CultureInfo.InvariantCulture), result.EntityHandle);
     }
 
     [Fact(DisplayName = "TD-04 exposes structured DXF diagnostics through the production parser contract")]

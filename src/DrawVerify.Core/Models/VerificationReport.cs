@@ -18,6 +18,7 @@ public sealed class VerificationReport
             $"- Unmatched: {summary.UnmatchedDimensions}",
             $"- Missing Dimensions: {summary.MissingDimensions}",
             $"- Extra Dimensions (in 3D but not in 2D): {summary.ExtraDimensions}",
+            $"- Cannot Validate / Manual Review Required: {summary.CannotValidateGdtControls}",
             $"- Match Percentage: {(summary.MatchPercentage is double percentage ? percentage.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + "%" : "N/A")}",
             string.Empty,
             "### Summary by Dimension Type",
@@ -44,6 +45,13 @@ public sealed class VerificationReport
             var diagnostics = result.Diagnostics.Count == 0 ? "None" : string.Join("; ", result.Diagnostics.Select(Escape));
             lines.Add($"- Identifier: `{Escape(result.Identifier)}` | Type: {Escape(result.ControlType.ToString())} | Symbol: {Escape(result.Symbol) ?? "Unavailable"} | Status: {result.Status} | Rule: {Escape(result.RuleVersion)} | Source document: {Escape(result.SourceDocument)} | Source version: {Escape(result.SourceDocumentVersion) ?? "Unavailable"} | Location: {Escape(result.SourceLocation) ?? "Unavailable"} | Entity: {Escape(result.EntityHandle) ?? "Unavailable"} | Layer: {Escape(result.Layer) ?? "Unavailable"} | Block: {Escape(result.BlockName) ?? "Unavailable"} | View: {Escape(result.ViewName) ?? "Unavailable"} | Feature: {Escape(result.ControlledFeature) ?? "Unavailable"} | Nominal/basic location: {Escape(result.NominalBasicLocation) ?? "Unavailable"} | Tolerance: {Escape(result.ToleranceValue) ?? "Unavailable"} | Zone: {Escape(result.ToleranceZoneType) ?? "Unavailable"} | Zone diameter: {Escape(result.ToleranceZoneDiameter) ?? "Unavailable"} | Modifiers: {Escape(result.NormalizedModifiers ?? result.Modifiers) ?? "Unavailable"} | Datum scheme: {Escape(result.DatumScheme) ?? "Unavailable"} | Datums: {(result.DatumReferences.Count == 0 ? "None" : Escape(string.Join(", ", result.DatumReferences)))} | Comparison criteria: {Escape(result.ComparisonCriteria) ?? "Unavailable"} | Details: {Escape(result.ComparisonDetails) ?? "-"} | Diagnostics: {diagnostics} | Reason: {Escape(result.Reason) ?? "-"} | Raw text: {Escape(result.RawText) ?? "Unavailable"} | Source pair: {Escape(result.SourcePairId) ?? "Unavailable"} | Comment: {Escape(result.ReviewComment) ?? "-"} | Engineering review: {result.RequiresEngineeringReview}");
         }
+        lines.Add(string.Empty);
+        lines.Add("## Cannot Validate / Manual Review Required");
+        lines.Add(string.Empty);
+        var cannotValidate = GdtResults.Where(result => result.Status == Enums.VerificationStatus.CannotValidate).ToArray();
+        if (cannotValidate.Length == 0) lines.Add("- None identified.");
+        foreach (var result in cannotValidate)
+            lines.Add($"- Identifier: `{Escape(result.Identifier)}` | Type: {Escape(result.ControlType.ToString())} | Source: {Escape(result.SourceDocument)} | Location: {Escape(result.SourceLocation) ?? "Unavailable"} | Reason: {Escape(result.Reason) ?? "-"} | Comment: {Escape(result.ReviewComment) ?? "-"} | Disposition: {Escape(result.ReviewDisposition) ?? "Open"}");
         lines.Add(string.Empty);
         lines.Add("## Dimension Status Details");
         lines.Add(string.Empty);

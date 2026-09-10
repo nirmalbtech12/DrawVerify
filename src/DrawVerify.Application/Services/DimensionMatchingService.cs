@@ -85,10 +85,11 @@ public sealed class DimensionMatchingService
             await using var dxf = await _dxfFiles.OpenReadAsync(dxfVersion.StoredRelativePath, cancellationToken).ConfigureAwait(false);
             dxfExtraction = await _dxfGdtParser.ParseDetailedAsync(dxf, session.DxfDocumentId, dxfVersion.VersionId, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (Exception exception) when (exception is InvalidDataException or FormatException or IOException)
         {
             _logger?.Log(exception, "DXF GD&T extraction", $"Unable to extract GD&T annotations for verificationSessionId={session.VerificationSessionId}.");
-            throw new InvalidOperationException("DXF GD&T extraction failed.", exception);
+            await PersistGdtExtractionFailureAsync(session, dxfVersion, true, "Parser", exception.Message, new[] { exception.ToString() }, cancellationToken).ConfigureAwait(false);
+            return;
         }
 
         if (!dxfExtraction.Succeeded)
@@ -96,19 +97,24 @@ public sealed class DimensionMatchingService
             var diagnostic = dxfExtraction.ErrorMessage ?? string.Join("; ", dxfExtraction.Diagnostics);
             var failure = new InvalidOperationException(diagnostic is null or "" ? "DXF GD&T extraction failed." : diagnostic);
             _logger?.Log(failure, "DXF GD&T extraction", $"Structured extraction failure for verificationSessionId={session.VerificationSessionId}, category={dxfExtraction.ErrorCategory ?? "Unknown"}.");
-            throw failure;
+            await PersistGdtExtractionFailureAsync(session, dxfVersion, true, dxfExtraction.ErrorCategory ?? "Parser", dxfExtraction.ErrorMessage ?? diagnostic ?? "DXF GD&T extraction failed.", dxfExtraction.Diagnostics, cancellationToken, dxfExtraction.Identifier, dxfExtraction.SourceLocation, dxfExtraction.SourceDocumentVersion).ConfigureAwait(false);
+            return;
         }
 
-        var dxfDiagnostics = dxfExtraction.Diagnostics;
-        var dxfAnnotations = dxfExtraction.Annotations.Select(annotation =>
-            dxfDiagnostics.Count == 0
-                ? annotation
-                : annotation with { Diagnostics = (annotation.Diagnostics ?? Array.Empty<string>()).Concat(dxfDiagnostics).Distinct(StringComparer.Ordinal).ToArray() }).ToArray();
+        // Diagnostics returned alongside a successful document extraction are document-level
+        // diagnostics. Keep them out of annotation diagnostics so one malformed entity cannot
+        // invalidate unrelated controls. Entity-specific diagnostics remain on the annotation.
+        var dxfAnnotations = dxfExtraction.Annotations.ToArray();
         var step = _stepGdtService.ExtractAnnotations(stepVersion.StoredRelativePath, cancellationToken);
         var stepAnnotations = step.Annotations.ToArray();
         if (step.Succeeded) { }
         else if (step.ErrorCategory is not "CapabilityUnavailable")
-            throw new InvalidOperationException(step.ErrorMessage ?? "STEP GD&T extraction failed.");
+        {
+            var failure = new InvalidOperationException(step.ErrorMessage ?? "STEP GD&T extraction failed.");
+            _logger?.Log(failure, "STEP GD&T extraction", $"Structured extraction failure for verificationSessionId={session.VerificationSessionId}, category={step.ErrorCategory ?? "Unknown"}.");
+            await PersistGdtExtractionFailureAsync(session, stepVersion, false, step.ErrorCategory ?? "Parser", step.ErrorMessage ?? "STEP GD&T extraction failed.", step.Diagnostics, cancellationToken, step.Identifier, step.SourceLocation, step.SourceDocumentVersion).ConfigureAwait(false);
+            return;
+        }
         else
         {
             _logger?.Log(new NotSupportedException(step.ErrorMessage ?? "STEP GD&T extraction is unavailable."), "STEP GD&T extraction", $"Explicit capability limitation for verificationSessionId={session.VerificationSessionId}.");
@@ -119,6 +125,15 @@ public sealed class DimensionMatchingService
             return;
         }
         await _gdtVerification.VerifyGdtAsync(session.VerificationSessionId, stepAnnotations, dxfAnnotations, _authentication.CurrentUser?.UserId ?? throw new UnauthorizedAccessException("An authenticated user is required."), cancellationToken).ConfigureAwait(false);
+    }
+    private async Task PersistGdtExtractionFailureAsync(VerificationSession session, DocumentVersion version, bool dxf, string category, string message, IReadOnlyList<string> diagnostics, CancellationToken cancellationToken, string? sourceIdentifier = null, string? sourceLocation = null, string? sourceDocumentVersion = null)
+    {
+        var sourceDocument = $"{(dxf ? "DXF" : "STEP")}:{(dxf ? session.DxfDocumentId : session.StepDocumentId):N}";
+        var location = sourceLocation ?? $"version:{version.VersionId}";
+        var identifier = sourceIdentifier ?? $"{(dxf ? "DXF" : "STEP")}-gdt-parser-{category}";
+        var categoryDiagnostic = $"Extraction category: {category}";
+        var annotation = new GdtAnnotationData(identifier, GdtControlType.Unknown, null, null, null, Array.Empty<string>(), sourceDocument, location, message, EntityHandle: null, Diagnostics: diagnostics.Append(categoryDiagnostic).Append(message).Distinct(StringComparer.Ordinal).ToArray(), SourceDocumentVersion: sourceDocumentVersion ?? version.VersionId.ToString(), ExtractionErrorCategory: category);
+        await _gdtVerification!.VerifyGdtAsync(session.VerificationSessionId, new[] { annotation }, _authentication.CurrentUser?.UserId ?? throw new UnauthorizedAccessException("An authenticated user is required."), cancellationToken).ConfigureAwait(false);
     }
     public async Task<VerificationSession> UpdateToleranceAndRecompareAsync(Guid sessionId, double toleranceThresholdMm, CancellationToken cancellationToken = default)
     {
@@ -132,9 +147,10 @@ public sealed class DimensionMatchingService
         return _sessions.GetOrCreateAsync(stepDocumentId, dxfDocumentId, cancellationToken);
     }
     public Task<IReadOnlyList<DimensionMatch>> GetResultsAsync(Guid sessionId, DimensionMatchStatus? status = null, CancellationToken cancellationToken = default) { EnsureAuthorized(RolePermission.ViewDimensionMatchResults); return _sessions.GetMatchesAsync(sessionId, status, cancellationToken); }
-    public Task<IReadOnlyList<GdtResult>> GetGdtResultsAsync(Guid sessionId, CancellationToken cancellationToken = default) { EnsureAuthorized(RolePermission.ViewDimensionMatchResults); return _sessions.GetGdtResultsAsync(sessionId, cancellationToken); }
+    public Task<IReadOnlyList<GdtResult>> GetGdtResultsAsync(Guid sessionId, CancellationToken cancellationToken = default) { EnsureAuthorized(RolePermission.ViewGdtCannotValidate); return _sessions.GetGdtResultsAsync(sessionId, cancellationToken); }
     public Task ReplaceGdtResultsAsync(Guid sessionId, IReadOnlyCollection<GdtResult> results, CancellationToken cancellationToken = default) { EnsureAuthorized(RolePermission.MatchDimensionsToGeometry); return _sessions.ReplaceGdtResultsAsync(sessionId, results, _authentication.CurrentUser?.UserId ?? throw new UnauthorizedAccessException("An authenticated user is required."), cancellationToken); }
-    public Task UpdateGdtReviewAsync(Guid sessionId, Guid resultId, string? comment, bool requiresEngineeringReview, CancellationToken cancellationToken = default) { EnsureAuthorized(RolePermission.ReviewVerification); return _sessions.UpdateGdtReviewAsync(sessionId, resultId, comment, requiresEngineeringReview, _authentication.CurrentUser?.UserId ?? throw new UnauthorizedAccessException("An authenticated user is required."), cancellationToken); }
+    public Task UpdateGdtReviewAsync(Guid sessionId, Guid resultId, string? comment, bool requiresEngineeringReview, CancellationToken cancellationToken = default) { EnsureAuthorized(RolePermission.ModifyGdtCannotValidate); return _sessions.UpdateGdtReviewAsync(sessionId, resultId, comment, requiresEngineeringReview, _authentication.CurrentUser?.UserId ?? throw new UnauthorizedAccessException("An authenticated user is required."), cancellationToken); }
+    public Task UpdateGdtDispositionAsync(Guid sessionId, Guid resultId, string disposition, CancellationToken cancellationToken = default) { EnsureAuthorized(RolePermission.ModifyGdtCannotValidate); return _sessions.UpdateGdtDispositionAsync(sessionId, resultId, disposition, _authentication.CurrentUser?.UserId ?? throw new UnauthorizedAccessException("An authenticated user is required."), cancellationToken); }
     public Task<IReadOnlyList<DimensionMatch>> GetMissingResultsAsync(Guid sessionId, CancellationToken cancellationToken = default)
     {
         EnsureAuthorized(RolePermission.ViewMissingDimensions);

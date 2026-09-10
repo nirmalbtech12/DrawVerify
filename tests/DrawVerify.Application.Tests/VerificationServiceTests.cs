@@ -16,7 +16,23 @@ using Xunit;
 /// </summary>
 public class VerificationServiceTests
 {
-    [Fact(DisplayName = "TD-KAN44-007 keeps mixed supported and unsupported GD&T verification independent")]
+    [Fact(DisplayName = "TD-APP-002 preserves Cannot Validate status through review persistence")]
+    public async Task Cannot_validate_review_evidence_is_saved_without_status_mutation()
+    {
+        var sessionId = Guid.NewGuid();
+        var repository = new GdtResultRepository();
+        var service = new VerificationService(new VerificationEngine(new GdtValidator()), repository);
+        var annotation = new GdtAnnotationData("gap-1", GdtControlType.Unknown, "◇", "0.2", null, Array.Empty<string>(), "drawing.dxf", "entity:8", "◇ 0.2 ?");
+
+        var generated = await service.VerifyGdtAsync(sessionId, new[] { annotation }, "checker");
+        var reviewed = generated.Single().WithReview("Review manually", true);
+        await repository.ReplaceGdtResultsAsync(sessionId, new[] { reviewed }, "checker");
+
+        Assert.Equal(VerificationStatus.CannotValidate, repository.Saved.Single().Status);
+        Assert.Equal("Review manually", repository.Saved.Single().ReviewComment);
+        Assert.True(repository.Saved.Single().RequiresEngineeringReview);
+    }
+    [Fact(DisplayName = "TD-APP-001 keeps mixed supported and non-validatable GD&T verification independent")]
     public async Task Mixed_gdt_annotations_produce_independent_results()
     {
         var sessionId = Guid.NewGuid();
@@ -38,12 +54,12 @@ public class VerificationServiceTests
         Assert.Equal(2, results.Count);
         Assert.Equal(VerificationStatus.Passed, results.Single(result => result.Identifier == "position-1").Status);
         var unsupported = results.Single(result => result.Identifier == "unknown-1");
-        Assert.Equal(VerificationStatus.NotVerified, unsupported.Status);
+        Assert.Equal(VerificationStatus.CannotValidate, unsupported.Status);
         Assert.Equal(GdtResult.UnsupportedReason, unsupported.Reason);
         Assert.Equal(2, repository.Saved.Count);
     }
 
-    [Fact(DisplayName = "TD-KAN44-010 reopens mixed GD&T results without changing status or review evidence")]
+    [Fact(DisplayName = "TD-APP-002 reopens mixed GD&T results without changing status or review evidence")]
     public async Task Verification_service_persists_rule_version_and_review_evidence()
     {
         var sessionId = Guid.NewGuid();

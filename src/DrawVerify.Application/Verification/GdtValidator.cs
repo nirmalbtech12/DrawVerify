@@ -49,18 +49,28 @@ public sealed class GdtValidator
     public GdtResult Validate(GdtAnnotationData annotation, Guid sessionId = default)
     {
         ArgumentNullException.ThrowIfNull(annotation);
+        if (!string.IsNullOrWhiteSpace(annotation.ExtractionErrorCategory)) return Create(annotation, sessionId, VerificationStatus.CannotValidate, GdtResult.ParsingReason, null);
+        if (HasParsingDiagnostic(annotation)) return Create(annotation, sessionId, VerificationStatus.CannotValidate, GdtResult.ParsingReason, null);
+        if (!_supported.Contains(annotation.ControlType)) return Create(annotation, sessionId, VerificationStatus.CannotValidate, GdtResult.UnsupportedReason, null);
+        if (Unsupported(annotation)) return Create(annotation, sessionId, VerificationStatus.CannotValidate, GdtResult.UnsupportedSyntaxReason, null);
+        if (string.IsNullOrWhiteSpace(annotation.ToleranceValue)) return Create(annotation, sessionId, VerificationStatus.CannotValidate, GdtResult.MissingToleranceReason, null);
+        if (annotation.ControlType is GdtControlType.Parallelism or GdtControlType.Perpendicularity && (annotation.DatumReferences ?? Array.Empty<string>()).Count == 0) return Create(annotation, sessionId, VerificationStatus.CannotValidate, GdtResult.MissingDatumReason, null);
+        if (string.IsNullOrWhiteSpace(annotation.ControlledFeature)) return Create(annotation, sessionId, VerificationStatus.CannotValidate, GdtResult.AmbiguousAssociationReason, null);
         return Create(annotation, sessionId, VerificationStatus.NotVerified, "A corresponding STEP/DXF control is required for comparison.", null);
     }
     private GdtResult ValidatePair(GdtAnnotationData step, IReadOnlyList<GdtAnnotationData> dxf, Guid sessionId)
     {
         if (string.IsNullOrWhiteSpace(step.Identifier)) throw new ArgumentException("A GD&T annotation identifier is required.", nameof(step));
         var result = Create(step, sessionId, VerificationStatus.NotVerified, null, null);
-        if (!_supported.Contains(step.ControlType)) return result.Copy(VerificationStatus.NotVerified, GdtResult.UnsupportedReason, null);
-        if (Unsupported(step)) return result.Copy(VerificationStatus.NotVerified, "Unsupported GD&T modifier, composite frame, datum scheme, or syntax.", null);
-        if (!TryFindCounterpart(step, dxf, out var other, out var matchingReason)) return result.Copy(VerificationStatus.NotVerified, matchingReason, null);
-        if (Unsupported(other)) return result.Copy(VerificationStatus.NotVerified, "Corresponding control contains unsupported GD&T syntax.", null);
+        if (!string.IsNullOrWhiteSpace(step.ExtractionErrorCategory)) return result.Copy(VerificationStatus.CannotValidate, GdtResult.ParsingReason, null);
+        if (!_supported.Contains(step.ControlType)) return result.Copy(VerificationStatus.CannotValidate, GdtResult.UnsupportedReason, null);
+        if (HasParsingDiagnostic(step)) return result.Copy(VerificationStatus.CannotValidate, GdtResult.ParsingReason, null);
+        if (Unsupported(step)) return result.Copy(VerificationStatus.CannotValidate, GdtResult.UnsupportedSyntaxReason, null);
+        if (!TryFindCounterpart(step, dxf, out var other, out var matchingReason)) return result.Copy(VerificationStatus.CannotValidate, GdtResult.AmbiguousAssociationReason, null);
+        if (!string.IsNullOrWhiteSpace(other.ExtractionErrorCategory) || HasParsingDiagnostic(other)) return result.Copy(VerificationStatus.CannotValidate, GdtResult.ParsingReason, null);
+        if (Unsupported(other)) return result.Copy(VerificationStatus.CannotValidate, GdtResult.UnsupportedSyntaxReason, null);
         var missing = Missing(step, other);
-        if (missing is not null) return result.Copy(VerificationStatus.NotVerified, missing, null);
+        if (missing is not null) return result.Copy(VerificationStatus.CannotValidate, missing, null);
         var differences = _rules[step.ControlType](step, other).ToArray();
         var details = differences.Length == 0 ? "All applicable GD&T fields agree." : $"Mismatched fields: {string.Join(", ", differences)}.";
         if (differences.Length > 0) return result.Copy(VerificationStatus.Mismatched, details, details);
@@ -127,7 +137,7 @@ public sealed class GdtValidator
     {
         GdtResultId = StableId(a.Identifier), VerificationSessionId = sessionId, Identifier = a.Identifier.Trim(), ControlType = a.ControlType, Symbol = a.Symbol,
         ToleranceValue = a.ToleranceValue, Modifiers = a.Modifiers, DatumReferences = a.DatumReferences ?? Array.Empty<string>(), SourceDocument = a.SourceDocument,
-        SourceLocation = a.SourceLocation, RawText = a.RawText, EntityHandle = a.EntityHandle, Layer = a.Layer, BlockName = a.BlockName, ViewName = a.ViewName,
+        SourceDocumentVersion = a.SourceDocumentVersion, SourceLocation = a.SourceLocation, RawText = a.RawText, EntityHandle = a.EntityHandle, Layer = a.Layer, BlockName = a.BlockName, ViewName = a.ViewName,
         Diagnostics = a.Diagnostics ?? Array.Empty<string>(), RuleVersion = RuleVersion, ControlledFeature = a.ControlledFeature, NominalBasicLocation = a.NominalBasicLocation,
         ToleranceZoneType = a.ToleranceZoneType, ToleranceZoneDiameter = a.ToleranceZoneDiameter, NormalizedModifiers = a.NormalizedModifiers,
         HasCompositeFrame = a.HasCompositeFrame, DatumScheme = a.DatumScheme, ComparisonCriteria = a.ComparisonCriteria ?? DefaultCriteria(a.ControlType), SourcePairId = a.SourcePairId,
@@ -135,11 +145,12 @@ public sealed class GdtValidator
     };
     }
     private static bool Unsupported(GdtAnnotationData a) => a.HasCompositeFrame || a.DatumScheme?.Contains("unsupported", StringComparison.OrdinalIgnoreCase) == true || a.Modifiers?.Contains("unsupported", StringComparison.OrdinalIgnoreCase) == true;
+    private static bool HasParsingDiagnostic(GdtAnnotationData a) => (a.Diagnostics ?? Array.Empty<string>()).Any(d => d.Contains("parse", StringComparison.OrdinalIgnoreCase) || d.Contains("syntax", StringComparison.OrdinalIgnoreCase) || d.Contains("unrecognized", StringComparison.OrdinalIgnoreCase) || d.Contains("not recognized", StringComparison.OrdinalIgnoreCase) || d.Contains("not extracted", StringComparison.OrdinalIgnoreCase));
     private static string? Missing(GdtAnnotationData a, GdtAnnotationData b)
     {
-        if (string.IsNullOrWhiteSpace(a.ToleranceValue) || string.IsNullOrWhiteSpace(b.ToleranceValue)) return "Missing tolerance value.";
-        if (string.IsNullOrWhiteSpace(a.ControlledFeature) || string.IsNullOrWhiteSpace(b.ControlledFeature)) return "Unresolved feature association.";
-        if (a.ControlType is GdtControlType.Parallelism or GdtControlType.Perpendicularity && (a.DatumReferences.Count == 0 || b.DatumReferences.Count == 0)) return "Missing datum reference.";
+        if (string.IsNullOrWhiteSpace(a.ToleranceValue) || string.IsNullOrWhiteSpace(b.ToleranceValue)) return GdtResult.MissingToleranceReason;
+        if (string.IsNullOrWhiteSpace(a.ControlledFeature) || string.IsNullOrWhiteSpace(b.ControlledFeature)) return GdtResult.AmbiguousAssociationReason;
+        if (a.ControlType is GdtControlType.Parallelism or GdtControlType.Perpendicularity && (a.DatumReferences.Count == 0 || b.DatumReferences.Count == 0)) return GdtResult.MissingDatumReason;
         return null;
     }
     private static string DefaultCriteria(GdtControlType type) => type switch
@@ -167,6 +178,6 @@ file static class GdtResultCopy
 {
     public static GdtResult Copy(this GdtResult v, VerificationStatus status, string? reason, string? details) => new()
     {
-        GdtResultId=v.GdtResultId, VerificationSessionId=v.VerificationSessionId, Identifier=v.Identifier, ControlType=v.ControlType, Symbol=v.Symbol, ToleranceValue=v.ToleranceValue, Modifiers=v.Modifiers, DatumReferences=v.DatumReferences, SourceDocument=v.SourceDocument, SourceDocumentVersion=v.SourceDocumentVersion, SourceLocation=v.SourceLocation, RawText=v.RawText, EntityHandle=v.EntityHandle, Layer=v.Layer, BlockName=v.BlockName, ViewName=v.ViewName, Diagnostics=v.Diagnostics, RuleVersion=v.RuleVersion, ControlledFeature=v.ControlledFeature, NominalBasicLocation=v.NominalBasicLocation, ToleranceZoneType=v.ToleranceZoneType, ToleranceZoneDiameter=v.ToleranceZoneDiameter, NormalizedModifiers=v.NormalizedModifiers, HasCompositeFrame=v.HasCompositeFrame, DatumScheme=v.DatumScheme, ComparisonCriteria=v.ComparisonCriteria, SourcePairId=v.SourcePairId, Status=status, Reason=reason, ComparisonDetails=details, ReviewComment=v.ReviewComment, RequiresEngineeringReview=v.RequiresEngineeringReview, ReviewedUtc=v.ReviewedUtc
+        GdtResultId=v.GdtResultId, VerificationSessionId=v.VerificationSessionId, Identifier=v.Identifier, ControlType=v.ControlType, Symbol=v.Symbol, ToleranceValue=v.ToleranceValue, Modifiers=v.Modifiers, DatumReferences=v.DatumReferences, SourceDocument=v.SourceDocument, SourceDocumentVersion=v.SourceDocumentVersion, SourceLocation=v.SourceLocation, RawText=v.RawText, EntityHandle=v.EntityHandle, Layer=v.Layer, BlockName=v.BlockName, ViewName=v.ViewName, Diagnostics=v.Diagnostics, RuleVersion=v.RuleVersion, ControlledFeature=v.ControlledFeature, NominalBasicLocation=v.NominalBasicLocation, ToleranceZoneType=v.ToleranceZoneType, ToleranceZoneDiameter=v.ToleranceZoneDiameter, NormalizedModifiers=v.NormalizedModifiers, HasCompositeFrame=v.HasCompositeFrame, DatumScheme=v.DatumScheme, ComparisonCriteria=v.ComparisonCriteria, SourcePairId=v.SourcePairId, Status=status, Reason=reason, ComparisonDetails=details, ReviewComment=v.ReviewComment, RequiresEngineeringReview=v.RequiresEngineeringReview, ReviewedUtc=v.ReviewedUtc, ReviewDisposition=v.ReviewDisposition
     };
 }

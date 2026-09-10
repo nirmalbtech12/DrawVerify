@@ -65,7 +65,9 @@ public sealed class DxfGdtParser : IDxfGdtParser
             ? match.Groups["datum"].Value.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             : Array.Empty<string>();
         var location = values.TryGetValue(10, out var x) && values.TryGetValue(20, out var y) ? $"{x},{y}" : $"entity:{ordinal}";
-        var entityHandle = values.TryGetValue(5, out var handle) ? handle : null;
+        var entityHandle = values.TryGetValue(5, out var handle)
+            ? handle
+            : ordinal.ToString(CultureInfo.InvariantCulture);
         var layer = values.TryGetValue(8, out var layerValue) ? layerValue : null;
         var block = values.TryGetValue(2, out var blockValue) ? blockValue : null;
         var view = values.TryGetValue(410, out var viewValue) ? viewValue : null;
@@ -75,6 +77,6 @@ public sealed class DxfGdtParser : IDxfGdtParser
         if (diagnostics is not null)
             foreach (var message in annotationDiagnostics)
                 diagnostics.Add($"Entity {ordinal}: {message}");
-        results.Add(new GdtAnnotationData($"DXF:{documentId:N}:{versionId:N}:{entityHandle ?? ordinal.ToString(CultureInfo.InvariantCulture)}", type, symbol, match.Success ? match.Groups["tol"].Value.Trim() : null, null, datums, $"DXF:{documentId:N}", location, raw, ordinal, entityHandle, layer, block, view, annotationDiagnostics));
+        results.Add(new GdtAnnotationData($"DXF:{documentId:N}:{versionId:N}:{entityHandle}", type, symbol, match.Success ? match.Groups["tol"].Value.Trim() : null, null, datums, $"DXF:{documentId:N}", location, raw, ordinal, entityHandle, layer, block, view, annotationDiagnostics, SourceDocumentVersion: versionId.ToString()));
     }
 }

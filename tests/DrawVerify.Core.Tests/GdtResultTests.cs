@@ -74,9 +74,9 @@ public sealed class GdtResultTests
 
         var summary = ComparisonSummary.From(dimensions, new[] { unsupported });
 
-        Assert.Equal(VerificationStatus.NotVerified, unsupported.Status);
+        Assert.Equal(VerificationStatus.CannotValidate, unsupported.Status);
         Assert.Equal(GdtResult.UnsupportedReason, unsupported.Reason);
-        Assert.Equal(1, summary.NotVerifiedGdtControls);
+        Assert.Equal(1, summary.CannotValidateGdtControls);
         Assert.Equal(1, summary.MatchedDimensions);
         Assert.Equal(1, summary.MismatchedDimensions);
         Assert.Equal(1, summary.MissingDimensions);
@@ -85,13 +85,13 @@ public sealed class GdtResultTests
         Assert.Equal(2, summary.ExtraDimensions);
     }
 
-    [Fact(DisplayName = "TD-01 preserves Not Verified during review")]
+    [Fact(DisplayName = "TD-CORE-001 preserves Cannot Validate during review")]
     public void Review_metadata_does_not_change_status()
     {
         var result = GdtResult.Unsupported("gdt-2", GdtControlType.Flatness, "⏥", "model.step", "pmi:2");
         var reviewed = result.WithReview("Needs engineering review", true);
 
-        Assert.Equal(VerificationStatus.NotVerified, reviewed.Status);
+        Assert.Equal(VerificationStatus.CannotValidate, reviewed.Status);
         Assert.Equal("Needs engineering review", reviewed.ReviewComment);
         Assert.True(reviewed.RequiresEngineeringReview);
         Assert.Equal(result.GdtResultId, reviewed.GdtResultId);
@@ -105,7 +105,7 @@ public sealed class GdtResultTests
         Assert.Throws<ArgumentException>(() => GdtResult.Unsupported("gdt-4", (GdtControlType)99, sourceDocument: "drawing.dxf"));
     }
 
-    [Fact(DisplayName = "TD-06 counts Not Verified GD&T separately from dimension outcomes")]
+    [Fact(DisplayName = "TD-CORE-001 counts Cannot Validate GD&T separately from dimension outcomes")]
     public void Not_verified_count_does_not_change_dimension_totals()
     {
         var dimensions = new[]
@@ -118,6 +118,39 @@ public sealed class GdtResultTests
         Assert.Equal(2, summary.TotalDimensions);
         Assert.Equal(1, summary.MatchedDimensions);
         Assert.Equal(1, summary.MismatchedDimensions);
-        Assert.Equal(1, summary.NotVerifiedGdtControls);
+        Assert.Equal(1, summary.CannotValidateGdtControls);
+    }
+
+    [Fact(DisplayName = "TD-CORE-001 preserves canonical Cannot Validate reasons, metadata, and status exclusion")]
+    public void Cannot_validate_result_preserves_metadata_and_is_not_a_validation_classification()
+    {
+        var result = new GdtResult
+        {
+            Identifier = "gdt-gap", ControlType = GdtControlType.Unknown, Symbol = "◇", SourceDocument = "drawing.dxf", SourceLocation = "entity:42",
+            SourceDocumentVersion = "v3", EntityHandle = "42", RawText = "◇ ?", Diagnostics = new[] { "unrecognized modifier" },
+            ReviewDisposition = "Engineering review", Status = VerificationStatus.CannotValidate, Reason = GdtResult.UnsupportedReason
+        };
+
+        Assert.Equal(VerificationStatus.CannotValidate, result.Status);
+        Assert.Equal("Unsupported GD&T control type", result.Reason);
+        Assert.Equal("drawing.dxf", result.SourceDocument);
+        Assert.Equal("entity:42", result.SourceLocation);
+        Assert.Equal("v3", result.SourceDocumentVersion);
+        Assert.Equal(new[] { "unrecognized modifier" }, result.Diagnostics);
+        Assert.DoesNotContain(result.Status, new[] { VerificationStatus.Passed, VerificationStatus.Failed, VerificationStatus.Mismatched });
+        Assert.Equal("Engineering review", result.ReviewDisposition);
+    }
+
+    [Fact(DisplayName = "TD-CORE-001 keeps review metadata and Cannot Validate status immutable")]
+    public void Cannot_validate_review_copy_keeps_status_and_review_data()
+    {
+        var result = GdtResult.Unsupported("gdt-review", GdtControlType.Unknown, sourceDocument: "model.step", sourceLocation: "pmi:9");
+        var reviewed = result.WithReview("Needs syntax review", true, DateTimeOffset.UtcNow);
+
+        Assert.Equal(VerificationStatus.CannotValidate, reviewed.Status);
+        Assert.Equal(GdtResult.UnsupportedReason, reviewed.Reason);
+        Assert.Equal("Needs syntax review", reviewed.ReviewComment);
+        Assert.True(reviewed.RequiresEngineeringReview);
+        Assert.Equal(result.GdtResultId, reviewed.GdtResultId);
     }
 }

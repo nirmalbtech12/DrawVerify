@@ -15,10 +15,58 @@ namespace DrawVerify.App.Tests;
 
 public sealed class VerificationViewModelTests
 {
-    [Fact(DisplayName = "TD-KAN44-011 presents all supported GD&T statuses and comparison evidence")]
+    [Fact(DisplayName = "TD-APPUI-003 renders Cannot Validate metadata, reason, disposition, and source")]
+    public void Cannot_validate_item_exposes_manual_review_fields()
+    {
+        var item = new GdtResultItemViewModel(new GdtResult
+        {
+            Identifier = "gdt-gap", ControlType = GdtControlType.Unknown, Symbol = "◇", SourceDocument = "drawing.dxf",
+            SourceLocation = "entity:42", Status = VerificationStatus.CannotValidate, Reason = GdtResult.UnsupportedReason,
+            ReviewComment = "Needs engineering review", ReviewDisposition = "Drawing update", Diagnostics = new[] { "unrecognized syntax" }
+        });
+
+        Assert.Equal("Cannot Validate / Manual Review Required", item.StatusLabel);
+        Assert.Equal("Unknown", item.ControlType);
+        Assert.Equal("drawing.dxf", item.SourceDocument);
+        Assert.Equal("entity:42", item.SourceLocation);
+        Assert.Equal(GdtResult.UnsupportedReason, item.Reason);
+        Assert.Equal("drawing.dxf @ entity:42", item.Source);
+        Assert.Equal("Needs engineering review", item.Comment);
+        Assert.Equal("Drawing update", item.Disposition);
+        Assert.Equal("unrecognized syntax", item.Diagnostics);
+    }
+
+    [Fact(DisplayName = "TD-APPUI-001 exposes a dedicated Cannot Validate filter and count")]
+    public void Cannot_validate_filter_and_summary_are_separate()
+    {
+        var vm = new VerificationViewModel(new SessionAuthenticationService(), new RoleAuthorization());
+
+        Assert.Contains("Cannot Validate", vm.StatusFilters);
+        Assert.Equal(0, vm.CannotValidateGdtControls);
+        Assert.Empty(vm.CannotValidateGdtResults);
+    }
+
+    [Theory(DisplayName = "TD-APPUI-002 gates GD&T review commands by role")]
+    [InlineData("Checker", true)]
+    [InlineData("Approver", true)]
+    [InlineData("Viewer", false)]
+    [InlineData("Maker", false)]
+    public void Gdt_review_capability_matches_role_policy(string role, bool expected)
+    {
+        var session = new SessionAuthenticationService();
+        session.SignIn(new AuthenticatedUser("user", new[] { role }));
+        var vm = new VerificationViewModel(session, new RoleAuthorization());
+
+        Assert.Equal(expected, vm.CanModifyGdtReview);
+        Assert.False(vm.AddGdtCommentCommand.CanExecute(null));
+        Assert.False(vm.FlagGdtEngineeringReviewCommand.CanExecute(null));
+        Assert.False(vm.SetGdtDispositionCommand.CanExecute(null));
+    }
+
+    [Fact(DisplayName = "TD-APPUI-003 presents supported and Cannot Validate GD&T statuses and evidence")]
     public void Gdt_result_item_exposes_checker_review_fields_for_every_status()
     {
-        var statuses = new[] { VerificationStatus.Passed, VerificationStatus.Failed, VerificationStatus.Mismatched, VerificationStatus.NotVerified };
+        var statuses = new[] { VerificationStatus.Passed, VerificationStatus.Failed, VerificationStatus.Mismatched, VerificationStatus.NotVerified, VerificationStatus.CannotValidate };
         var items = statuses.Select((status, index) => new GdtResultItemViewModel(new GdtResult
         {
             Identifier = $"gdt-{index}", ControlType = (GdtControlType)(index + 1), Symbol = "⌖",
@@ -29,7 +77,7 @@ public sealed class VerificationViewModelTests
             ReviewComment = "checker comment", RequiresEngineeringReview = true
         })).ToArray();
 
-        Assert.Equal(new[] { "Passed", "Failed", "Mismatched", "Not Verified" }, items.Select(item => item.StatusLabel));
+        Assert.Equal(new[] { "Passed", "Failed", "Mismatched", "Not Verified", "Cannot Validate / Manual Review Required" }, items.Select(item => item.StatusLabel));
         Assert.All(items, item =>
         {
             Assert.Contains("0.1", item.Tolerance);
@@ -359,7 +407,7 @@ public sealed class VerificationViewModelTests
         viewModel.SelectedGdtResult = new GdtResultItemViewModel(new GdtResult
         {
             Identifier = "DXF:gdt-1", SourceDocument = "DXF:drawing", SourceLocation = "entity:17",
-            EntityHandle = "17", Status = VerificationStatus.NotVerified, Reason = GdtResult.UnsupportedReason
+            EntityHandle = "17", Status = VerificationStatus.CannotValidate, Reason = GdtResult.UnsupportedReason
         });
 
         Assert.Equal("17", viewModel.DxfPreview.SelectedEntityReference);
@@ -374,7 +422,7 @@ public sealed class VerificationViewModelTests
         viewModel.SelectedGdtResult = new GdtResultItemViewModel(new GdtResult
         {
             Identifier = "STEP:gdt-1", SourceDocument = "model.step", SourceLocation = "pmi:17",
-            EntityHandle = "pmi:17", Status = VerificationStatus.NotVerified, Reason = GdtResult.UnsupportedReason
+            EntityHandle = "pmi:17", Status = VerificationStatus.CannotValidate, Reason = GdtResult.UnsupportedReason
         });
 
         Assert.Contains("unavailable", viewModel.MatchingStatus, StringComparison.OrdinalIgnoreCase);

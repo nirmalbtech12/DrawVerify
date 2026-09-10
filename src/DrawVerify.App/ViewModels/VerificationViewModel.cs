@@ -32,16 +32,18 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
         ResolveMissingDimensionCommand = new RelayCommand(async value => await ResolveSelectedMissingDimensionAsync(value), _ => CanResolveMissingDimensions && SelectedSessionId is not null && SelectedUnmatchedDimension is not null && !IsBusy);
         AddExtraDimensionCommentCommand = new RelayCommand(async _ => await AddExtraDimensionCommentAsync(), _ => CanCommentExtraDimensions && SelectedSessionId is not null && SelectedExtraDimension is not null && !IsBusy);
         FlagExtraDimensionCommand = new RelayCommand(async value => await FlagSelectedExtraDimensionAsync(value), _ => CanFlagExtraDimensions && SelectedSessionId is not null && SelectedExtraDimension is not null && !IsBusy);
-        AddGdtCommentCommand = new RelayCommand(async _ => await AddGdtCommentAsync(), _ => CanReview && SelectedSessionId is not null && SelectedGdtResult is not null && !IsBusy);
-        FlagGdtEngineeringReviewCommand = new RelayCommand(async value => await FlagGdtEngineeringReviewAsync(value), _ => CanReview && SelectedSessionId is not null && SelectedGdtResult is not null && !IsBusy);
+        AddGdtCommentCommand = new RelayCommand(async _ => await AddGdtCommentAsync(), _ => CanModifyGdtReview && SelectedSessionId is not null && SelectedGdtResult is not null && !IsBusy);
+        FlagGdtEngineeringReviewCommand = new RelayCommand(async value => await FlagGdtEngineeringReviewAsync(value), _ => CanModifyGdtReview && SelectedSessionId is not null && SelectedGdtResult is not null && !IsBusy);
+        SetGdtDispositionCommand = new RelayCommand(async value => await SetGdtDispositionAsync(value), _ => CanModifyGdtReview && SelectedSessionId is not null && SelectedGdtResult is not null && !IsBusy);
     }
     public event PropertyChangedEventHandler? PropertyChanged;
     public bool CanReview => _authorization.IsAllowed(_session.CurrentUser, RolePermission.ReviewVerification);
+    public bool CanModifyGdtReview => _authorization.IsAllowed(_session.CurrentUser, RolePermission.ModifyGdtCannotValidate);
     public bool CanEnterReview => CanReview;
     public string DenialMessage => "The Checker or Approver role is required to review verification results.";
     public bool TryEnterReview(out string message) { if (CanReview) { message = string.Empty; return true; } message = DenialMessage; return false; }
     public bool CanMatchDimensions => _matching is not null && _authorization.IsAllowed(_session.CurrentUser, RolePermission.MatchDimensionsToGeometry);
-    public bool CanViewDimensionMatches => _matching is not null && (_authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewDimensionMatchResults) || _authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewMissingDimensions) || _authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewExtraDimensions));
+    public bool CanViewDimensionMatches => _matching is not null && (_authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewDimensionMatchResults) || _authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewMissingDimensions) || _authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewExtraDimensions) || _authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewGdtCannotValidate));
     public bool CanManageTolerance => _matching is not null && _authorization.IsAllowed(_session.CurrentUser, RolePermission.ManageToleranceComparison);
     public bool CanCommentMissingDimensions => _matching is not null && _authorization.IsAllowed(_session.CurrentUser, RolePermission.CommentOnMissingDimensions);
     public bool CanResolveMissingDimensions => _matching is not null && _authorization.IsAllowed(_session.CurrentUser, RolePermission.ResolveUnmatched);
@@ -61,7 +63,7 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
     public string BlockFilter { get; set; } = string.Empty;
     public string SearchText { get; set; } = string.Empty;
     public string UnmatchedDimensionsTitle => "Unmatched Dimensions";
-    public IReadOnlyList<string> StatusFilters { get; } = new[] { "All", "Matched", "Mismatched", "Unmatched", "Manual review", "Extra Dimension" };
+    public IReadOnlyList<string> StatusFilters { get; } = new[] { "All", "Matched", "Mismatched", "Unmatched", "Manual review", "Cannot Validate", "Extra Dimension" };
     public IReadOnlyList<DimensionStatusSummary> StatusSummaries { get; private set; } = Array.Empty<DimensionStatusSummary>();
     public ComparisonSummary ComparisonSummary { get; private set; } = new();
     public int TotalDimensions => ComparisonSummary.TotalDimensions;
@@ -71,7 +73,9 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
     public int MissingDimensions => ComparisonSummary.MissingDimensions;
     public int ExtraDimensions => ComparisonSummary.ExtraDimensions;
     public int NotVerifiedGdtControls => ComparisonSummary.NotVerifiedGdtControls;
+    public int CannotValidateGdtControls => ComparisonSummary.CannotValidateGdtControls;
     public IReadOnlyList<GdtResultItemViewModel> NotVerifiedGdtResults { get; private set; } = Array.Empty<GdtResultItemViewModel>();
+    public IReadOnlyList<GdtResultItemViewModel> CannotValidateGdtResults { get; private set; } = Array.Empty<GdtResultItemViewModel>();
     public IReadOnlyList<GdtResultItemViewModel> GdtResults { get; private set; } = Array.Empty<GdtResultItemViewModel>();
     private GdtResultItemViewModel? _selectedGdtResult;
     public GdtResultItemViewModel? SelectedGdtResult
@@ -103,9 +107,11 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
     public ICommand FlagExtraDimensionCommand { get; }
     public ICommand AddGdtCommentCommand { get; }
     public ICommand FlagGdtEngineeringReviewCommand { get; }
+    public ICommand SetGdtDispositionCommand { get; }
     public string MatchingStatus { get; private set; } = "No matching session selected.";
     public string MissingDimensionComment { get; set; } = string.Empty;
     public string ExtraDimensionComment { get; set; } = string.Empty;
+    public string GdtDisposition { get; set; } = string.Empty;
     public string ToleranceSummary => $"Tolerance: ±{FormatTolerance(_effectiveToleranceThresholdMm ?? _configuredToleranceThresholdMm)} mm (configured/session; explicit dimension tolerances override)";
     public IReadOnlyList<DimensionMatchItemViewModel> MatchResults { get; private set; } = Array.Empty<DimensionMatchItemViewModel>();
     public IReadOnlyList<DimensionMatchItemViewModel> UnmatchedResults => _allMatchResults.Where(item => item.IsUnmatched).ToArray();
@@ -194,7 +200,7 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
                 var match = System.Text.RegularExpressions.Regex.Match(result.SourceLocation ?? string.Empty, @"(?:entity|ordinal)[:=](\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                 int.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out entityReference);
             }
-            if (!DxfPreview.SelectDimension(entityReference, result.SourceLocation))
+            if (entityReference <= 0 || string.IsNullOrWhiteSpace(result.SourceLocation) || !DxfPreview.SelectDimension(entityReference, result.SourceLocation))
                 MatchingStatus = "DXF preview unavailable for the selected GD&T control.";
             else
                 MatchingStatus = "DXF source location highlighted for the selected GD&T control.";
@@ -217,6 +223,21 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
         if (SelectedSessionId is not Guid sessionId || SelectedGdtResult is null || !bool.TryParse(value?.ToString(), out var required)) return;
         try { IsBusy = true; Notify(nameof(IsBusy)); await _matching!.UpdateGdtReviewAsync(sessionId, SelectedGdtResult.Result.GdtResultId, SelectedGdtResult.Comment, required); await RefreshMatchesAsync(sessionId); MatchingStatus = required ? "GD&T engineering review requested." : "GD&T engineering review cleared."; Notify(nameof(MatchingStatus)); }
         catch (Exception exception) { _logger?.Log(exception, "GD&T engineering review", $"Unable to update gdtResultId={SelectedGdtResult.Result.GdtResultId}."); MatchingStatus = exception is UnauthorizedAccessException ? "Access denied." : $"Unable to update GD&T disposition: {exception.Message}"; Notify(nameof(MatchingStatus)); }
+        finally { IsBusy = false; Notify(nameof(IsBusy)); RaiseCommands(); }
+    }
+    private async Task SetGdtDispositionAsync(object? value)
+    {
+        if (SelectedSessionId is not Guid sessionId || SelectedGdtResult is null || value is null) return;
+        var disposition = value.ToString();
+        if (string.IsNullOrWhiteSpace(disposition)) return;
+        try
+        {
+            IsBusy = true; Notify(nameof(IsBusy));
+            await _matching!.UpdateGdtDispositionAsync(sessionId, SelectedGdtResult.Result.GdtResultId, disposition);
+            await RefreshMatchesAsync(sessionId);
+            MatchingStatus = $"GD&T disposition saved: {disposition}."; Notify(nameof(MatchingStatus));
+        }
+        catch (Exception exception) { _logger?.Log(exception, "GD&T disposition", $"Unable to update gdtResultId={SelectedGdtResult.Result.GdtResultId}."); MatchingStatus = exception is UnauthorizedAccessException ? "Access denied." : $"Unable to update GD&T disposition: {exception.Message}"; Notify(nameof(MatchingStatus)); }
         finally { IsBusy = false; Notify(nameof(IsBusy)); RaiseCommands(); }
     }
     private async Task FlagSelectedExtraDimensionAsync(object? value)
@@ -313,7 +334,8 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
             }
             GdtResults = gdtResults.Select(result => new GdtResultItemViewModel(result)).ToArray();
             NotVerifiedGdtResults = GdtResults.Where(result => result.Result.Status == VerificationStatus.NotVerified).ToArray();
-            _allMatchResults = matches.Select(match => new DimensionMatchItemViewModel(match)).ToArray(); ApplyResultView(); Notify(nameof(GdtResults)); Notify(nameof(NotVerifiedGdtResults)); Notify(nameof(NotVerifiedGdtControls));
+            CannotValidateGdtResults = GdtResults.Where(result => result.Result.Status == VerificationStatus.CannotValidate).ToArray();
+            _allMatchResults = matches.Select(match => new DimensionMatchItemViewModel(match)).ToArray(); ApplyResultView(); Notify(nameof(GdtResults)); Notify(nameof(NotVerifiedGdtResults)); Notify(nameof(CannotValidateGdtResults)); Notify(nameof(NotVerifiedGdtControls)); Notify(nameof(CannotValidateGdtControls));
         }
         catch (UnauthorizedAccessException) { ClearResults("Access denied."); }
         catch (Exception exception) { _logger?.Log(exception, "Load dimension matching results", $"Unable to load verificationSessionId={sessionId}."); ClearResults("Unable to load matching results."); }
@@ -378,7 +400,7 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
     }
     private void UpdateStatusSummaries()
     {
-        ComparisonSummary = DrawVerify.Core.Models.ComparisonSummary.From(_allMatchResults.Select(item => item.Match), NotVerifiedGdtResults.Select(item => item.Result));
+        ComparisonSummary = DrawVerify.Core.Models.ComparisonSummary.From(_allMatchResults.Select(item => item.Match), GdtResults.Select(item => item.Result));
         StatusSummaries = Enum.GetValues<DimensionType>().Select(type =>
         {
             var matches = _allMatchResults.Where(item => item.Match.DimensionType == type).Select(item => item.Match);
@@ -396,6 +418,7 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
         Notify(nameof(MissingDimensions));
         Notify(nameof(ExtraDimensions));
         Notify(nameof(NotVerifiedGdtControls));
+        Notify(nameof(CannotValidateGdtControls));
         Notify(nameof(MatchPercentage));
         Notify(nameof(MatchPercentageText));
         Notify(nameof(MatchRatio));
@@ -413,10 +436,23 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
         DimensionMatchStatus.Matched => 2,
         _ => 3
     };
-    private void RaiseCommands() { ((RelayCommand)SelectPairCommand).Raise(); ((RelayCommand)MatchDimensionsCommand).Raise(); ((RelayCommand)RefreshMatchesCommand).Raise(); ((RelayCommand)UpdateToleranceCommand).Raise(); ((RelayCommand)AddMissingDimensionCommentCommand).Raise(); ((RelayCommand)ResolveMissingDimensionCommand).Raise(); ((RelayCommand)AddExtraDimensionCommentCommand).Raise(); ((RelayCommand)FlagExtraDimensionCommand).Raise(); ((RelayCommand)AddGdtCommentCommand).Raise(); ((RelayCommand)FlagGdtEngineeringReviewCommand).Raise(); }
+    private void RaiseCommands() { ((RelayCommand)SelectPairCommand).Raise(); ((RelayCommand)MatchDimensionsCommand).Raise(); ((RelayCommand)RefreshMatchesCommand).Raise(); ((RelayCommand)UpdateToleranceCommand).Raise(); ((RelayCommand)AddMissingDimensionCommentCommand).Raise(); ((RelayCommand)ResolveMissingDimensionCommand).Raise(); ((RelayCommand)AddExtraDimensionCommentCommand).Raise(); ((RelayCommand)FlagExtraDimensionCommand).Raise(); ((RelayCommand)AddGdtCommentCommand).Raise(); ((RelayCommand)FlagGdtEngineeringReviewCommand).Raise(); ((RelayCommand)SetGdtDispositionCommand).Raise(); }
     private void Notify([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     public void Dispose() { StepPreview.Dispose(); GC.SuppressFinalize(this); }
-    private void ClearResults(string message) { _allMatchResults = Array.Empty<DimensionMatchItemViewModel>(); MatchResults = Array.Empty<DimensionMatchItemViewModel>(); UpdateStatusSummaries(); MatchingStatus = message; Notify(nameof(MatchResults)); Notify(nameof(UnmatchedResults)); Notify(nameof(MatchingStatus)); }
+    private void ClearResults(string message)
+    {
+        _allMatchResults = Array.Empty<DimensionMatchItemViewModel>();
+        MatchResults = Array.Empty<DimensionMatchItemViewModel>();
+        GdtResults = Array.Empty<GdtResultItemViewModel>();
+        NotVerifiedGdtResults = Array.Empty<GdtResultItemViewModel>();
+        CannotValidateGdtResults = Array.Empty<GdtResultItemViewModel>();
+        SelectedGdtResult = null;
+        UpdateStatusSummaries();
+        MatchingStatus = message;
+        Notify(nameof(MatchResults)); Notify(nameof(UnmatchedResults)); Notify(nameof(GdtResults));
+        Notify(nameof(NotVerifiedGdtResults)); Notify(nameof(CannotValidateGdtResults)); Notify(nameof(SelectedGdtResult));
+        Notify(nameof(NotVerifiedGdtControls)); Notify(nameof(CannotValidateGdtControls)); Notify(nameof(ComparisonSummary)); Notify(nameof(MatchingStatus));
+    }
     private void SetEffectiveTolerance(double value, bool updateInput = false) { _effectiveToleranceThresholdMm = value; if (updateInput) { ToleranceThresholdInput = FormatTolerance(value); Notify(nameof(ToleranceThresholdInput)); } Notify(nameof(ToleranceSummary)); }
     private static string FormatTolerance(double value) => value.ToString("0.############", CultureInfo.InvariantCulture);
     private sealed class RelayCommand(Action<object?> execute, Predicate<object?>? canExecute = null) : ICommand { public event EventHandler? CanExecuteChanged; public bool CanExecute(object? parameter) => canExecute?.Invoke(parameter) ?? true; public void Execute(object? parameter) => execute(parameter); public void Raise() => CanExecuteChanged?.Invoke(this, EventArgs.Empty); }

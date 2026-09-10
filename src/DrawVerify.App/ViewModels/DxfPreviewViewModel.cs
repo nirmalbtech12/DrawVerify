@@ -19,11 +19,23 @@ public sealed class DxfPreviewViewModel : INotifyPropertyChanged
 
     public bool SelectDimension(int entityReference, string? anchor, double? x, double? y)
     {
+        if (entityReference <= 0 || (string.IsNullOrWhiteSpace(anchor) && (x is null || y is null)))
+        {
+            SelectedEntityReference = null;
+            SelectedAnchor = null;
+            SelectedX = null;
+            SelectedY = null;
+            NavigationTarget = null;
+            IsHighlightVisible = false;
+            PreviewStatus = "Preview unavailable: the DXF entity or anchor could not be resolved.";
+            Notify(nameof(SelectedEntityReference)); Notify(nameof(SelectedAnchor)); Notify(nameof(SelectedX)); Notify(nameof(SelectedY)); Notify(nameof(NavigationTarget)); Notify(nameof(IsHighlightVisible)); Notify(nameof(PreviewStatus));
+            return false;
+        }
         SelectedEntityReference = entityReference.ToString(System.Globalization.CultureInfo.InvariantCulture);
         SelectedAnchor = anchor;
         SelectedX = x; SelectedY = y;
         NavigationTarget = x is double && y is double ? $"{x.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)},{y.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}" : anchor;
-        IsHighlightVisible = !string.IsNullOrWhiteSpace(anchor) || x is not null && y is not null;
+        IsHighlightVisible = true;
         PreviewStatus = IsHighlightVisible
             ? $"DXF dimension {SelectedEntityReference} highlighted and centered."
             : "Preview unavailable: this dimension has no stored DXF anchor.";

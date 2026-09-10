@@ -7,7 +7,11 @@ public sealed class GdtResultItemViewModel
 {
     public GdtResultItemViewModel(GdtResult result) => Result = result ?? throw new ArgumentNullException(nameof(result));
     public GdtResult Result { get; }
-    public string StatusLabel => Result.Status == VerificationStatus.NotVerified ? "Not Verified" : Result.Status.ToString();
+    public string StatusLabel => Result.Status switch { VerificationStatus.NotVerified => "Not Verified", VerificationStatus.CannotValidate => "Cannot Validate / Manual Review Required", _ => Result.Status.ToString() };
+    public string ControlType => Result.ControlType.ToString();
+    public string SourceDocument => Result.SourceDocument;
+    public string SourceLocation => Result.SourceLocation ?? "Unavailable";
+    public string Disposition => Result.ReviewDisposition ?? "Open";
     public string RuleVersion => Result.RuleVersion;
     public string ComparisonDetails => Result.ComparisonDetails ?? Result.Reason ?? string.Empty;
     public string ControlledFeature => Result.ControlledFeature ?? "Unavailable";

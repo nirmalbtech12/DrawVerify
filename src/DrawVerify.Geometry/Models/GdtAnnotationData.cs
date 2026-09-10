@@ -26,4 +26,6 @@ public sealed record GdtAnnotationData(
     bool HasCompositeFrame = false,
     string? DatumScheme = null,
     string? ComparisonCriteria = null,
-    string? SourcePairId = null);
+    string? SourcePairId = null,
+    string? SourceDocumentVersion = null,
+    string? ExtractionErrorCategory = null);

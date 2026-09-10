@@ -212,6 +212,20 @@ public sealed class DimensionMatchingServiceTests
         Assert.Equal(0, sessions.ReplaceCount);
     }
 
+    [Fact(DisplayName = "TD-APP-003 denies GD&T review mutations before repository access")]
+    public async Task Gdt_review_mutation_requires_modify_permission()
+    {
+        var sessions = new SessionFake();
+        var auth = new SessionAuthenticationService();
+        var service = new DimensionMatchingService(new DocumentsFake(), sessions, new GeometryFake(), auth, new DimensionMatchingConfiguration());
+
+        auth.SignIn(new AuthenticatedUser("viewer", new[] { "Viewer" }));
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.UpdateGdtReviewAsync(Guid.NewGuid(), Guid.NewGuid(), "not allowed", true));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.UpdateGdtDispositionAsync(Guid.NewGuid(), Guid.NewGuid(), "Future scope"));
+        Assert.Equal(0, sessions.MatchLookupCount);
+    }
+
     [Fact(DisplayName = "TD-APP-002 propagates cancellation as a failed comparison")]
     public async Task Cancellation_is_not_reported_as_success()
     {

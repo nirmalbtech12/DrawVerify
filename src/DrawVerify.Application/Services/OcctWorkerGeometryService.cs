@@ -36,7 +36,16 @@ public sealed class OcctWorkerGeometryService : ManagedGeometryService, IMatchab
             process.StandardInput.Write(JsonSerializer.Serialize(new GdtAnnotationWorkerRequest(1, filePath)));
             process.StandardInput.Close();
             try { process.WaitForExitAsync(timeout.Token).GetAwaiter().GetResult(); }
-            catch (OperationCanceledException) { Terminate(process, "GD&T worker", filePath); return GdtAnnotationExtractionResult.Failure("Timeout", "GD&T extraction failed: operation exceeded the configured timeout."); }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                Terminate(process, "GD&T worker", filePath);
+                throw;
+            }
+            catch (OperationCanceledException)
+            {
+                Terminate(process, "GD&T worker", filePath);
+                return GdtAnnotationExtractionResult.Failure("Timeout", "GD&T extraction failed: operation exceeded the configured timeout.");
+            }
             var diagnostics = ReadDiagnostics(process);
             var output = process.StandardOutput.ReadToEnd();
             if (string.IsNullOrWhiteSpace(output)) return GdtAnnotationExtractionResult.Failure("WorkerProtocol", $"GD&T extraction failed: worker returned no result.{FormatDiagnostics(diagnostics)}");

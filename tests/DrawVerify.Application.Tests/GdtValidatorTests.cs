@@ -27,13 +27,13 @@ public class GdtValidatorTests
         Assert.Equal(GdtResult.CurrentRuleVersion, result.RuleVersion);
     }
 
-    [Fact(DisplayName = "TD-KAN44-002 flags unsupported and unknown controls without coercion")]
+    [Fact(DisplayName = "TD-APP-001 flags unsupported and unknown controls without coercion")]
     public void Unsupported_control_is_not_verified()
     {
         var result = Assert.Single(new GdtValidator().Validate(new[] { Annotation(GdtControlType.Unknown, "◇") }, new[] { Annotation(GdtControlType.Unknown, "◇") }));
 
         Assert.Equal(GdtControlType.Unknown, result.ControlType);
-        Assert.Equal(VerificationStatus.NotVerified, result.Status);
+        Assert.Equal(VerificationStatus.CannotValidate, result.Status);
         Assert.Equal(GdtResult.UnsupportedReason, result.Reason);
         Assert.DoesNotContain(result.Status, new[] { VerificationStatus.Matched, VerificationStatus.Passed, VerificationStatus.Failed, VerificationStatus.Missing, VerificationStatus.Extra });
     }
@@ -188,23 +188,23 @@ public class GdtValidatorTests
         Assert.Contains(expectedField, result.ComparisonDetails, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Theory(DisplayName = "TD-KAN44-006 incomplete or ambiguous controls are Not Verified with a reason")]
-    [InlineData("missing tolerance")]
-    [InlineData("unresolved feature")]
-    [InlineData("missing datum")]
-    [InlineData("ambiguous match")]
-    public void Incomplete_or_unreliable_data_is_not_verified(string scenario)
+    [Theory(DisplayName = "TD-APP-001 maps incomplete and ambiguous data to canonical Cannot Validate reasons")]
+    [InlineData("missing tolerance", "Missing tolerance value")]
+    [InlineData("unresolved feature", "Feature association ambiguous")]
+    [InlineData("missing datum", "Datum reference not found")]
+    [InlineData("ambiguous match", "Feature association ambiguous")]
+    public void Incomplete_or_unreliable_data_is_cannot_validate(string scenario, string expectedReason)
     {
         var step = Annotation(GdtControlType.Parallelism, "∥", feature: scenario == "unresolved feature" ? null : "face-1", tolerance: scenario == "missing tolerance" ? null : "0.1", datums: scenario == "missing datum" ? Array.Empty<string>() : new[] { "A" });
         var dxf = scenario == "ambiguous match"
             ? new[] { Annotation(GdtControlType.Parallelism, "∥", feature: "face-1", datums: new[] { "A" }), Annotation(GdtControlType.Parallelism, "∥", feature: "face-1", datums: new[] { "A" }) }
             : new[] { Annotation(GdtControlType.Parallelism, "∥", feature: "face-1", tolerance: "0.1", datums: new[] { "A" }) };
         var result = Assert.Single(new GdtValidator().Validate(new[] { step }, dxf));
-        Assert.Equal(VerificationStatus.NotVerified, result.Status);
-        Assert.False(string.IsNullOrWhiteSpace(result.Reason));
+        Assert.Equal(VerificationStatus.CannotValidate, result.Status);
+        Assert.Equal(expectedReason, result.Reason);
     }
 
-    [Theory(DisplayName = "TD-KAN44-007 rejects unsupported syntax without a false pass")]
+    [Theory(DisplayName = "TD-APP-001 rejects unsupported syntax without a false pass")]
     [InlineData(true, null, "composite frame")]
     [InlineData(false, "unsupported scheme", "unsupported datum scheme")]
     [InlineData(false, null, "unsupported modifier")]
@@ -214,8 +214,60 @@ public class GdtValidatorTests
         var step = Annotation(GdtControlType.Position, "⌖", feature: "hole-1", modifiers: modifiers, datumScheme: datumScheme, composite: composite);
         var dxf = Annotation(GdtControlType.Position, "⌖", feature: "hole-1", modifiers: modifiers, datumScheme: datumScheme, composite: composite);
         var result = Assert.Single(new GdtValidator().Validate(new[] { step }, new[] { dxf }));
-        Assert.Equal(VerificationStatus.NotVerified, result.Status);
-        Assert.Contains("unsupported", result.Reason!, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(VerificationStatus.CannotValidate, result.Status);
+        Assert.Equal(GdtResult.UnsupportedSyntaxReason, result.Reason);
+    }
+
+    [Fact(DisplayName = "TD-APP-001 maps parser diagnostics while preserving source context")]
+    public void Parser_diagnostics_become_cannot_validate_with_source_metadata()
+    {
+        var annotation = new GdtAnnotationData("parse-1", GdtControlType.Position, "⌖", "0.1", "MMC", new[] { "A" },
+            "model.step", "pmi:19", "⌖ 0.1 ?", 19, EntityHandle: "19", Diagnostics: new[] { "parse error: unrecognized modifier" }, ControlledFeature: "hole-19");
+
+        var result = Assert.Single(new GdtValidator().Validate(new[] { annotation }, new[] { annotation }));
+
+        Assert.Equal(VerificationStatus.CannotValidate, result.Status);
+        Assert.Equal(GdtResult.ParsingReason, result.Reason);
+        Assert.Equal("model.step", result.SourceDocument);
+        Assert.Equal("pmi:19", result.SourceLocation);
+        Assert.Equal("19", result.EntityHandle);
+        Assert.Contains("unrecognized modifier", result.Diagnostics.Single());
+    }
+
+    [Fact(DisplayName = "TD-APP-001 isolates document diagnostics from valid DXF counterparts")]
+    public void Invalid_dxf_annotation_does_not_contaminate_valid_counterpart()
+    {
+        var step = Annotation(GdtControlType.Position, "⌖", feature: "hole-1");
+        var validDxf = Annotation(GdtControlType.Position, "⌖", feature: "hole-1");
+        var invalidDxf = Annotation(GdtControlType.Unknown, "◇", feature: null) with
+        {
+            Identifier = "DXF:invalid",
+            Diagnostics = new[] { "Entity 2: GD&T symbol or tolerance was not recognized." }
+        };
+
+        var result = Assert.Single(new GdtValidator().Validate(new[] { step }, new[] { validDxf, invalidDxf }));
+
+        Assert.Equal(VerificationStatus.Passed, result.Status);
+    }
+
+    [Theory(DisplayName = "TD-APP-001 maps structured extraction categories to parsing reason")]
+    [InlineData("WorkerTimeout")]
+    [InlineData("WorkerProtocol")]
+    [InlineData("MalformedResponse")]
+    [InlineData("IOException")]
+    public void Extraction_category_is_preserved_and_not_classified_as_unsupported(string category)
+    {
+        var annotation = Annotation(GdtControlType.Unknown, "◇") with
+        {
+            ExtractionErrorCategory = category,
+            Diagnostics = new[] { $"Extraction category: {category}", "worker failure" }
+        };
+
+        var result = new GdtValidator().Validate(annotation);
+
+        Assert.Equal(VerificationStatus.CannotValidate, result.Status);
+        Assert.Equal(GdtResult.ParsingReason, result.Reason);
+        Assert.Contains($"Extraction category: {category}", result.Diagnostics);
     }
 
     [Fact(DisplayName = "TD-11 fails visibly for malformed or unsupported subset configuration")]
