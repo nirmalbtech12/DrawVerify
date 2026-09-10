@@ -1,0 +1,20 @@
+<UserControl x:Class="DrawVerify.App.Views.StepPreviewView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border BorderBrush="SteelBlue" BorderThickness="1" Padding="6" MinHeight="220">
+        <Grid>
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <TextBlock Text="STEP 3D Preview" FontWeight="Bold" />
+            <Border Grid.Row="1" Margin="0,6" Background="#101820" BorderBrush="#405060" BorderThickness="1">
+                <Canvas Width="280" Height="180" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Canvas.Left="8" Canvas.Top="8" Foreground="LightGray" Text="STEP model surface" />
+                    <Ellipse Width="42" Height="42" Stroke="Orange" StrokeThickness="4" Fill="#40FF8C00" Canvas.Left="{Binding PreviewCanvasX}" Canvas.Top="{Binding PreviewCanvasY}">
+                        <Ellipse.Style><Style TargetType="Ellipse"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding IsPreviewAvailable}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></Ellipse.Style>
+                    </Ellipse>
+                    <TextBlock Canvas.Left="10" Canvas.Top="150" Foreground="White" Text="Highlighted feature" />
+                </Canvas>
+            </Border>
+            <StackPanel Grid.Row="2"><TextBlock Text="{Binding PreviewStatus}"/><TextBlock Text="{Binding CameraStatus}"/></StackPanel>
+        </Grid>
+    </Border>
+</UserControl>

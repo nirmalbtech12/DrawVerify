@@ -50,7 +50,12 @@ public sealed class DimensionMatchingAlgorithm
             results.Add(new DimensionMatch { VerificationSessionId = session.VerificationSessionId, DxfDocumentVersionId = dimension.DocumentVersionId, DxfDimensionReference = dimension.SourceEntityOrdinal, StepDocumentVersionId = session.StepDocumentVersionId ?? Guid.Empty, StepGeometryReference = selected.feature.Reference, GeometryType = selected.feature.GeometryType, ConfidenceScore = selected.score, Confidence = confidence, RequiresManualReview = review || !tolerance.IsWithinTolerance, Status = status, ReasonCode = reason, ReasonExplanation = explanation, DimensionType = dimension.DimensionType, NominalValue = dimension.NominalValue, DimensionText = dimension.DimensionText, MeasuredValue = measured, EffectiveLowerTolerance = tolerance.Lower, EffectiveUpperTolerance = tolerance.Upper, ToleranceUnit = tolerance.Unit, ToleranceSource = tolerance.Source, DxfLayer = dimension.Layer, PreviewAnchor = dimension.PreviewAnchor, BlockName = dimension.BlockName, ViewName = dimension.ViewName, LocationX = dimension.LocationX, LocationY = dimension.LocationY });
         }
         foreach (var feature in features.Where(feature => !used.Contains(feature.Reference)))
-            results.Add(new DimensionMatch { VerificationSessionId = session.VerificationSessionId, DxfDocumentVersionId = session.DxfDocumentVersionId ?? Guid.Empty, DxfDimensionReference = -1, StepDocumentVersionId = session.StepDocumentVersionId ?? Guid.Empty, StepGeometryReference = feature.Reference, GeometryType = feature.GeometryType, Status = DimensionMatchStatus.MissingDimension, RequiresManualReview = true, ReasonCode = "NoCorrespondingDimension" });
+        {
+            var value = FeatureValue(feature);
+            if (value is not null && !double.IsFinite(value.Value))
+                throw new InvalidOperationException($"STEP feature '{feature.Reference}' has a non-finite measurement.");
+            results.Add(new DimensionMatch { DimensionMatchId = StableId(session.VerificationSessionId, session.StepDocumentVersionId ?? Guid.Empty, feature.Reference), VerificationSessionId = session.VerificationSessionId, DxfDocumentVersionId = session.DxfDocumentVersionId ?? Guid.Empty, DxfDimensionReference = -1, StepDocumentVersionId = session.StepDocumentVersionId ?? Guid.Empty, StepGeometryReference = feature.Reference, GeometryType = feature.GeometryType, Status = DimensionMatchStatus.ExtraDimension, RequiresManualReview = true, ReasonCode = "NoCorrespondingDimension", ReasonExplanation = "STEP dimension-bearing feature has no corresponding DXF dimension.", MeasuredValue = value, EffectiveLowerTolerance = feature.LowerTolerance, EffectiveUpperTolerance = feature.UpperTolerance, ToleranceUnit = "mm", ViewName = feature.ViewName, LocationX = feature.LocationX, LocationY = feature.LocationY });
+        }
         return results;
     }
 
@@ -68,5 +73,11 @@ public sealed class DimensionMatchingAlgorithm
     }
     private static double? Measure(CoreDimensionData dimension, GeometryFeatureData feature) => dimension.DimensionType == DimensionType.Angular ? feature.AngleDegrees : dimension.DimensionType == DimensionType.Radial && dimension.RadialKind == RadialDimensionKind.Radius ? feature.Radius : dimension.DimensionType == DimensionType.Radial && dimension.RadialKind == RadialDimensionKind.Diameter ? feature.Diameter : feature.Length ?? feature.Width ?? feature.Height ?? feature.Distance;
     private static string FormatValue(double value) => value.ToString("0.############", CultureInfo.InvariantCulture);
+    private static double? FeatureValue(GeometryFeatureData feature) => feature.Length ?? feature.Width ?? feature.Height ?? feature.Distance ?? feature.Radius ?? feature.Diameter ?? feature.AngleDegrees;
+    private static Guid StableId(Guid sessionId, Guid versionId, string reference)
+    {
+        var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{sessionId:N}:{versionId:N}:{reference}"));
+        return new Guid(bytes[..16]);
+    }
     private static DimensionMatch Unmatched(VerificationSession session, CoreDimensionData dimension, string reason, string explanation) => new() { VerificationSessionId = session.VerificationSessionId, DxfDocumentVersionId = dimension.DocumentVersionId, DxfDimensionReference = dimension.SourceEntityOrdinal, StepDocumentVersionId = session.StepDocumentVersionId ?? Guid.Empty, Status = DimensionMatchStatus.Unmatched, RequiresManualReview = true, ReasonCode = reason, ReasonExplanation = explanation, DimensionType = dimension.DimensionType, NominalValue = dimension.NominalValue, DimensionText = dimension.DimensionText, EffectiveLowerTolerance = dimension.LowerTolerance, EffectiveUpperTolerance = dimension.UpperTolerance, ToleranceUnit = dimension.DimensionType == DimensionType.Angular ? "°" : "mm", DxfLayer = dimension.Layer, PreviewAnchor = dimension.PreviewAnchor, BlockName = dimension.BlockName, ViewName = dimension.ViewName, LocationX = dimension.LocationX, LocationY = dimension.LocationY };
 }

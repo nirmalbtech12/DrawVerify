@@ -31,7 +31,7 @@ public sealed class ReportService
             if (_audit is not null)
             {
                 var summary = report.ComparisonSummary;
-                var details = JsonSerializer.Serialize(new { verificationSessionId = sessionId, totalDimensions = summary.TotalDimensions, matchedDimensions = summary.MatchedDimensions, mismatchedDimensions = summary.MismatchedDimensions, unmatchedDimensions = summary.UnmatchedDimensions, missingDimensions = summary.MissingDimensions, matchPercentage = summary.MatchPercentage, reportFormat = "Markdown" });
+                var details = JsonSerializer.Serialize(new { verificationSessionId = sessionId, totalDimensions = summary.TotalDimensions, matchedDimensions = summary.MatchedDimensions, mismatchedDimensions = summary.MismatchedDimensions, unmatchedDimensions = summary.UnmatchedDimensions, missingDimensions = summary.MissingDimensions, extraDimensions = summary.ExtraDimensions, matchPercentage = summary.MatchPercentage, reportFormat = "Markdown" });
                 await _audit.WriteAsync(new AuditEntry { DocumentId = sessionId, UserId = _authentication.CurrentUser!.UserId, Action = DocumentAuditAction.VerificationReportGenerated, TimestampUtc = DateTime.UtcNow, DetailsJson = details }, cancellationToken).ConfigureAwait(false);
             }
             return content;
@@ -57,6 +57,15 @@ public sealed class ReportService
         }
         catch (Exception exception) when (exception is not UnauthorizedAccessException and not OperationCanceledException)
         { _logger?.Log(exception, "Missing dimension CSV export", $"Unable to export missing dimensions for verificationSessionId={sessionId}."); throw; }
+    }
+    public async Task<string> GenerateExtraDimensionsCsvAsync(Guid sessionId, CancellationToken cancellationToken = default)
+    {
+        if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.GenerateFinalReports)) throw new UnauthorizedAccessException("Only authorized reviewers may export verification results.");
+        var matches = (await _sessions.GetMatchesAsync(sessionId, cancellationToken: cancellationToken).ConfigureAwait(false)).Where(item => DimensionMatchingService.IsExtraDimensionStatus(item.Status)).ToArray();
+        var builder = new StringBuilder("DimensionMatchId,StepReference,GeometryType,Value,Tolerance,View,X,Y,Comment,DesignUpdate\n");
+        foreach (var m in matches)
+            builder.AppendLine(string.Join(',', new[] { m.DimensionMatchId.ToString(), m.StepGeometryReference, m.GeometryType, Value(m.MeasuredValue ?? m.NominalValue), Value(m.EffectiveLowerTolerance) + (m.EffectiveUpperTolerance is null ? string.Empty : "/+" + Value(m.EffectiveUpperTolerance)), m.ViewName, Value(m.LocationX), Value(m.LocationY), m.Review?.Comment, m.Review?.RequiresDesignUpdate.ToString() }.Select(Escape)));
+        return builder.ToString();
     }
     private static string Value(double? value) => value?.ToString("0.############", CultureInfo.InvariantCulture) ?? string.Empty;
     private static string Escape(string? value) { value ??= string.Empty; return value.IndexOfAny(new[] { ',', '"', '\r', '\n' }) >= 0 ? '"' + value.Replace("\"", "\"\"") + '"' : value; }

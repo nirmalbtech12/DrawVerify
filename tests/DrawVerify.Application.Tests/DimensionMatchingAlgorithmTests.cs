@@ -10,6 +10,34 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class DimensionMatchingAlgorithmTests
 {
+    [Fact(DisplayName = "TD-APP-EXTRA-001 emits only STEP-only features as explicit extras")]
+    public void Step_only_features_are_extra_with_metadata_and_stable_identity()
+    {
+        var session = new VerificationSession { VerificationSessionId = Guid.NewGuid(), StepDocumentVersionId = StepVersion, DxfDocumentVersionId = DxfVersion };
+        var dxf = new CoreDimensionData(Guid.NewGuid(), DxfVersion, 1, DimensionType.Linear, 10);
+        var features = new[]
+        {
+            new GeometryFeatureData { Reference = "matched", GeometryType = "Line", Length = 10 },
+            new GeometryFeatureData { Reference = "extra", GeometryType = "Hole", Diameter = 24, LowerTolerance = -.2, UpperTolerance = .1, ViewName = "Front", LocationX = 3, LocationY = 4 }
+        };
+        var algorithm = new DimensionMatchingAlgorithm(new DimensionMatchingConfiguration());
+        var first = algorithm.Match(session, new[] { dxf }, features);
+        var second = algorithm.Match(session, new[] { dxf }, features);
+        var extra = Assert.Single(first, result => result.Status == DimensionMatchStatus.ExtraDimension);
+        Assert.Equal("extra", extra.StepGeometryReference); Assert.Equal("Hole", extra.GeometryType); Assert.Equal(24, extra.MeasuredValue);
+        Assert.Equal((-.2, .1), (extra.EffectiveLowerTolerance, extra.EffectiveUpperTolerance)); Assert.Equal("Front", extra.ViewName); Assert.Equal((3d, 4d), (extra.LocationX, extra.LocationY));
+        Assert.Equal(extra.DimensionMatchId, Assert.Single(second, result => result.Status == DimensionMatchStatus.ExtraDimension).DimensionMatchId);
+        Assert.Single(first, result => result.Status == DimensionMatchStatus.Matched);
+    }
+
+    [Fact(DisplayName = "TD-APP-EXTRA-001 rejects non-finite STEP measurements")]
+    public void Non_finite_step_feature_measurements_fail_clearly()
+    {
+        var session = new VerificationSession { StepDocumentVersionId = StepVersion, DxfDocumentVersionId = DxfVersion };
+        var feature = new GeometryFeatureData { Reference = "bad", GeometryType = "Edge", Length = double.NaN };
+        var exception = Assert.Throws<InvalidOperationException>(() => new DimensionMatchingAlgorithm(new DimensionMatchingConfiguration()).Match(session, Array.Empty<CoreDimensionData>(), new[] { feature }));
+        Assert.Contains("bad", exception.Message);
+    }
     private static readonly Guid StepVersion = Guid.NewGuid();
     private static readonly Guid DxfVersion = Guid.NewGuid();
 
@@ -39,7 +67,7 @@ public sealed class DimensionMatchingAlgorithmTests
         Assert.Equal(DimensionMatchStatus.Matched, angular.Status);
         Assert.Equal(45, angular.MeasuredValue);
         Assert.Equal("degrees", angular.ToleranceUnit);
-        Assert.Contains(results, x => x.Status == DimensionMatchStatus.MissingDimension && x.StepGeometryReference == "Edge:unused");
+        Assert.Contains(results, x => x.Status == DimensionMatchStatus.ExtraDimension && x.StepGeometryReference == "Edge:unused");
     }
 
     [Fact(DisplayName = "TD-APP-001 classifies ambiguous and no-candidate dimensions with stable reasons")]

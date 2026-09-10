@@ -9,7 +9,7 @@ public sealed class DimensionMatchItemViewModel
 {
     public DimensionMatchItemViewModel(DimensionMatch match) { Match = match; }
     public DimensionMatch Match { get; }
-    public string StatusLabel => Match.Status switch { DimensionMatchStatus.Matched when Match.RequiresManualReview => "Manual review" , DimensionMatchStatus.Matched => "Matched", DimensionMatchStatus.Mismatched => "Mismatched", DimensionMatchStatus.Unmatched => "Unmatched", DimensionMatchStatus.MissingDimension => "Missing Dimension", _ => "Unknown" };
+    public string StatusLabel => Match.Status switch { DimensionMatchStatus.Matched when Match.RequiresManualReview => "Manual review" , DimensionMatchStatus.Matched => "Matched", DimensionMatchStatus.Mismatched => "Mismatched", DimensionMatchStatus.Unmatched => "Unmatched", DimensionMatchStatus.MissingDimension => "Extra Dimension (legacy)", DimensionMatchStatus.ExtraDimension => "Extra Dimension", _ => "Unknown" };
     public string ConfidenceLabel => Match.Confidence?.ToString() ?? "-";
     public string GeometryReference => Match.StepGeometryReference ?? "-";
     public string Reason => Match.ReasonCode ?? string.Empty;
@@ -28,6 +28,9 @@ public sealed class DimensionMatchItemViewModel
     public string Comment => Match.Review?.Comment ?? "";
     public string ResolutionStatus => Match.Review?.Status.ToString() ?? "Open";
     public bool IsUnmatched => Match.Status == DimensionMatchStatus.Unmatched;
+    public bool IsExtra => Match.Status is DimensionMatchStatus.ExtraDimension or DimensionMatchStatus.MissingDimension;
+    public string StepLocation => Location;
+    public bool RequiresDesignUpdate => Match.Review?.RequiresDesignUpdate == true;
     public string MeasuredValue => FormatValue(Match.MeasuredValue);
     public string DeltaUnit => Match.DeltaUnit;
     public string SignedDelta => FormatDelta(Match.SignedDelta, Match.DeltaUnit);
@@ -45,6 +48,8 @@ public sealed class DimensionMatchItemViewModel
         DimensionMatchStatus.Matched => "Green",
         DimensionMatchStatus.Mismatched => "Red",
         DimensionMatchStatus.Unmatched => "Gray",
+        DimensionMatchStatus.MissingDimension => "DarkOrange",
+        DimensionMatchStatus.ExtraDimension => "DarkOrange",
         _ => "Gray"
     };
     public Brush StatusBrush => Match.Status switch
@@ -52,6 +57,8 @@ public sealed class DimensionMatchItemViewModel
         DimensionMatchStatus.Matched => Brushes.Green,
         DimensionMatchStatus.Mismatched => Brushes.Red,
         DimensionMatchStatus.Unmatched => Brushes.Gray,
+        DimensionMatchStatus.MissingDimension => Brushes.DarkOrange,
+        DimensionMatchStatus.ExtraDimension => Brushes.DarkOrange,
         _ => Brushes.Gray
     };
     private static string FormatValue(double? value) => value is null ? "-" : value.Value.ToString("0.############", CultureInfo.InvariantCulture);

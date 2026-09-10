@@ -9,6 +9,28 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class MissingDimensionReviewServiceTests
 {
+    [Theory(DisplayName = "TD-APP-EXTRA-005 extra review access is enforced at the review service boundary")]
+    [InlineData(SystemRoles.Checker, true)] [InlineData(SystemRoles.Approver, true)] [InlineData(SystemRoles.Viewer, true)] [InlineData(SystemRoles.Maker, true)] [InlineData("Unknown", false)]
+    public async Task Extra_review_query_authorization_matches_role_policy(string role, bool allowed)
+    {
+        var authentication = new SessionAuthenticationService(); authentication.SignIn(new AuthenticatedUser("user", new[] { role }));
+        var service = new MissingDimensionReviewService(new ReviewRepository(Guid.NewGuid(), Array.Empty<DimensionMatch>()), authentication);
+        if (allowed) Assert.Empty(await service.QueryExtraAsync(Guid.NewGuid())); else await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.QueryExtraAsync(Guid.NewGuid()));
+    }
+    [Fact(DisplayName = "TD-APP-EXTRA-004 queries persisted extra dimensions")]
+    public async Task Query_extra_returns_only_extra_rows_and_metadata()
+    {
+        var sessionId = Guid.NewGuid();
+        var repository = new ReviewRepository(sessionId, new[]
+        {
+            Match(1, "A", "Block", "Front", 1, 2) with { Status = DimensionMatchStatus.ExtraDimension, StepGeometryReference = "Edge:extra", DxfDimensionReference = -1 },
+            Match(2, "A", "Block", "Front", 3, 4)
+        });
+        var authentication = new SessionAuthenticationService(); authentication.SignIn(new AuthenticatedUser("checker", new[] { SystemRoles.Checker }));
+        var service = new MissingDimensionReviewService(repository, authentication);
+        var results = await service.QueryExtraAsync(sessionId);
+        var extra = Assert.Single(results); Assert.Equal("Edge:extra", extra.StepGeometryReference); Assert.Equal(DimensionMatchStatus.ExtraDimension, extra.Status);
+    }
     [Fact(DisplayName = "TD-004 queries missing dimensions by location and summarizes them")]
     public async Task Query_filters_sorts_and_summarizes_location_metadata()
     {

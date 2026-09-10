@@ -8,6 +8,36 @@ namespace DrawVerify.Core.Tests;
 
 public sealed class DimensionMatchingDomainTests
 {
+    [Fact(DisplayName = "TD-CORE-EXTRA-001 classifies extras, preserves stable review identity, and projects reports")]
+    public void Extra_dimension_domain_projection_is_distinct_and_legacy_compatible()
+    {
+        var session = Guid.NewGuid();
+        var extra = new DimensionMatch { DimensionMatchId = Guid.NewGuid(), VerificationSessionId = session, StepDocumentVersionId = Guid.NewGuid(), StepGeometryReference = "Edge:extra", GeometryType = "Line", Status = DimensionMatchStatus.ExtraDimension, DimensionType = DimensionType.Linear, MeasuredValue = 42, EffectiveLowerTolerance = -.1, EffectiveUpperTolerance = .2, LocationX = 1, LocationY = 2 };
+        var legacy = extra with { DimensionMatchId = Guid.NewGuid(), Status = DimensionMatchStatus.MissingDimension, StepGeometryReference = "Edge:legacy" };
+        var summary = ComparisonSummary.From(new[] { extra, legacy, new DimensionMatch { Status = DimensionMatchStatus.Matched, DimensionType = DimensionType.Linear } });
+        Assert.Equal(3, summary.TotalDimensions); Assert.Equal(2, summary.ExtraDimensions); Assert.Equal(1, summary.MatchedDimensions);
+        Assert.Equal(2, new VerificationReport { DimensionMatches = new[] { extra, legacy } }.ExtraDimensions.Count);
+        Assert.Contains("## Extra Dimensions", new VerificationReport { DimensionMatches = new[] { extra } }.ToMarkdown());
+        Assert.NotEqual(Guid.Empty, extra.DimensionMatchId); Assert.Equal(3, (int)DimensionMatchStatus.MissingDimension);
+        Assert.Throws<InvalidOperationException>(() => ComparisonSummary.From(new[] { extra with { Status = (DimensionMatchStatus)99 } }));
+        Assert.Null((extra with { MeasuredValue = double.NaN }).SignedDelta);
+    }
+
+    [Theory(DisplayName = "TD-CORE-EXTRA-002 applies extra review permissions by role")]
+    [InlineData(SystemRoles.Checker, true, true, true)]
+    [InlineData(SystemRoles.Approver, true, true, true)]
+    [InlineData(SystemRoles.Viewer, true, false, false)]
+    [InlineData(SystemRoles.Maker, true, false, false)]
+    [InlineData("Unknown", false, false, false)]
+    public void Extra_review_role_matrix_is_explicit(string role, bool canView, bool canComment, bool canFlag)
+    {
+        var authorization = new RoleAuthorization();
+        var user = role == "Unknown" ? new AuthenticatedUser("u", new[] { role }) : new AuthenticatedUser("u", new[] { role });
+        Assert.Equal(canView, authorization.IsAllowed(user, RolePermission.ViewExtraDimensions));
+        Assert.Equal(canComment, authorization.IsAllowed(user, RolePermission.CommentOnExtraDimensions));
+        Assert.Equal(canFlag, authorization.IsAllowed(user, RolePermission.FlagExtraDimensions));
+        Assert.False(authorization.IsAllowed(null, RolePermission.ViewExtraDimensions));
+    }
     [Fact(DisplayName = "TD-CORE-001 calculates signed and absolute deltas with dimension units")]
     public void Mismatched_match_calculates_directional_delta_without_rounding()
     {

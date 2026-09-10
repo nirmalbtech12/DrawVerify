@@ -15,6 +15,34 @@ namespace DrawVerify.App.Tests;
 
 public sealed class VerificationViewModelTests
 {
+    [Fact(DisplayName = "TD-APPUI-EXTRA-003 refreshed extra items retain persisted review state")]
+    public void Refreshed_extra_item_retains_comment_and_design_flag()
+    {
+        var match = new DimensionMatch { Status = DimensionMatchStatus.ExtraDimension, StepGeometryReference = "Edge:review", Review = new DimensionReview { Comment = "Intentionally omitted", RequiresDesignUpdate = true } };
+        var vm = new VerificationViewModel(new SessionAuthenticationService(), new RoleAuthorization()); SetResults(vm, new[] { match }); vm.ApplyFilterCommand.Execute(null);
+        var item = Assert.Single(vm.ExtraDimensionResults); Assert.Equal("Intentionally omitted", item.Comment); Assert.True(item.RequiresDesignUpdate);
+    }
+    [Fact(DisplayName = "TD-APPUI-EXTRA-001 exposes extra list, fields, summary, and empty state")]
+    public void Extra_dimensions_are_filtered_into_dedicated_ui_collection()
+    {
+        var vm = new VerificationViewModel(new SessionAuthenticationService(), new RoleAuthorization());
+        SetResults(vm, new[] { new DimensionMatch { Status = DimensionMatchStatus.ExtraDimension, DimensionType = DimensionType.Linear, StepGeometryReference = "Edge:extra", MeasuredValue = 22, ViewName = "Front", LocationX = 1, LocationY = 2 }, new DimensionMatch { Status = DimensionMatchStatus.Matched } });
+        vm.ApplyFilterCommand.Execute(null);
+        var extra = Assert.Single(vm.ExtraDimensionResults); Assert.Equal("Edge:extra", extra.GeometryReference); Assert.Equal("22", extra.MeasuredValue); Assert.Equal("Front", extra.ViewName); Assert.Equal("(1, 2)", extra.Location);
+        Assert.Equal(1, vm.ExtraDimensions); Assert.Contains("Extra Dimensions", vm.ExtraDimensionsTitle); Assert.Empty(vm.ExtraDimensionsEmptyText);
+        SetResults(vm, Array.Empty<DimensionMatch>()); vm.ApplyFilterCommand.Execute(null); Assert.Equal("No extra dimensions identified.", vm.ExtraDimensionsEmptyText);
+    }
+
+    [Fact(DisplayName = "TD-APPUI-EXTRA-002 selects STEP target and reports unavailable location state")]
+    public void Extra_selection_highlights_step_feature_and_unavailable_target_is_visible()
+    {
+        var vm = new VerificationViewModel(new SessionAuthenticationService(), new RoleAuthorization());
+        var extra = new DimensionMatch { Status = DimensionMatchStatus.ExtraDimension, StepGeometryReference = "Face:7", LocationX = 10, LocationY = 11 };
+        SetResults(vm, new[] { extra }); vm.ApplyFilterCommand.Execute(null); vm.SelectedExtraDimension = Assert.Single(vm.ExtraDimensionResults);
+        Assert.Equal("Face:7", vm.StepPreview.HighlightedFeatureReference); Assert.Equal(10, vm.StepPreview.HighlightedLocationX); Assert.Equal(11, vm.StepPreview.HighlightedLocationY); Assert.True(vm.StepPreview.IsPreviewAvailable);
+        var unavailable = new VerificationViewModel(new SessionAuthenticationService(), new RoleAuthorization()); SetResults(unavailable, new[] { extra with { StepGeometryReference = null } }); unavailable.ApplyFilterCommand.Execute(null); unavailable.SelectedExtraDimension = Assert.Single(unavailable.ExtraDimensionResults);
+        Assert.False(unavailable.StepPreview.IsPreviewAvailable); Assert.Contains("unavailable", unavailable.MatchingStatus, StringComparison.OrdinalIgnoreCase);
+    }
     private static void SetResults(VerificationViewModel vm, IEnumerable<DimensionMatch> matches) =>
         typeof(VerificationViewModel).GetField("_allMatchResults", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(vm, matches.Select(match => new DimensionMatchItemViewModel(match)).ToArray());
@@ -183,7 +211,7 @@ public sealed class VerificationViewModelTests
             new DimensionMatchItemViewModel(new DimensionMatch { VerificationSessionId = sessionId, DxfDocumentVersionId = version, StepDocumentVersionId = version, Status = DimensionMatchStatus.Unmatched, ReasonCode = "NoCorrespondingGeometryFound" }),
             new DimensionMatchItemViewModel(new DimensionMatch { VerificationSessionId = sessionId, DxfDocumentVersionId = version, StepDocumentVersionId = version, Status = DimensionMatchStatus.MissingDimension })
         };
-        Assert.Equal(new[] { "Matched", "Unmatched", "Missing Dimension" }, items.Select(x => x.StatusLabel));
+        Assert.Equal(new[] { "Matched", "Unmatched", "Extra Dimension (legacy)" }, items.Select(x => x.StatusLabel));
         Assert.Equal("Green", items[0].StatusColor); Assert.Equal("Gray", items[1].StatusColor);
         Assert.Equal("Edge:1", items[0].GeometryReference);
         Assert.Equal("NoCorrespondingGeometryFound", items[1].Reason);
@@ -245,7 +273,7 @@ public sealed class VerificationViewModelTests
     {
         var rows = Enumerable.Range(1, unmatched).Select(i => new DimensionMatch { Status = DimensionMatchStatus.Unmatched, DxfDimensionReference = i }).Concat(Enumerable.Range(1, extra).Select(i => new DimensionMatch { Status = DimensionMatchStatus.MissingDimension, DxfDimensionReference = -i }));
         var vm = new VerificationViewModel(new SessionAuthenticationService(), new RoleAuthorization()); SetResults(vm, rows); vm.ApplyFilterCommand.Execute(null);
-        Assert.Equal(unmatched, vm.UnmatchedDimensions); Assert.Equal(extra, vm.MissingDimensions); Assert.Equal(unmatched, vm.TotalDimensions);
+        Assert.Equal(unmatched, vm.UnmatchedDimensions); Assert.Equal(extra, vm.MissingDimensions); Assert.Equal(extra, vm.ExtraDimensions); Assert.Equal(unmatched + extra, vm.TotalDimensions);
     }
 
     [Theory(DisplayName = "TD-06 and TD-08 role matrix permits only the approved missing-dimension actions")]

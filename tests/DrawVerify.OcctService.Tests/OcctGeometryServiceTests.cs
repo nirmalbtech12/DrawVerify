@@ -9,6 +9,16 @@ namespace DrawVerify.OcctService.Tests;
 /// </summary>
 public class OcctGeometryServiceTests
 {
+    [Fact(DisplayName = "TD-OCCT-EXTRA-001 extracts stable STEP feature metadata and honors cancellation")]
+    public void Matchable_step_features_have_references_and_cancellation_is_explicit()
+    {
+        var service = new DrawVerify.OcctService.OcctGeometryService();
+        var result = service.ExtractMatchableGeometry(new DrawVerify.Geometry.Models.MatchableGeometryExtractionRequest(FixturePath));
+        Assert.True(result.Succeeded, result.ErrorMessage);
+        Assert.NotEmpty(result.Features); Assert.All(result.Features, feature => { Assert.False(string.IsNullOrWhiteSpace(feature.Reference)); Assert.False(string.IsNullOrWhiteSpace(feature.GeometryType)); });
+        using var cancellation = new CancellationTokenSource(); cancellation.Cancel();
+        Assert.Throws<OperationCanceledException>(() => service.ExtractMatchableGeometry(new DrawVerify.Geometry.Models.MatchableGeometryExtractionRequest(FixturePath), cancellation.Token));
+    }
     private static string FixturePath => Path.Combine(AppContext.BaseDirectory, "Fixtures", "screw.step");
     private static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
     private static string DatasetStep(int id) => Path.Combine(AppContext.BaseDirectory, "Dataset", $"sample-{id:000000}", $"{id:000000}.step");

@@ -31,8 +31,15 @@ public sealed class DimensionMatchItemViewModelTests
         Assert.Equal("Unmatched", unmatched.StatusLabel);
         Assert.Contains(unmatched.StatusColor, new[] { "DarkOrange", "Gray" });
         Assert.Contains(unmatched.StatusBrush, new[] { Brushes.DarkOrange, Brushes.Gray });
-        Assert.Equal("Missing Dimension", legacy.StatusLabel);
-        Assert.Equal("Gray", legacy.StatusColor);
+        Assert.Equal("Extra Dimension (legacy)", legacy.StatusLabel);
+        Assert.Equal("DarkOrange", legacy.StatusColor);
         Assert.NotEqual("Matched", legacy.StatusLabel);
+    }
+
+    [Fact(DisplayName = "TD-APPUI-EXTRA-001 exposes extra value, tolerance, location, and review fields")]
+    public void Extra_item_exposes_key_properties_and_design_flag()
+    {
+        var item = new DimensionMatchItemViewModel(new DimensionMatch { Status = DimensionMatchStatus.ExtraDimension, StepGeometryReference = "Edge:9", GeometryType = "Line", MeasuredValue = 12.5, EffectiveLowerTolerance = -.1, EffectiveUpperTolerance = .2, ToleranceUnit = "mm", LocationX = 1, LocationY = 2, Review = new DimensionReview { Comment = "Show on drawing", RequiresDesignUpdate = true } });
+        Assert.True(item.IsExtra); Assert.Equal("Extra Dimension", item.StatusLabel); Assert.Equal("DarkOrange", item.StatusColor); Assert.Equal("Edge:9", item.GeometryReference); Assert.Equal("12.5", item.MeasuredValue); Assert.Equal("-0.1 / +0.2 mm", item.Tolerance); Assert.Equal("(1, 2)", item.Location); Assert.Equal("Show on drawing", item.Comment); Assert.True(item.RequiresDesignUpdate);
     }
 }

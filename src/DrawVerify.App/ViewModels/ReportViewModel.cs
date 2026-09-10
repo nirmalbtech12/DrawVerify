@@ -20,16 +20,28 @@ public sealed class ReportViewModel : INotifyPropertyChanged
         _service = service; _logger = logger;
         GenerateCommand = new RelayCommand(async _ => await GenerateAsync(), _ => !IsBusy);
         ExportMissingDimensionsCommand = new RelayCommand(async _ => await ExportMissingDimensionsAsync(), _ => !IsBusy);
+        ExportExtraDimensionsCommand = new RelayCommand(async _ => await ExportExtraDimensionsAsync(), _ => !IsBusy);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public string SessionId { get => _sessionId; set { _sessionId = value; Notify(); } }
     public string Status { get => _status; private set { _status = value; Notify(); } }
     public string ReportContent { get => _content; private set { _content = value; Notify(); } }
-    public bool IsBusy { get => _isBusy; private set { _isBusy = value; Notify(); ((RelayCommand)GenerateCommand).Raise(); ((RelayCommand)ExportMissingDimensionsCommand).Raise(); } }
+    public bool IsBusy { get => _isBusy; private set { _isBusy = value; Notify(); ((RelayCommand)GenerateCommand).Raise(); ((RelayCommand)ExportMissingDimensionsCommand).Raise(); ((RelayCommand)ExportExtraDimensionsCommand).Raise(); } }
     public ICommand GenerateCommand { get; }
     public ICommand ExportMissingDimensionsCommand { get; }
+    public ICommand ExportExtraDimensionsCommand { get; }
     public string CsvContent { get; private set; } = string.Empty;
+
+    public async Task<bool> ExportExtraDimensionsAsync(CancellationToken cancellationToken = default)
+    {
+        if (!Guid.TryParse(SessionId, out var sessionId)) { Status = "Enter a valid verification session ID."; return false; }
+        IsBusy = true;
+        try { CsvContent = await _service.GenerateExtraDimensionsCsvAsync(sessionId, cancellationToken).ConfigureAwait(true); Notify(nameof(CsvContent)); Status = "Extra dimensions exported."; return true; }
+        catch (UnauthorizedAccessException) { Status = "Access denied."; return false; }
+        catch (Exception exception) { _logger?.Log(exception, "Extra dimension CSV export", $"Unable to export verificationSessionId={sessionId}."); Status = "Unable to export extra dimensions."; return false; }
+        finally { IsBusy = false; }
+    }
 
     public async Task<bool> GenerateAsync(CancellationToken cancellationToken = default)
     {
