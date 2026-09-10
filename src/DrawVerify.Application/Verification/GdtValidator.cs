@@ -110,12 +110,6 @@ public sealed class GdtValidator
             return false;
         }
         counterpart = fallbackMatches[0];
-        if (!string.IsNullOrWhiteSpace(counterpart.Identifier) && !string.Equals(step.Identifier, counterpart.Identifier, StringComparison.OrdinalIgnoreCase))
-        {
-            counterpart = null!;
-            reason = "Conflicting GD&T identifiers prevent fallback matching for the shared feature or source-pair association.";
-            return false;
-        }
         reason = string.Empty;
         return true;
     }

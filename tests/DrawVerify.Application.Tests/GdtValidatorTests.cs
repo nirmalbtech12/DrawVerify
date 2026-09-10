@@ -111,6 +111,17 @@ public class GdtValidatorTests
         Assert.Equal("1.0.0", result.RuleVersion);
     }
 
+    [Fact(DisplayName = "TD-KAN44-003 accepts a unique feature fallback across differing source identifiers")]
+    public void Unique_feature_fallback_accepts_different_step_and_dxf_identifiers()
+    {
+        var step = Annotation(GdtControlType.Position, "⌖", feature: "hole-1") with { Identifier = "step-position-1", SourcePairId = "pair-1" };
+        var dxf = Annotation(GdtControlType.Position, "⌖", feature: "hole-1") with { Identifier = "dxf-position-9", SourcePairId = "pair-1", SourceDocument = "drawing.dxf" };
+
+        var result = Assert.Single(new GdtValidator().Validate(new[] { step }, new[] { dxf }));
+
+        Assert.Equal(VerificationStatus.Passed, result.Status);
+    }
+
     [Fact(DisplayName = "TD-KAN44-004 validates datum-free flatness and detects surface mismatch")]
     public void Flatness_does_not_require_datum()
     {
