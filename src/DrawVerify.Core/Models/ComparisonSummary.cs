@@ -15,6 +15,7 @@ public sealed record DimensionTypeSummary(
 public sealed record ComparisonSummary
 {
     public int NotVerifiedGdtControls { get; init; }
+    public int CannotValidateGdtControls { get; init; }
     public int TotalDimensions { get; init; }
     public int MatchedDimensions { get; init; }
     public int MismatchedDimensions { get; init; }
@@ -73,6 +74,6 @@ public sealed record ComparisonSummary
     {
         ArgumentNullException.ThrowIfNull(gdtResults);
         var summary = From(matches);
-        return summary with { NotVerifiedGdtControls = gdtResults.Count(result => result.Status == VerificationStatus.NotVerified) };
+        return summary with { NotVerifiedGdtControls = gdtResults.Count(result => result.Status == VerificationStatus.NotVerified), CannotValidateGdtControls = gdtResults.Count(result => result.Status == VerificationStatus.CannotValidate) };
     }
 }

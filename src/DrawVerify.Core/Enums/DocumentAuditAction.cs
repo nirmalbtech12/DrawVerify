@@ -15,5 +15,6 @@ public enum DocumentAuditAction
     ToleranceComparisonApplied = 16, VerificationReportGenerated = 17,
     CommentAdded = 18, StatusChanged = 19,
     UnsupportedGdtDetected = 20, UnsupportedGdtReviewChanged = 21,
-    GdtValidationCompleted = 22, GdtReviewChanged = 23
+    GdtValidationCompleted = 22, GdtReviewChanged = 23,
+    FlaggedCannotValidate = 24, DispositionChanged = 25
 }

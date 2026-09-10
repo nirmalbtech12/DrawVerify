@@ -29,10 +29,25 @@ public sealed class RoleAuthorizationTests
     [InlineData("Unknown")]
     public void Invalid_roles_are_rejected(string role) => Assert.Throws<InvalidOperationException>(() => SystemRoles.ValidateAndCanonicalize(new[] { role }));
 
-    [Fact]
+    [Fact(DisplayName = "TD-CORE-001 canonicalizes role names before applying permissions")]
     public void Duplicate_roles_are_rejected_and_known_casing_is_canonicalized()
     {
         Assert.Equal(new[] { "Maker", "Viewer" }, SystemRoles.ValidateAndCanonicalize(new[] { " maker ", "VIEWER" }));
         Assert.Throws<InvalidOperationException>(() => SystemRoles.ValidateAndCanonicalize(new[] { "Admin", "admin" }));
+    }
+
+    [Theory(DisplayName = "TD-CORE-002 applies Cannot Validate review permissions by role")]
+    [InlineData("Checker", true, true)]
+    [InlineData("Approver", true, true)]
+    [InlineData("Viewer", true, false)]
+    [InlineData("Maker", true, false)]
+    public void Cannot_validate_review_permission_matrix_is_explicit(string role, bool canView, bool canModify)
+    {
+        var user = new AuthenticatedUser(role.ToLowerInvariant(), new[] { role });
+        var authorization = new RoleAuthorization();
+
+        Assert.Equal(canView, authorization.IsAllowed(user, RolePermission.ViewGdtCannotValidate));
+        Assert.Equal(canModify, authorization.IsAllowed(user, RolePermission.ModifyGdtCannotValidate));
+        Assert.False(authorization.IsAllowed(null, RolePermission.ViewGdtCannotValidate));
     }
 }

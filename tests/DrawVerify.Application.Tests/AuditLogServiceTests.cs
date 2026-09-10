@@ -9,7 +9,39 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class AuditLogServiceTests
 {
-    [Fact(DisplayName = "TD-07 audit payload carries GD&T identifier, actor, action, and UTC timestamp")]
+    [Fact(DisplayName = "TD-APP-002 review audit evidence preserves Cannot Validate status")]
+    public void Review_audit_evidence_does_not_change_system_status()
+    {
+        var entry = new AuditEntry
+        {
+            DocumentId = Guid.NewGuid(), UserId = "checker", Action = DocumentAuditAction.GdtReviewChanged,
+            TimestampUtc = DateTime.UtcNow,
+            DetailsJson = "{\"annotationIdentifier\":\"gdt-gap\",\"actionType\":\"CommentAdded\",\"before\":{\"status\":\"CannotValidate\"},\"after\":{\"status\":\"CannotValidate\",\"comment\":\"Review\"}}"
+        };
+
+        using var details = System.Text.Json.JsonDocument.Parse(entry.DetailsJson);
+        Assert.Equal("CannotValidate", details.RootElement.GetProperty("before").GetProperty("status").GetString());
+        Assert.Equal("CannotValidate", details.RootElement.GetProperty("after").GetProperty("status").GetString());
+        Assert.Equal("CommentAdded", details.RootElement.GetProperty("actionType").GetString());
+    }
+
+    [Fact(DisplayName = "TD-APP-003 carries non-validation action, actor, timestamp, and annotation context")]
+    public void Cannot_validate_audit_payload_is_complete()
+    {
+        var documentId = Guid.NewGuid();
+        var entry = new AuditEntry
+        {
+            DocumentId = documentId, UserId = "checker", Action = DocumentAuditAction.GdtReviewChanged,
+            TimestampUtc = DateTime.UtcNow, DetailsJson = "{\"verificationSessionId\":\"" + documentId + "\",\"annotationId\":\"gdt-gap\",\"actionType\":\"CommentAdded\",\"reason\":\"Unsupported GD&T control type\",\"before\":{},\"after\":{\"comment\":\"Review\"}}"
+        };
+
+        Assert.Equal(DocumentAuditAction.GdtReviewChanged, entry.Action);
+        Assert.Equal(DateTimeKind.Utc, entry.TimestampUtc.Kind);
+        Assert.Contains("annotationId", entry.DetailsJson);
+        Assert.Contains("CommentAdded", entry.DetailsJson);
+        Assert.Contains("checker", entry.UserId);
+    }
+    [Fact(DisplayName = "TD-APP-003 audit payload carries GD&T identifier, actor, action, and UTC timestamp")]
     public void Gdt_review_audit_contract_contains_required_fields()
     {
         var documentId = Guid.NewGuid();

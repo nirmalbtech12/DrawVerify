@@ -1,6 +1,8 @@
 using System.Text;
 using DrawVerify.Application.DxfDimensionExtraction;
+using DrawVerify.Application.Verification;
 using DrawVerify.Core.Enums;
+using DrawVerify.Core.Models;
 using DrawVerify.Geometry.Models;
 using Xunit;
 
@@ -27,6 +29,40 @@ public sealed class DxfGdtParserTests
         var annotation = Assert.Single(result);
         Assert.Equal(GdtControlType.Position, annotation.ControlType);
         Assert.Contains("UNSUPPORTED", annotation.RawText!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact(DisplayName = "TD-KAN45-REVIEW-01 classifies unsupported DXF modifiers through the validator")]
+    public async Task Unsupported_modifier_is_cannot_validate_with_canonical_reason()
+    {
+        await using var stream = new MemoryStream(Encoding.UTF8.GetBytes("0\nTEXT\n1\nPOSITION 0.1 COMPOSITE UNSUPPORTED\n"));
+
+        var annotation = Assert.Single(await new DxfGdtParser().ParseAsync(stream, Guid.NewGuid(), Guid.NewGuid()));
+        var result = Assert.Single(new GdtValidator().Validate(new[] { annotation }));
+
+        Assert.Equal(VerificationStatus.CannotValidate, result.Status);
+        Assert.Equal(GdtResult.UnsupportedSyntaxReason, result.Reason);
+        Assert.True(annotation.HasCompositeFrame);
+        Assert.True(annotation.UnsupportedSyntax);
+        Assert.Contains(annotation.Diagnostics!, diagnostic => diagnostic.Contains("unsupported", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory(DisplayName = "TD-KAN45-REVIEW-01 classifies every recognized unsupported DXF modifier")]
+    [InlineData("MMC")]
+    [InlineData("RFS")]
+    [InlineData("LMC")]
+    [InlineData("PROJECTED")]
+    [InlineData("TANGENT")]
+    [InlineData("FREE STATE")]
+    public async Task Every_recognized_unsupported_modifier_is_cannot_validate(string modifier)
+    {
+        await using var stream = new MemoryStream(Encoding.UTF8.GetBytes($"0\nTEXT\n1\nPOSITION 0.1 {modifier}\n"));
+
+        var annotation = Assert.Single(await new DxfGdtParser().ParseAsync(stream, Guid.NewGuid(), Guid.NewGuid()));
+        var result = Assert.Single(new GdtValidator().Validate(new[] { annotation }));
+
+        Assert.Equal(VerificationStatus.CannotValidate, result.Status);
+        Assert.Equal(GdtResult.UnsupportedSyntaxReason, result.Reason);
+        Assert.True(annotation.UnsupportedSyntax);
     }
     [Fact(DisplayName = "TD-04 parses supported DXF feature-control frames and preserves source data")]
     public async Task Parses_supported_frame_fields_and_leaves_stream_open()
@@ -56,6 +92,7 @@ public sealed class DxfGdtParserTests
         Assert.Equal(GdtControlType.Unknown, result.ControlType);
         Assert.Equal("◇ 0.2", result.RawText);
         Assert.StartsWith("entity:", result.SourceLocation);
+        Assert.Equal(result.SourceOrdinal.ToString(System.Globalization.CultureInfo.InvariantCulture), result.EntityHandle);
     }
 
     [Fact(DisplayName = "TD-04 exposes structured DXF diagnostics through the production parser contract")]

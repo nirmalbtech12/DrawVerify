@@ -7,7 +7,11 @@ public sealed record DxfGdtExtractionResult(
     IReadOnlyList<string> Diagnostics,
     bool Succeeded = true,
     string? ErrorCategory = null,
-    string? ErrorMessage = null)
+    string? ErrorMessage = null,
+    string? SourceDocument = null,
+    string? SourceDocumentVersion = null,
+    string? SourceLocation = null,
+    string? Identifier = null)
 {
     public static DxfGdtExtractionResult Success(IReadOnlyList<GdtAnnotationData> annotations, IReadOnlyList<string>? diagnostics = null) => new(annotations, diagnostics ?? Array.Empty<string>());
     public static DxfGdtExtractionResult Failure(string category, string message, IReadOnlyList<string>? diagnostics = null)

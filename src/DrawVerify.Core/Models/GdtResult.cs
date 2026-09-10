@@ -5,7 +5,12 @@ namespace DrawVerify.Core.Models;
 public sealed class GdtResult
 {
     public const string CurrentRuleVersion = "1.0.0";
-    public const string UnsupportedReason = "Unsupported GD&T control for the current verification scope.";
+    public const string UnsupportedReason = "Unsupported GD&T control type";
+    public const string MissingToleranceReason = "Missing tolerance value";
+    public const string MissingDatumReason = "Datum reference not found";
+    public const string AmbiguousAssociationReason = "Feature association ambiguous";
+    public const string UnsupportedSyntaxReason = "Syntax or modifier not supported";
+    public const string ParsingReason = "Syntax or modifier not supported";
     public Guid GdtResultId { get; init; } = Guid.NewGuid();
     public Guid VerificationSessionId { get; init; }
     public string Identifier { get; init; } = string.Empty;
@@ -39,6 +44,7 @@ public sealed class GdtResult
     public string? ReviewComment { get; init; }
     public bool RequiresEngineeringReview { get; init; }
     public DateTimeOffset? ReviewedUtc { get; init; }
+    public string? ReviewDisposition { get; init; }
 
     public static GdtResult Unsupported(string identifier, GdtControlType controlType = GdtControlType.Unknown,
         string? symbol = null, string? sourceDocument = null, string? sourceLocation = null)
@@ -46,7 +52,7 @@ public sealed class GdtResult
         if (string.IsNullOrWhiteSpace(identifier)) throw new ArgumentException("A GD&T identifier is required.", nameof(identifier));
         if (!Enum.IsDefined(controlType)) throw new ArgumentException("The GD&T control type is invalid.", nameof(controlType));
         if (string.IsNullOrWhiteSpace(sourceDocument)) throw new ArgumentException("A source document is required.", nameof(sourceDocument));
-        return new GdtResult { Identifier = identifier.Trim(), ControlType = controlType, Symbol = symbol, SourceDocument = sourceDocument.Trim(), SourceLocation = sourceLocation, Status = VerificationStatus.NotVerified, Reason = UnsupportedReason };
+        return new GdtResult { Identifier = identifier.Trim(), ControlType = controlType, Symbol = symbol, SourceDocument = sourceDocument.Trim(), SourceLocation = sourceLocation, Status = VerificationStatus.CannotValidate, Reason = UnsupportedReason };
     }
 
     public GdtResult WithReview(string? comment, bool requiresEngineeringReview, DateTimeOffset? reviewedUtc = null)
@@ -65,6 +71,15 @@ public sealed class GdtResult
         ToleranceZoneDiameter = ToleranceZoneDiameter, NormalizedModifiers = NormalizedModifiers, DatumScheme = DatumScheme,
         ComparisonCriteria = ComparisonCriteria, SourcePairId = SourcePairId, ComparisonDetails = ComparisonDetails,
         HasCompositeFrame = HasCompositeFrame, Diagnostics = Diagnostics, Status = Status, Reason = Reason,
-        ReviewComment = comment?.Trim(), RequiresEngineeringReview = requiresEngineeringReview, ReviewedUtc = reviewedUtc ?? DateTimeOffset.UtcNow
+        ReviewComment = comment?.Trim(), RequiresEngineeringReview = requiresEngineeringReview, ReviewedUtc = reviewedUtc ?? DateTimeOffset.UtcNow, ReviewDisposition = ReviewDisposition
     };
+
+    public GdtResult WithDisposition(string disposition)
+    {
+        if (string.IsNullOrWhiteSpace(disposition)) throw new ArgumentException("A GD&T disposition is required.", nameof(disposition));
+        return new GdtResult
+        {
+            GdtResultId = GdtResultId, VerificationSessionId = VerificationSessionId, Identifier = Identifier, ControlType = ControlType, Symbol = Symbol, ToleranceValue = ToleranceValue, Modifiers = Modifiers, DatumReferences = DatumReferences, SourceDocument = SourceDocument, SourceDocumentVersion = SourceDocumentVersion, SourceLocation = SourceLocation, RawText = RawText, EntityHandle = EntityHandle, Layer = Layer, BlockName = BlockName, ViewName = ViewName, RuleVersion = RuleVersion, ControlledFeature = ControlledFeature, NominalBasicLocation = NominalBasicLocation, ToleranceZoneType = ToleranceZoneType, ToleranceZoneDiameter = ToleranceZoneDiameter, NormalizedModifiers = NormalizedModifiers, DatumScheme = DatumScheme, ComparisonCriteria = ComparisonCriteria, SourcePairId = SourcePairId, ComparisonDetails = ComparisonDetails, HasCompositeFrame = HasCompositeFrame, Diagnostics = Diagnostics, Status = Status, Reason = Reason, ReviewComment = ReviewComment, RequiresEngineeringReview = RequiresEngineeringReview, ReviewedUtc = DateTimeOffset.UtcNow, ReviewDisposition = disposition.Trim()
+        };
+    }
 }

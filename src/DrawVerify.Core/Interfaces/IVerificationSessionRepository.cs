@@ -9,6 +9,7 @@ public interface IVerificationSessionRepository
     Task<IReadOnlyList<GdtResult>> GetGdtResultsAsync(Guid sessionId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<GdtResult>>(Array.Empty<GdtResult>());
     Task ReplaceGdtResultsAsync(Guid sessionId, IReadOnlyCollection<GdtResult> results, string userId, CancellationToken cancellationToken = default) => throw new NotSupportedException("GD&T result persistence is not supported by this repository.");
     Task UpdateGdtReviewAsync(Guid sessionId, Guid gdtResultId, string? comment, bool requiresEngineeringReview, string userId, CancellationToken cancellationToken = default) => throw new NotSupportedException("GD&T review persistence is not supported by this repository.");
+    Task UpdateGdtDispositionAsync(Guid sessionId, Guid gdtResultId, string disposition, string userId, CancellationToken cancellationToken = default) => throw new NotSupportedException("GD&T disposition persistence is not supported by this repository.");
     Task ReplaceResultsAsync(VerificationSession session, IReadOnlyCollection<DimensionMatch> matches, DocumentAuditAction auditAction, string userId, string detailsJson, CancellationToken cancellationToken = default);
     Task UpdateReviewAsync(Guid sessionId, Guid dimensionMatchId, DimensionReview review, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("Dimension review persistence is not supported by this repository.");

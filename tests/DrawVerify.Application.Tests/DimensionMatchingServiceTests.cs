@@ -4,6 +4,8 @@ using DrawVerify.Core.Configuration;
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
+using DrawVerify.Application.DxfDimensionExtraction;
+using DrawVerify.Application.Verification;
 using DrawVerify.Geometry;
 using DrawVerify.Geometry.Models;
 using Xunit;
@@ -212,6 +214,20 @@ public sealed class DimensionMatchingServiceTests
         Assert.Equal(0, sessions.ReplaceCount);
     }
 
+    [Fact(DisplayName = "TD-APP-003 denies GD&T review mutations before repository access")]
+    public async Task Gdt_review_mutation_requires_modify_permission()
+    {
+        var sessions = new SessionFake();
+        var auth = new SessionAuthenticationService();
+        var service = new DimensionMatchingService(new DocumentsFake(), sessions, new GeometryFake(), auth, new DimensionMatchingConfiguration());
+
+        auth.SignIn(new AuthenticatedUser("viewer", new[] { "Viewer" }));
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.UpdateGdtReviewAsync(Guid.NewGuid(), Guid.NewGuid(), "not allowed", true));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.UpdateGdtDispositionAsync(Guid.NewGuid(), Guid.NewGuid(), "Future scope"));
+        Assert.Equal(0, sessions.MatchLookupCount);
+    }
+
     [Fact(DisplayName = "TD-APP-002 propagates cancellation as a failed comparison")]
     public async Task Cancellation_is_not_reported_as_success()
     {
@@ -222,6 +238,79 @@ public sealed class DimensionMatchingServiceTests
         using var cancellation = new CancellationTokenSource(); cancellation.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.MatchDimensionsToGeometryAsync(Guid.NewGuid(), cancellation.Token));
     }
+
+    [Fact(DisplayName = "TD-KAN45-REVIEW-02 persists structured DXF extraction failures with source, audit, and logging context")]
+    public async Task Matching_orchestration_persists_structured_dxf_failure()
+    {
+        var step = NewDocument(CoreDocumentType.StepModel, CoreGeometryStatus.Processed, VerificationStatus.Unknown);
+        var dxf = NewDocument(CoreDocumentType.DxfDrawing, CoreGeometryStatus.NotExtracted, VerificationStatus.DimensionsExtracted);
+        var session = new VerificationSession { VerificationSessionId = Guid.NewGuid(), StepDocumentId = step.DocumentId, DxfDocumentId = dxf.DocumentId };
+        var sessions = new SessionFake(session);
+        var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser("checker", new[] { "Checker" }) { UserId = "checker" });
+        var logger = new RecordingLogger();
+        var service = CreateGdtService(new DocumentsFake(step, dxf), sessions, auth, logger, DxfGdtExtractionResult.Failure("WorkerProtocol", "DXF worker protocol failed."));
+
+        await service.MatchDimensionsToGeometryAsync(session.VerificationSessionId);
+
+        var result = Assert.Single(sessions.GdtResults);
+        Assert.Equal(VerificationStatus.CannotValidate, result.Status);
+        Assert.Equal(GdtResult.ParsingReason, result.Reason);
+        Assert.StartsWith("DXF:", result.SourceDocument, StringComparison.Ordinal);
+        Assert.Contains("Extraction category: WorkerProtocol", result.Diagnostics);
+        Assert.Equal(DocumentAuditAction.ToleranceComparisonApplied, sessions.Action);
+        Assert.Contains(logger.Operations, operation => operation.Contains("DXF GD&T extraction", StringComparison.Ordinal));
+    }
+
+    [Fact(DisplayName = "TD-KAN45-REVIEW-02 maps parser exceptions and STEP failures through the matching orchestration")]
+    public async Task Matching_orchestration_maps_parser_and_step_failures()
+    {
+        var step = NewDocument(CoreDocumentType.StepModel, CoreGeometryStatus.Processed, VerificationStatus.Unknown);
+        var dxf = NewDocument(CoreDocumentType.DxfDrawing, CoreGeometryStatus.NotExtracted, VerificationStatus.DimensionsExtracted);
+        var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser("checker", new[] { "Checker" }) { UserId = "checker" });
+
+        var parserSession = new VerificationSession { VerificationSessionId = Guid.NewGuid(), StepDocumentId = step.DocumentId, DxfDocumentId = dxf.DocumentId };
+        var parserSessions = new SessionFake(parserSession); var parserLogger = new RecordingLogger();
+        var parserService = new DimensionMatchingService(new DocumentsFake(step, dxf), parserSessions, new GeometryFake(), auth, new DimensionMatchingConfiguration(), logger: parserLogger,
+            gdtVerification: new VerificationService(new VerificationEngine(new GdtValidator()), parserSessions), dxfFiles: new DxfStoreFake(), dxfGdtParser: new ThrowingParser(), stepGdtService: new StepFake(GdtAnnotationExtractionResult.Unsupported("unreachable")));
+        await parserService.MatchDimensionsToGeometryAsync(parserSession.VerificationSessionId);
+        Assert.Equal("Parser", Assert.Single(parserSessions.GdtResults).Diagnostics.Single(d => d.StartsWith("Extraction category:", StringComparison.Ordinal)).Replace("Extraction category: ", string.Empty));
+        Assert.Contains(parserLogger.Operations, operation => operation == "DXF GD&T extraction");
+
+        var stepSession = new VerificationSession { VerificationSessionId = Guid.NewGuid(), StepDocumentId = step.DocumentId, DxfDocumentId = dxf.DocumentId };
+        var stepSessions = new SessionFake(stepSession); var stepLogger = new RecordingLogger();
+        var stepService = new DimensionMatchingService(new DocumentsFake(step, dxf), stepSessions, new GeometryFake(), auth, new DimensionMatchingConfiguration(), logger: stepLogger,
+            gdtVerification: new VerificationService(new VerificationEngine(new GdtValidator()), stepSessions), dxfFiles: new DxfStoreFake(), dxfGdtParser: new ParserFake(DxfGdtExtractionResult.Success(Array.Empty<GdtAnnotationData>())), stepGdtService: new StepFake(GdtAnnotationExtractionResult.Failure("WorkerProtocol", "STEP worker protocol failed.")));
+        await stepService.MatchDimensionsToGeometryAsync(stepSession.VerificationSessionId);
+        var stepResult = Assert.Single(stepSessions.GdtResults);
+        Assert.StartsWith("STEP:", stepResult.SourceDocument, StringComparison.Ordinal);
+        Assert.Contains("Extraction category: WorkerProtocol", stepResult.Diagnostics);
+        Assert.Contains(stepLogger.Operations, operation => operation == "STEP GD&T extraction");
+    }
+
+    [Fact(DisplayName = "TD-KAN45-REVIEW-02 propagates cancellation from the injected extraction path")]
+    public async Task Matching_orchestration_does_not_persist_on_caller_cancellation()
+    {
+        var step = NewDocument(CoreDocumentType.StepModel, CoreGeometryStatus.Processed, VerificationStatus.Unknown);
+        var dxf = NewDocument(CoreDocumentType.DxfDrawing, CoreGeometryStatus.NotExtracted, VerificationStatus.DimensionsExtracted);
+        var session = new VerificationSession { VerificationSessionId = Guid.NewGuid(), StepDocumentId = step.DocumentId, DxfDocumentId = dxf.DocumentId };
+        var sessions = new SessionFake(session);
+        var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser("checker", new[] { "Checker" }) { UserId = "checker" });
+        var cancellation = new CancellationTokenSource();
+        var service = CreateGdtService(new DocumentsFake(step, dxf), sessions, auth, new RecordingLogger(), cancellation);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.MatchDimensionsToGeometryAsync(session.VerificationSessionId, cancellation.Token));
+        Assert.Empty(sessions.GdtResults);
+    }
+
+    private static DimensionMatchingService CreateGdtService(DocumentsFake documents, SessionFake sessions, SessionAuthenticationService auth, RecordingLogger logger, DxfGdtExtractionResult result)
+        => new(documents, sessions, new GeometryFake(), auth, new DimensionMatchingConfiguration(), logger: logger,
+            gdtVerification: new VerificationService(new VerificationEngine(new GdtValidator()), sessions),
+            dxfFiles: new DxfStoreFake(), dxfGdtParser: new ParserFake(result), stepGdtService: new StepFake(GdtAnnotationExtractionResult.Unsupported("STEP capability unavailable.")));
+
+    private static DimensionMatchingService CreateGdtService(DocumentsFake documents, SessionFake sessions, SessionAuthenticationService auth, RecordingLogger logger, CancellationTokenSource cancellation)
+        => new(documents, sessions, new GeometryFake(), auth, new DimensionMatchingConfiguration(), logger: logger,
+            gdtVerification: new VerificationService(new VerificationEngine(new GdtValidator()), sessions),
+            dxfFiles: new DxfStoreFake(cancellation), dxfGdtParser: new ParserFake(DxfGdtExtractionResult.Success(Array.Empty<GdtAnnotationData>())), stepGdtService: new StepFake(GdtAnnotationExtractionResult.Unsupported("STEP capability unavailable.")));
 
     private static Document NewDocument(CoreDocumentType type, CoreGeometryStatus geometry, VerificationStatus verification)
     {
@@ -248,7 +337,26 @@ public sealed class DimensionMatchingServiceTests
         public Task<IReadOnlyList<DimensionMatch>> GetMatchesAsync(Guid id, DimensionMatchStatus? status = null, CancellationToken cancellationToken = default) { MatchLookupCount++; return Task.FromResult<IReadOnlyList<DimensionMatch>>(status is null ? Matches : Matches.Where(x => x.Status == status).ToArray()); }
         public Task ReplaceResultsAsync(VerificationSession session, IReadOnlyCollection<DimensionMatch> matches, DocumentAuditAction action, string userId, string detailsJson, CancellationToken cancellationToken = default) { ReplaceCount++; Action = action; UserId = userId; DetailsJson = detailsJson; Matches = matches.ToArray(); return Task.CompletedTask; }
         public Task UpdateReviewAsync(Guid sessionId, Guid dimensionMatchId, DimensionReview review, CancellationToken cancellationToken = default) { LastReview = review; return Task.CompletedTask; }
+        public IReadOnlyList<GdtResult> GdtResults { get; private set; } = Array.Empty<GdtResult>();
+        public Task<IReadOnlyList<GdtResult>> GetGdtResultsAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult(GdtResults);
+        public Task ReplaceGdtResultsAsync(Guid id, IReadOnlyCollection<GdtResult> results, string userId, CancellationToken cancellationToken = default) { GdtResults = results.ToArray(); return Task.CompletedTask; }
     }
     private sealed class GeometryFake(params GeometryFeatureData[] features) : IMatchableGeometryService
     { public int CallCount; public GeometryFeatureData[] Features { get; set; } = features; public MatchableGeometryExtractionResult ExtractMatchableGeometry(MatchableGeometryExtractionRequest request, CancellationToken cancellationToken = default) { CallCount++; return new(true, Features); } }
+    private sealed class ParserFake(DxfGdtExtractionResult result) : IDxfGdtParser
+    { public Task<DxfGdtExtractionResult> ParseDetailedAsync(Stream content, Guid documentId, Guid documentVersionId, CancellationToken cancellationToken = default) => Task.FromResult(result); }
+    private sealed class ThrowingParser : IDxfGdtParser
+    { public Task<DxfGdtExtractionResult> ParseDetailedAsync(Stream content, Guid documentId, Guid documentVersionId, CancellationToken cancellationToken = default) => throw new InvalidDataException("Malformed DXF response."); }
+    private sealed class StepFake(GdtAnnotationExtractionResult result) : IGdtAnnotationService
+    { public GdtAnnotationExtractionResult ExtractAnnotations(string filePath, CancellationToken cancellationToken = default) => result; }
+    private sealed class DxfStoreFake(CancellationTokenSource? cancellation = null) : IDxfUploadFileStore
+    {
+        public Task<DxfUploadStagingFile> CreateStagingFileAsync(string originalFileName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<string> MoveToFinalAsync(DxfUploadStagingFile stagingFile, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task DeleteAsync(string relativePath, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<Stream> OpenReadAsync(string relativePath, CancellationToken cancellationToken = default)
+        { cancellation?.Cancel(); cancellationToken.ThrowIfCancellationRequested(); return Task.FromResult<Stream>(new MemoryStream()); }
+    }
+    private sealed class RecordingLogger : ICentralizedLogger
+    { public List<string> Operations { get; } = new(); public void Log(Exception exception, string operation, string context) => Operations.Add(operation); }
 }

@@ -27,6 +27,7 @@
                         <TextBlock Text="Missing Dimensions: " FontWeight="Bold"/><TextBlock Text="{Binding MissingDimensions}" Margin="0,0,12,0"/>
                         <TextBlock Text="Extra Dimensions: " FontWeight="Bold"/><TextBlock Text="{Binding ExtraDimensions}" Margin="0,0,12,0"/>
                         <TextBlock Text="Not Verified GD&amp;T: " FontWeight="Bold"/><TextBlock Text="{Binding NotVerifiedGdtControls}" Margin="0,0,12,0"/>
+                        <TextBlock Text="Cannot Validate GD&amp;T: " FontWeight="Bold"/><TextBlock Text="{Binding CannotValidateGdtControls}" Margin="0,0,12,0"/>
                         <TextBlock Text="Missing by location: " FontWeight="Bold"/><TextBlock Text="{Binding MissingDimensionLocationTotal}" Margin="0,0,12,0"/>
                         <TextBlock Text="Match: " FontWeight="Bold"/><TextBlock Text="{Binding MatchPercentageText}"/>
                     </WrapPanel>
@@ -37,10 +38,18 @@
             </GroupBox>
             <GroupBox Header="{Binding NotVerifiedGdtTitle}" Margin="0,0,0,6">
                 <StackPanel Margin="6">
-                    <DataGrid ItemsSource="{Binding GdtResults}" SelectedItem="{Binding SelectedGdtResult, Mode=TwoWay}" AutoGenerateColumns="False" IsReadOnly="True" MaxHeight="180">
+                    <DataGrid ItemsSource="{Binding NotVerifiedGdtResults}" SelectedItem="{Binding SelectedGdtResult, Mode=TwoWay}" AutoGenerateColumns="False" IsReadOnly="True" MaxHeight="180">
                         <DataGrid.Columns><DataGridTextColumn Header="Status" Binding="{Binding StatusLabel}"/><DataGridTextColumn Header="Type/Symbol" Binding="{Binding ControlTypeOrSymbol}"/><DataGridTextColumn Header="Rule" Binding="{Binding RuleVersion}"/><DataGridTextColumn Header="Feature" Binding="{Binding ControlledFeature}"/><DataGridTextColumn Header="Nominal/Basic" Binding="{Binding NominalBasicLocation}"/><DataGridTextColumn Header="Tolerance" Binding="{Binding Tolerance}"/><DataGridTextColumn Header="Zone" Binding="{Binding ToleranceZoneType}"/><DataGridTextColumn Header="Zone Diameter" Binding="{Binding ToleranceZoneDiameter}"/><DataGridTextColumn Header="Modifiers" Binding="{Binding Modifiers}"/><DataGridTextColumn Header="Datum Scheme" Binding="{Binding DatumScheme}"/><DataGridTextColumn Header="Datums" Binding="{Binding Datums}"/><DataGridTextColumn Header="Criteria" Binding="{Binding ComparisonCriteria}"/><DataGridTextColumn Header="Source" Binding="{Binding Source}"/><DataGridTextColumn Header="Comparison" Binding="{Binding ComparisonDetails}"/><DataGridTextColumn Header="Explanation" Binding="{Binding OutcomeExplanation}"/><DataGridTextColumn Header="Diagnostics" Binding="{Binding Diagnostics}"/><DataGridTextColumn Header="Comment" Binding="{Binding Comment}"/></DataGrid.Columns>
                     </DataGrid>
                     <StackPanel Orientation="Horizontal" Margin="0,4,0,0"><TextBox Width="260" Text="{Binding GdtReviewComment, UpdateSourceTrigger=PropertyChanged}"/><Button Content="Add comment" Command="{Binding AddGdtCommentCommand}" Margin="6,0,0,0"/><Button Content="Require engineering review" Command="{Binding FlagGdtEngineeringReviewCommand}" CommandParameter="True" Margin="6,0,0,0"/><Button Content="Clear disposition" Command="{Binding FlagGdtEngineeringReviewCommand}" CommandParameter="False" Margin="6,0,0,0"/></StackPanel>
+                </StackPanel>
+            </GroupBox>
+            <GroupBox Header="Cannot Validate / Manual Review Required" Margin="0,0,0,6">
+                <StackPanel Margin="6">
+                    <DataGrid ItemsSource="{Binding CannotValidateGdtResults}" SelectedItem="{Binding SelectedGdtResult, Mode=TwoWay}" AutoGenerateColumns="False" IsReadOnly="True" MaxHeight="180">
+                        <DataGrid.Columns><DataGridTextColumn Header="Identifier" Binding="{Binding Result.Identifier}"/><DataGridTextColumn Header="Control type" Binding="{Binding ControlType}"/><DataGridTextColumn Header="Source" Binding="{Binding SourceDocument}"/><DataGridTextColumn Header="Location" Binding="{Binding SourceLocation}"/><DataGridTextColumn Header="Reason" Binding="{Binding Reason}"/><DataGridTextColumn Header="Comment" Binding="{Binding Comment}"/><DataGridTextColumn Header="Disposition" Binding="{Binding Disposition}"/></DataGrid.Columns>
+                    </DataGrid>
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0"><Button Content="Engineering review" Command="{Binding SetGdtDispositionCommand}" CommandParameter="Engineering review" Margin="0,0,6,0"/><Button Content="Drawing update" Command="{Binding SetGdtDispositionCommand}" CommandParameter="Drawing update" Margin="0,0,6,0"/><Button Content="Future scope" Command="{Binding SetGdtDispositionCommand}" CommandParameter="Future scope"/></StackPanel>
                 </StackPanel>
             </GroupBox>
             <GroupBox Header="{Binding ExtraDimensionsTitle}" Margin="0,0,0,6">
