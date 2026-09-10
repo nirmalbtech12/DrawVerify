@@ -4,11 +4,13 @@ using System.Text.Json;
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Models;
 using DrawVerify.Geometry.Models;
+using DrawVerify.Application.Verification.GdtRules;
 
 public sealed class GdtValidator
 {
     private static readonly GdtControlType[] DefaultControls = [GdtControlType.Position, GdtControlType.Flatness, GdtControlType.Parallelism, GdtControlType.Perpendicularity];
     private readonly IReadOnlySet<GdtControlType> _supported;
+    private readonly IReadOnlyDictionary<GdtControlType, Func<GdtAnnotationData, GdtAnnotationData, IReadOnlyList<string>>> _rules;
     public string RuleVersion { get; }
     public GdtValidator(IEnumerable<GdtControlType>? supportedControls = null, string ruleVersion = GdtResult.CurrentRuleVersion)
     {
@@ -16,6 +18,13 @@ public sealed class GdtValidator
         _supported = (supportedControls ?? DefaultControls).ToHashSet();
         if (_supported.Any(type => !DefaultControls.Contains(type))) throw new ArgumentException("The GD&T subset contains an unsupported control.", nameof(supportedControls));
         RuleVersion = ruleVersion.Trim();
+        _rules = new Dictionary<GdtControlType, Func<GdtAnnotationData, GdtAnnotationData, IReadOnlyList<string>>>
+        {
+            [GdtControlType.Position] = new PositionRule().Compare,
+            [GdtControlType.Flatness] = new FlatnessRule().Compare,
+            [GdtControlType.Parallelism] = new ParallelismRule().Compare,
+            [GdtControlType.Perpendicularity] = new PerpendicularityRule().Compare
+        };
     }
     public static GdtValidator FromSubsetFile(string path)
     {
@@ -55,7 +64,7 @@ public sealed class GdtValidator
         if (Unsupported(other)) return result.Copy(VerificationStatus.NotVerified, "Corresponding control contains unsupported GD&T syntax.", null);
         var missing = Missing(step, other);
         if (missing is not null) return result.Copy(VerificationStatus.NotVerified, missing, null);
-        var differences = Differences(step, other).ToArray();
+        var differences = _rules[step.ControlType](step, other).ToArray();
         var details = differences.Length == 0 ? "All applicable GD&T fields agree." : $"Mismatched fields: {string.Join(", ", differences)}.";
         if (differences.Length > 0) return result.Copy(VerificationStatus.Mismatched, details, details);
         var criterion = EvaluateCriterion(step.ComparisonCriteria);
@@ -90,17 +99,6 @@ public sealed class GdtValidator
         if (a.ControlType is GdtControlType.Parallelism or GdtControlType.Perpendicularity && (a.DatumReferences.Count == 0 || b.DatumReferences.Count == 0)) return "Missing datum reference.";
         return null;
     }
-    private static IEnumerable<string> Differences(GdtAnnotationData a, GdtAnnotationData b)
-    {
-        if (!Equal(a.ControlledFeature, b.ControlledFeature)) yield return "controlled feature";
-        if (a.ControlType == GdtControlType.Position && !Equal(a.NominalBasicLocation, b.NominalBasicLocation)) yield return "nominal/basic location";
-        if (!Equal(a.ToleranceValue, b.ToleranceValue)) yield return "tolerance";
-        if (!Equal(a.ToleranceZoneType, b.ToleranceZoneType) || !Equal(a.ToleranceZoneDiameter, b.ToleranceZoneDiameter)) yield return "tolerance zone";
-        if (!Equal(a.NormalizedModifiers ?? a.Modifiers, b.NormalizedModifiers ?? b.Modifiers)) yield return "modifiers";
-        if (a.ControlType != GdtControlType.Flatness && !a.DatumReferences.SequenceEqual(b.DatumReferences, StringComparer.OrdinalIgnoreCase)) yield return "datum reference order";
-        if (a.ControlType == GdtControlType.Flatness && (a.DatumReferences.Count > 0 || b.DatumReferences.Count > 0) && !a.DatumReferences.SequenceEqual(b.DatumReferences, StringComparer.OrdinalIgnoreCase)) yield return "datum references";
-        if (!string.IsNullOrWhiteSpace(a.ComparisonCriteria) && !string.IsNullOrWhiteSpace(b.ComparisonCriteria) && !Equal(a.ComparisonCriteria, b.ComparisonCriteria)) yield return "comparison criteria";
-    }
     private static string DefaultCriteria(GdtControlType type) => type switch
     {
         GdtControlType.Position => "controlled feature/basic location/tolerance zone within position tolerance",
@@ -118,7 +116,6 @@ public sealed class GdtValidator
         return CriterionOutcome.NotVerified;
     }
     private enum CriterionOutcome { NotSpecified, Passed, Failed, NotVerified }
-    private static bool Equal(string? a, string? b) => string.Equals(a?.Trim(), b?.Trim(), StringComparison.OrdinalIgnoreCase);
     private static GdtControlType ParseType(string? value) => Enum.TryParse<GdtControlType>(value, true, out var type) && DefaultControls.Contains(type) ? type : throw new InvalidDataException($"Unsupported GD&T control type '{value}'.");
     private static Guid StableId(string id) => new(System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(id)).AsSpan(0, 16));
 }

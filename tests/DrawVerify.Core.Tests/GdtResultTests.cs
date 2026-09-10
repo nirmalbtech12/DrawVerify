@@ -39,7 +39,7 @@ public sealed class GdtResultTests
         Assert.Equal("1.0.0", result.RuleVersion);
         Assert.Equal("diameter", result.ToleranceZoneType);
         Assert.Equal("All applicable GD&T fields agree.", result.ComparisonDetails);
-        Assert.Equal(new[] { VerificationStatus.Passed, VerificationStatus.Failed, VerificationStatus.Mismatched, VerificationStatus.NotVerified }.Length, 4);
+        Assert.Equal(4, new[] { VerificationStatus.Passed, VerificationStatus.Failed, VerificationStatus.Mismatched, VerificationStatus.NotVerified }.Length);
     }
 
     [Fact(DisplayName = "TD-KAN44-001 keeps flatness datum optional and review status immutable")]

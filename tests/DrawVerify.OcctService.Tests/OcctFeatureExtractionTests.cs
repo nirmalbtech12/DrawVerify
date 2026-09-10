@@ -13,7 +13,7 @@ public sealed class OcctFeatureExtractionTests
 
         Assert.False(result.Succeeded);
         Assert.Equal("CapabilityUnavailable", result.ErrorCategory);
-        Assert.NotEmpty(result.ErrorMessage);
+        Assert.False(string.IsNullOrWhiteSpace(result.ErrorMessage));
         Assert.Empty(result.Annotations);
     }
     [Fact(DisplayName = "TD-05 keeps missing STEP PMI capability explicit")]
@@ -24,7 +24,7 @@ public sealed class OcctFeatureExtractionTests
         Assert.False(result.Succeeded);
         Assert.Equal("CapabilityUnavailable", result.ErrorCategory);
         Assert.Empty(result.Annotations);
-        Assert.DoesNotContain(result.Annotations, annotation => annotation.ControlType == DrawVerify.Core.Enums.GdtControlType.Unknown);
+        Assert.DoesNotContain(result.Annotations!, annotation => annotation.ControlType == DrawVerify.Core.Enums.GdtControlType.Unknown);
     }
 
     private static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
