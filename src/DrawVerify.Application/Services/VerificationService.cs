@@ -20,4 +20,12 @@ public sealed class VerificationService
         await _sessions.ReplaceGdtResultsAsync(sessionId, results, userId, cancellationToken).ConfigureAwait(false);
         return results;
     }
+    public async Task<IReadOnlyList<GdtResult>> VerifyGdtAsync(Guid sessionId, IEnumerable<DrawVerify.Geometry.Models.GdtAnnotationData> stepAnnotations, IEnumerable<DrawVerify.Geometry.Models.GdtAnnotationData> dxfAnnotations, string userId, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(stepAnnotations);
+        ArgumentNullException.ThrowIfNull(dxfAnnotations);
+        var results = _engine.ValidateGdt(stepAnnotations, dxfAnnotations, sessionId);
+        await _sessions.ReplaceGdtResultsAsync(sessionId, results, userId, cancellationToken).ConfigureAwait(false);
+        return results;
+    }
 }

@@ -8,6 +8,26 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class DxfGdtParserTests
 {
+    [Fact(DisplayName = "TD-KAN44-006 preserves parser diagnostics for incomplete extraction")]
+    public async Task Incomplete_frame_is_retained_with_a_specific_diagnostic()
+    {
+        await using var stream = new MemoryStream(Encoding.UTF8.GetBytes("0\nMTEXT\n1\nPARALLELISM\n"));
+        var result = await new DxfGdtParser().ParseDetailedAsync(stream, Guid.NewGuid(), Guid.NewGuid());
+        var annotation = Assert.Single(result.Annotations);
+        Assert.Equal(GdtControlType.Parallelism, annotation.ControlType);
+        Assert.NotEmpty(annotation.Diagnostics!);
+        Assert.Contains(annotation.Diagnostics!, value => value.Contains("tolerance", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact(DisplayName = "TD-KAN44-007 keeps unsupported DXF syntax from being interpreted as a pass")]
+    public async Task Unsupported_frame_text_is_preserved_for_not_verified_handling()
+    {
+        await using var stream = new MemoryStream(Encoding.UTF8.GetBytes("0\nTEXT\n1\nPOSITION 0.1 COMPOSITE UNSUPPORTED\n"));
+        var result = await new DxfGdtParser().ParseAsync(stream, Guid.NewGuid(), Guid.NewGuid());
+        var annotation = Assert.Single(result);
+        Assert.Equal(GdtControlType.Position, annotation.ControlType);
+        Assert.Contains("UNSUPPORTED", annotation.RawText!, StringComparison.OrdinalIgnoreCase);
+    }
     [Fact(DisplayName = "TD-04 parses supported DXF feature-control frames and preserves source data")]
     public async Task Parses_supported_frame_fields_and_leaves_stream_open()
     {

@@ -12,7 +12,7 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class ReportServiceStatusTests
 {
-    [Fact(DisplayName = "TD-10 renders a separate unsupported GD&T report section")]
+    [Fact(DisplayName = "TD-10 renders a separate GD&T validation report section")]
     public void Markdown_report_includes_not_verified_details_and_comment()
     {
         var result = new GdtResult { Identifier = "gdt-report", ControlType = GdtControlType.Unknown, Symbol = "◇", ToleranceValue = "0.2", Modifiers = "MMC", DatumReferences = new[] { "A" }, SourceDocument = "drawing.dxf", SourceLocation = "entity:8", Status = VerificationStatus.NotVerified, Reason = GdtResult.UnsupportedReason, ReviewComment = "Engineering review" };
@@ -20,7 +20,7 @@ public sealed class ReportServiceStatusTests
 
         var markdown = report.ToMarkdown();
 
-        Assert.Contains("## Not Verified / Unsupported GD&T Controls", markdown);
+        Assert.Contains("## GD&T Validation", markdown);
         Assert.Contains("gdt-report", markdown);
         Assert.Contains("entity:8", markdown);
         Assert.Contains("Engineering review", markdown);

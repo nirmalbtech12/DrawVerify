@@ -1,6 +1,7 @@
 {
   "gdtSubset": {
     "version": 1,
+    "ruleVersion": "1.0.0",
     "comment": "MVP GD&T controls supported by the verifier. The full documented subset lives in docs/gdt-subset.md.",
     "controls": [
       {

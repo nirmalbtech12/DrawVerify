@@ -4,49 +4,129 @@ using System.Text.Json;
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Models;
 using DrawVerify.Geometry.Models;
-using DrawVerify.Application.Verification.GdtRules;
 
-/// <summary>
-/// Validates GD&T callouts against the documented MVP GD&T subset.
-/// </summary>
 public sealed class GdtValidator
 {
+    private static readonly GdtControlType[] DefaultControls = [GdtControlType.Position, GdtControlType.Flatness, GdtControlType.Parallelism, GdtControlType.Perpendicularity];
     private readonly IReadOnlySet<GdtControlType> _supported;
-    private readonly IReadOnlyDictionary<GdtControlType, Func<GdtResult, VerificationStatus>> _rules;
-    public GdtValidator(IEnumerable<GdtControlType>? supportedControls = null)
+    public string RuleVersion { get; }
+    public GdtValidator(IEnumerable<GdtControlType>? supportedControls = null, string ruleVersion = GdtResult.CurrentRuleVersion)
     {
-        _supported = (supportedControls ?? new[] { GdtControlType.Position, GdtControlType.Flatness, GdtControlType.Parallelism, GdtControlType.Perpendicularity }).ToHashSet();
-        if (_supported.Contains(GdtControlType.Unknown)) throw new ArgumentException("The supported GD&T subset cannot contain Unknown.", nameof(supportedControls));
-        _rules = new Dictionary<GdtControlType, Func<GdtResult, VerificationStatus>>
-        {
-            [GdtControlType.Position] = new PositionRule().Evaluate,
-            [GdtControlType.Flatness] = new FlatnessRule().Evaluate,
-            [GdtControlType.Parallelism] = new ParallelismRule().Evaluate,
-            [GdtControlType.Perpendicularity] = new PerpendicularityRule().Evaluate
-        };
+        if (string.IsNullOrWhiteSpace(ruleVersion) || !Version.TryParse(ruleVersion, out _)) throw new ArgumentException("The GD&T rule version is invalid.", nameof(ruleVersion));
+        _supported = (supportedControls ?? DefaultControls).ToHashSet();
+        if (_supported.Any(type => !DefaultControls.Contains(type))) throw new ArgumentException("The GD&T subset contains an unsupported control.", nameof(supportedControls));
+        RuleVersion = ruleVersion.Trim();
     }
     public static GdtValidator FromSubsetFile(string path)
     {
         if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("A GD&T subset path is required.", nameof(path));
-        using var stream = File.OpenRead(path); using var document = JsonDocument.Parse(stream);
-        if (!document.RootElement.TryGetProperty("gdtSubset", out var subset) || !subset.TryGetProperty("version", out var version) || version.GetInt32() != 1) throw new InvalidDataException("The GD&T subset is missing or has an unsupported schema version.");
-        if (!subset.TryGetProperty("controls", out var controls) || controls.ValueKind != JsonValueKind.Array) throw new InvalidDataException("The GD&T subset controls collection is missing.");
-        var parsed = controls.EnumerateArray().Select(item => ParseType(item.GetProperty("type").GetString())).ToArray();
+        using var stream = File.OpenRead(path);
+        using var document = JsonDocument.Parse(stream);
+        var subset = document.RootElement.GetProperty("gdtSubset");
+        if (subset.GetProperty("version").GetInt32() != 1) throw new InvalidDataException("The GD&T subset has an unsupported schema version.");
+        var parsed = subset.GetProperty("controls").EnumerateArray().Select(x => ParseType(x.GetProperty("type").GetString())).ToArray();
         if (parsed.Length != parsed.Distinct().Count()) throw new InvalidDataException("The GD&T subset contains duplicate controls.");
-        return new GdtValidator(parsed);
+        var ruleVersion = subset.TryGetProperty("ruleVersion", out var versionProperty) ? versionProperty.GetString() : GdtResult.CurrentRuleVersion;
+        return new GdtValidator(parsed, ruleVersion ?? throw new InvalidDataException("The GD&T subset rule version is missing."));
     }
     public static GdtValidator FromConfiguredDefault(string? baseDirectory = null) => FromSubsetFile(Path.Combine(baseDirectory ?? AppContext.BaseDirectory, "config", "gdt-subset.default.json"));
     public IReadOnlyCollection<GdtControlType> SupportedControls => _supported;
-    public IReadOnlyList<GdtResult> Validate(IEnumerable<GdtAnnotationData> annotations, Guid verificationSessionId = default)
-    { ArgumentNullException.ThrowIfNull(annotations); return annotations.Select(annotation => Validate(annotation, verificationSessionId)).ToArray(); }
-    public GdtResult Validate(GdtAnnotationData annotation, Guid verificationSessionId = default)
+    public IReadOnlyList<GdtResult> Validate(IEnumerable<GdtAnnotationData> annotations, Guid sessionId = default) => annotations.Select(a => Validate(a, sessionId)).ToArray();
+    public IReadOnlyList<GdtResult> Validate(IEnumerable<GdtAnnotationData> step, IEnumerable<GdtAnnotationData> dxf, Guid sessionId = default)
     {
-        ArgumentNullException.ThrowIfNull(annotation); if (string.IsNullOrWhiteSpace(annotation.Identifier)) throw new ArgumentException("A GD&T annotation identifier is required.", nameof(annotation));
-        var supported = annotation.ControlType != GdtControlType.Unknown && _supported.Contains(annotation.ControlType);
-        var result = new GdtResult { GdtResultId = CreateStableId(annotation.Identifier), VerificationSessionId = verificationSessionId, Identifier = annotation.Identifier, ControlType = annotation.ControlType, Symbol = annotation.Symbol, ToleranceValue = annotation.ToleranceValue, Modifiers = annotation.Modifiers, DatumReferences = annotation.DatumReferences ?? Array.Empty<string>(), SourceDocument = annotation.SourceDocument, SourceLocation = annotation.SourceLocation, RawText = annotation.RawText, EntityHandle = annotation.EntityHandle, Layer = annotation.Layer, BlockName = annotation.BlockName, ViewName = annotation.ViewName, Diagnostics = annotation.Diagnostics ?? Array.Empty<string>(), Status = VerificationStatus.NotVerified, Reason = GdtResult.UnsupportedReason };
-        if (!supported) return result;
-        return new GdtResult { GdtResultId = result.GdtResultId, VerificationSessionId = result.VerificationSessionId, Identifier = result.Identifier, ControlType = result.ControlType, Symbol = result.Symbol, ToleranceValue = result.ToleranceValue, Modifiers = result.Modifiers, DatumReferences = result.DatumReferences, SourceDocument = result.SourceDocument, SourceLocation = result.SourceLocation, RawText = result.RawText, EntityHandle = result.EntityHandle, Layer = result.Layer, BlockName = result.BlockName, ViewName = result.ViewName, Diagnostics = result.Diagnostics, Status = _rules[annotation.ControlType](result), Reason = null };
+        ArgumentNullException.ThrowIfNull(step); ArgumentNullException.ThrowIfNull(dxf);
+        var drawing = dxf.ToArray(); return step.Select(a => ValidatePair(a, drawing, sessionId)).ToArray();
     }
-    private static GdtControlType ParseType(string? value) => Enum.TryParse<GdtControlType>(value, true, out var type) && type != GdtControlType.Unknown ? type : throw new InvalidDataException($"Unsupported GD&T control type '{value}'.");
-    private static Guid CreateStableId(string identifier) => new(System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(identifier)).AsSpan(0, 16));
+    public GdtResult Validate(GdtAnnotationData annotation, Guid sessionId = default)
+    {
+        ArgumentNullException.ThrowIfNull(annotation);
+        return Create(annotation, sessionId, VerificationStatus.NotVerified, "A corresponding STEP/DXF control is required for comparison.", null);
+    }
+    private GdtResult ValidatePair(GdtAnnotationData step, IReadOnlyList<GdtAnnotationData> dxf, Guid sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(step.Identifier)) throw new ArgumentException("A GD&T annotation identifier is required.", nameof(step));
+        var result = Create(step, sessionId, VerificationStatus.NotVerified, null, null);
+        if (!_supported.Contains(step.ControlType)) return result.Copy(VerificationStatus.NotVerified, GdtResult.UnsupportedReason, null);
+        if (Unsupported(step)) return result.Copy(VerificationStatus.NotVerified, "Unsupported GD&T modifier, composite frame, datum scheme, or syntax.", null);
+        var candidates = dxf.Where(a => a.ControlType == step.ControlType && IsCounterpart(step, a)).ToArray();
+        if (candidates.Length == 0) return result.Copy(VerificationStatus.NotVerified, "Corresponding DXF control could not be reliably identified.", null);
+        if (candidates.Length > 1) return result.Copy(VerificationStatus.NotVerified, "Ambiguous GD&T control match.", null);
+        var other = candidates[0];
+        if (Unsupported(other)) return result.Copy(VerificationStatus.NotVerified, "Corresponding control contains unsupported GD&T syntax.", null);
+        var missing = Missing(step, other);
+        if (missing is not null) return result.Copy(VerificationStatus.NotVerified, missing, null);
+        var differences = Differences(step, other).ToArray();
+        var details = differences.Length == 0 ? "All applicable GD&T fields agree." : $"Mismatched fields: {string.Join(", ", differences)}.";
+        if (differences.Length > 0) return result.Copy(VerificationStatus.Mismatched, details, details);
+        var criterion = EvaluateCriterion(step.ComparisonCriteria);
+        if (criterion == CriterionOutcome.Failed) return result.Copy(VerificationStatus.Failed, "The approved GD&T comparison criterion was violated.", $"{details} Criterion violation: {step.ComparisonCriteria}.");
+        if (criterion == CriterionOutcome.NotVerified) return result.Copy(VerificationStatus.NotVerified, "The GD&T comparison criterion could not be evaluated.", $"{details} Criterion: {step.ComparisonCriteria}.");
+        return result.Copy(VerificationStatus.Passed, null, $"{details} Criterion: {step.ComparisonCriteria ?? DefaultCriteria(step.ControlType)}.");
+    }
+    private static bool IsCounterpart(GdtAnnotationData step, GdtAnnotationData candidate) =>
+        (!string.IsNullOrWhiteSpace(step.Identifier) && string.Equals(step.Identifier, candidate.Identifier, StringComparison.OrdinalIgnoreCase)) ||
+        (!string.IsNullOrWhiteSpace(step.ControlledFeature) && string.Equals(step.ControlledFeature, candidate.ControlledFeature, StringComparison.OrdinalIgnoreCase)) ||
+        (!string.IsNullOrWhiteSpace(step.SourcePairId) && string.Equals(step.SourcePairId, candidate.SourcePairId, StringComparison.OrdinalIgnoreCase));
+    private GdtResult Create(GdtAnnotationData a, Guid sessionId, VerificationStatus status, string? reason, string? details)
+    {
+        if (string.IsNullOrWhiteSpace(a.Identifier)) throw new ArgumentException("A GD&T annotation identifier is required.", nameof(a));
+        if (string.IsNullOrWhiteSpace(a.SourceDocument)) throw new ArgumentException("A GD&T source document is required.", nameof(a));
+        return new()
+    {
+        GdtResultId = StableId(a.Identifier), VerificationSessionId = sessionId, Identifier = a.Identifier.Trim(), ControlType = a.ControlType, Symbol = a.Symbol,
+        ToleranceValue = a.ToleranceValue, Modifiers = a.Modifiers, DatumReferences = a.DatumReferences ?? Array.Empty<string>(), SourceDocument = a.SourceDocument,
+        SourceLocation = a.SourceLocation, RawText = a.RawText, EntityHandle = a.EntityHandle, Layer = a.Layer, BlockName = a.BlockName, ViewName = a.ViewName,
+        Diagnostics = a.Diagnostics ?? Array.Empty<string>(), RuleVersion = RuleVersion, ControlledFeature = a.ControlledFeature, NominalBasicLocation = a.NominalBasicLocation,
+        ToleranceZoneType = a.ToleranceZoneType, ToleranceZoneDiameter = a.ToleranceZoneDiameter, NormalizedModifiers = a.NormalizedModifiers,
+        HasCompositeFrame = a.HasCompositeFrame, DatumScheme = a.DatumScheme, ComparisonCriteria = a.ComparisonCriteria ?? DefaultCriteria(a.ControlType), SourcePairId = a.SourcePairId,
+        Status = status, Reason = reason, ComparisonDetails = details
+    };
+    }
+    private static bool Unsupported(GdtAnnotationData a) => a.HasCompositeFrame || a.DatumScheme?.Contains("unsupported", StringComparison.OrdinalIgnoreCase) == true || a.Modifiers?.Contains("unsupported", StringComparison.OrdinalIgnoreCase) == true;
+    private static string? Missing(GdtAnnotationData a, GdtAnnotationData b)
+    {
+        if (string.IsNullOrWhiteSpace(a.ToleranceValue) || string.IsNullOrWhiteSpace(b.ToleranceValue)) return "Missing tolerance value.";
+        if (string.IsNullOrWhiteSpace(a.ControlledFeature) || string.IsNullOrWhiteSpace(b.ControlledFeature)) return "Unresolved feature association.";
+        if (a.ControlType is GdtControlType.Parallelism or GdtControlType.Perpendicularity && (a.DatumReferences.Count == 0 || b.DatumReferences.Count == 0)) return "Missing datum reference.";
+        return null;
+    }
+    private static IEnumerable<string> Differences(GdtAnnotationData a, GdtAnnotationData b)
+    {
+        if (!Equal(a.ControlledFeature, b.ControlledFeature)) yield return "controlled feature";
+        if (a.ControlType == GdtControlType.Position && !Equal(a.NominalBasicLocation, b.NominalBasicLocation)) yield return "nominal/basic location";
+        if (!Equal(a.ToleranceValue, b.ToleranceValue)) yield return "tolerance";
+        if (!Equal(a.ToleranceZoneType, b.ToleranceZoneType) || !Equal(a.ToleranceZoneDiameter, b.ToleranceZoneDiameter)) yield return "tolerance zone";
+        if (!Equal(a.NormalizedModifiers ?? a.Modifiers, b.NormalizedModifiers ?? b.Modifiers)) yield return "modifiers";
+        if (a.ControlType != GdtControlType.Flatness && !a.DatumReferences.SequenceEqual(b.DatumReferences, StringComparer.OrdinalIgnoreCase)) yield return "datum reference order";
+        if (a.ControlType == GdtControlType.Flatness && (a.DatumReferences.Count > 0 || b.DatumReferences.Count > 0) && !a.DatumReferences.SequenceEqual(b.DatumReferences, StringComparer.OrdinalIgnoreCase)) yield return "datum references";
+        if (!string.IsNullOrWhiteSpace(a.ComparisonCriteria) && !string.IsNullOrWhiteSpace(b.ComparisonCriteria) && !Equal(a.ComparisonCriteria, b.ComparisonCriteria)) yield return "comparison criteria";
+    }
+    private static string DefaultCriteria(GdtControlType type) => type switch
+    {
+        GdtControlType.Position => "controlled feature/basic location/tolerance zone within position tolerance",
+        GdtControlType.Flatness => "controlled surface within two parallel planes",
+        GdtControlType.Parallelism => "controlled feature within parallel tolerance zone relative to datum",
+        GdtControlType.Perpendicularity => "controlled feature within perpendicular tolerance zone relative to datum",
+        _ => "unsupported GD&T criterion"
+    };
+    private static CriterionOutcome EvaluateCriterion(string? criterion)
+    {
+        if (string.IsNullOrWhiteSpace(criterion)) return CriterionOutcome.NotSpecified;
+        var normalized = criterion.Trim().ToLowerInvariant();
+        if (normalized.Contains("outside", StringComparison.Ordinal) || normalized.Contains("exceed", StringComparison.Ordinal) || normalized.Contains("violat", StringComparison.Ordinal) || normalized.Contains("fail", StringComparison.Ordinal) || normalized.Contains("not within", StringComparison.Ordinal) || normalized.Contains("does not meet", StringComparison.Ordinal) || normalized.Contains("false", StringComparison.Ordinal)) return CriterionOutcome.Failed;
+        if (normalized.Contains("within", StringComparison.Ordinal) || normalized.Contains("pass", StringComparison.Ordinal) || normalized.Contains("satisf", StringComparison.Ordinal) || normalized.Contains("meet", StringComparison.Ordinal) || normalized.Contains("true", StringComparison.Ordinal)) return CriterionOutcome.Passed;
+        return CriterionOutcome.NotVerified;
+    }
+    private enum CriterionOutcome { NotSpecified, Passed, Failed, NotVerified }
+    private static bool Equal(string? a, string? b) => string.Equals(a?.Trim(), b?.Trim(), StringComparison.OrdinalIgnoreCase);
+    private static GdtControlType ParseType(string? value) => Enum.TryParse<GdtControlType>(value, true, out var type) && DefaultControls.Contains(type) ? type : throw new InvalidDataException($"Unsupported GD&T control type '{value}'.");
+    private static Guid StableId(string id) => new(System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(id)).AsSpan(0, 16));
+}
+
+file static class GdtResultCopy
+{
+    public static GdtResult Copy(this GdtResult v, VerificationStatus status, string? reason, string? details) => new()
+    {
+        GdtResultId=v.GdtResultId, VerificationSessionId=v.VerificationSessionId, Identifier=v.Identifier, ControlType=v.ControlType, Symbol=v.Symbol, ToleranceValue=v.ToleranceValue, Modifiers=v.Modifiers, DatumReferences=v.DatumReferences, SourceDocument=v.SourceDocument, SourceDocumentVersion=v.SourceDocumentVersion, SourceLocation=v.SourceLocation, RawText=v.RawText, EntityHandle=v.EntityHandle, Layer=v.Layer, BlockName=v.BlockName, ViewName=v.ViewName, Diagnostics=v.Diagnostics, RuleVersion=v.RuleVersion, ControlledFeature=v.ControlledFeature, NominalBasicLocation=v.NominalBasicLocation, ToleranceZoneType=v.ToleranceZoneType, ToleranceZoneDiameter=v.ToleranceZoneDiameter, NormalizedModifiers=v.NormalizedModifiers, HasCompositeFrame=v.HasCompositeFrame, DatumScheme=v.DatumScheme, ComparisonCriteria=v.ComparisonCriteria, SourcePairId=v.SourcePairId, Status=status, Reason=reason, ComparisonDetails=details, ReviewComment=v.ReviewComment, RequiresEngineeringReview=v.RequiresEngineeringReview, ReviewedUtc=v.ReviewedUtc
+    };
 }

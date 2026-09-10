@@ -4,6 +4,7 @@ namespace DrawVerify.Core.Models;
 
 public sealed class GdtResult
 {
+    public const string CurrentRuleVersion = "1.0.0";
     public const string UnsupportedReason = "Unsupported GD&T control for the current verification scope.";
     public Guid GdtResultId { get; init; } = Guid.NewGuid();
     public Guid VerificationSessionId { get; init; }
@@ -21,6 +22,17 @@ public sealed class GdtResult
     public string? Layer { get; init; }
     public string? BlockName { get; init; }
     public string? ViewName { get; init; }
+    public string RuleVersion { get; init; } = CurrentRuleVersion;
+    public string? ControlledFeature { get; init; }
+    public string? NominalBasicLocation { get; init; }
+    public string? ToleranceZoneType { get; init; }
+    public string? ToleranceZoneDiameter { get; init; }
+    public string? NormalizedModifiers { get; init; }
+    public string? DatumScheme { get; init; }
+    public string? ComparisonCriteria { get; init; }
+    public string? SourcePairId { get; init; }
+    public string? ComparisonDetails { get; init; }
+    public bool HasCompositeFrame { get; init; }
     public IReadOnlyList<string> Diagnostics { get; init; } = Array.Empty<string>();
     public VerificationStatus Status { get; init; } = VerificationStatus.NotVerified;
     public string? Reason { get; init; }
@@ -39,8 +51,20 @@ public sealed class GdtResult
 
     public GdtResult WithReview(string? comment, bool requiresEngineeringReview, DateTimeOffset? reviewedUtc = null)
     {
-        if (Status != VerificationStatus.NotVerified) throw new InvalidOperationException("Only Not Verified GD&T results can be reviewed.");
         if (comment is not null && string.IsNullOrWhiteSpace(comment)) throw new ArgumentException("A review comment cannot be empty.", nameof(comment));
-        return new GdtResult { GdtResultId = GdtResultId, VerificationSessionId = VerificationSessionId, Identifier = Identifier, ControlType = ControlType, Symbol = Symbol, ToleranceValue = ToleranceValue, Modifiers = Modifiers, DatumReferences = DatumReferences, SourceDocument = SourceDocument, SourceDocumentVersion = SourceDocumentVersion, SourceLocation = SourceLocation, RawText = RawText, EntityHandle = EntityHandle, Layer = Layer, BlockName = BlockName, ViewName = ViewName, Diagnostics = Diagnostics, Status = Status, Reason = Reason, ReviewComment = comment?.Trim(), RequiresEngineeringReview = requiresEngineeringReview, ReviewedUtc = reviewedUtc ?? DateTimeOffset.UtcNow };
+        return withReview(comment, requiresEngineeringReview, reviewedUtc);
     }
+
+    private GdtResult withReview(string? comment, bool requiresEngineeringReview, DateTimeOffset? reviewedUtc) => new()
+    {
+        GdtResultId = GdtResultId, VerificationSessionId = VerificationSessionId, Identifier = Identifier, ControlType = ControlType,
+        Symbol = Symbol, ToleranceValue = ToleranceValue, Modifiers = Modifiers, DatumReferences = DatumReferences,
+        SourceDocument = SourceDocument, SourceDocumentVersion = SourceDocumentVersion, SourceLocation = SourceLocation, RawText = RawText,
+        EntityHandle = EntityHandle, Layer = Layer, BlockName = BlockName, ViewName = ViewName, RuleVersion = RuleVersion,
+        ControlledFeature = ControlledFeature, NominalBasicLocation = NominalBasicLocation, ToleranceZoneType = ToleranceZoneType,
+        ToleranceZoneDiameter = ToleranceZoneDiameter, NormalizedModifiers = NormalizedModifiers, DatumScheme = DatumScheme,
+        ComparisonCriteria = ComparisonCriteria, SourcePairId = SourcePairId, ComparisonDetails = ComparisonDetails,
+        HasCompositeFrame = HasCompositeFrame, Diagnostics = Diagnostics, Status = Status, Reason = Reason,
+        ReviewComment = comment?.Trim(), RequiresEngineeringReview = requiresEngineeringReview, ReviewedUtc = reviewedUtc ?? DateTimeOffset.UtcNow
+    };
 }

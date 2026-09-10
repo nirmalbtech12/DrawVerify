@@ -15,6 +15,48 @@ namespace DrawVerify.App.Tests;
 
 public sealed class VerificationViewModelTests
 {
+    [Fact(DisplayName = "TD-KAN44-011 presents all supported GD&T statuses and comparison evidence")]
+    public void Gdt_result_item_exposes_checker_review_fields_for_every_status()
+    {
+        var statuses = new[] { VerificationStatus.Passed, VerificationStatus.Failed, VerificationStatus.Mismatched, VerificationStatus.NotVerified };
+        var items = statuses.Select((status, index) => new GdtResultItemViewModel(new GdtResult
+        {
+            Identifier = $"gdt-{index}", ControlType = (GdtControlType)(index + 1), Symbol = "⌖",
+            SourceDocument = index % 2 == 0 ? "drawing.dxf" : "model.step", SourceLocation = $"source:{index}",
+            ToleranceValue = "0.1", NormalizedModifiers = "MMC", DatumReferences = new[] { "A", "B" },
+            RuleVersion = "1.0.0", ComparisonDetails = "comparison evidence", Status = status,
+            Reason = status == VerificationStatus.NotVerified ? "ambiguous match" : null,
+            ReviewComment = "checker comment", RequiresEngineeringReview = true
+        })).ToArray();
+
+        Assert.Equal(new[] { "Passed", "Failed", "Mismatched", "Not Verified" }, items.Select(item => item.StatusLabel));
+        Assert.All(items, item =>
+        {
+            Assert.Contains("0.1", item.Tolerance);
+            Assert.Equal("MMC", item.Modifiers);
+            Assert.Equal("A, B", item.Datums);
+            Assert.Equal("1.0.0", item.RuleVersion);
+            Assert.Equal("comparison evidence", item.ComparisonDetails);
+        });
+    }
+
+    [Fact(DisplayName = "TD-KAN44-012 review comment and disposition do not mutate generated status")]
+    public void Gdt_review_metadata_is_separate_from_generated_status()
+    {
+        var result = new GdtResult
+        {
+            Identifier = "gdt-review", ControlType = GdtControlType.Position, SourceDocument = "pair.step",
+            Status = VerificationStatus.Failed, RuleVersion = "1.0.0", Reason = "criterion failed"
+        };
+
+        var reviewed = result.WithReview("Needs engineering review", true);
+
+        Assert.Equal(VerificationStatus.Failed, reviewed.Status);
+        Assert.Equal("criterion failed", reviewed.Reason);
+        Assert.Equal("Needs engineering review", reviewed.ReviewComment);
+        Assert.True(reviewed.RequiresEngineeringReview);
+    }
+
     [Fact(DisplayName = "TD-APPUI-EXTRA-003 refreshed extra items retain persisted review state")]
     public void Refreshed_extra_item_retains_comment_and_design_flag()
     {
@@ -310,7 +352,7 @@ public sealed class VerificationViewModelTests
         Assert.False(viewModel.ResolveMissingDimensionCommand.CanExecute("Accepted"));
     }
 
-    [Fact(DisplayName = "TD-REVIEW-03 selecting a DXF GD&T result navigates to its persisted source reference")]
+    [Fact(DisplayName = "TD-KAN44-012 selecting a DXF GD&T result navigates to its persisted source reference")]
     public void Gdt_selection_navigates_to_dxf_source()
     {
         var viewModel = new VerificationViewModel(new SessionAuthenticationService(), new RoleAuthorization());
@@ -325,7 +367,7 @@ public sealed class VerificationViewModelTests
         Assert.Contains("highlighted", viewModel.MatchingStatus, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact(DisplayName = "TD-09 makes unresolved STEP GD&T navigation visibly unavailable")]
+    [Fact(DisplayName = "TD-KAN44-012 makes unresolved STEP GD&T navigation visibly unavailable")]
     public void Gdt_selection_reports_unavailable_step_source()
     {
         var viewModel = new VerificationViewModel(new SessionAuthenticationService(), new RoleAuthorization());

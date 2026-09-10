@@ -9,6 +9,16 @@ namespace DrawVerify.OcctService.Tests;
 /// </summary>
 public class OcctGeometryServiceTests
 {
+    [Fact(DisplayName = "TD-KAN44-014 malformed OCCT worker response remains an explicit failure")]
+    public void Malformed_worker_response_is_not_interpreted_as_geometry_or_pass()
+    {
+        var result = DrawVerify.Geometry.Models.GdtAnnotationExtractionResult.Failure("WorkerProtocol", "Malformed response: protocol version 0.");
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("WorkerProtocol", result.ErrorCategory);
+        Assert.Empty(result.Annotations);
+        Assert.Contains("Malformed", result.ErrorMessage);
+    }
     [Fact(DisplayName = "TD-05 keeps OCCT boundary failures explicit")]
     public void Malformed_managed_gdt_response_is_not_fabricated()
     {

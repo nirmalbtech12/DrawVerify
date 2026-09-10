@@ -12,4 +12,5 @@ public enum VerificationStatus
     Matched = 7,
     Missing = 8,
     Extra = 9,
+    Mismatched = 10,
 }

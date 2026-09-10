@@ -6,6 +6,16 @@ namespace DrawVerify.OcctService.Tests;
 
 public sealed class OcctFeatureExtractionTests
 {
+    [Fact(DisplayName = "TD-KAN44-014 unavailable PMI capability yields structured diagnostics")]
+    public void Unavailable_step_annotation_capability_is_explicit_and_empty()
+    {
+        var result = new GdtAnnotationService().ExtractAnnotations("missing-or-unsupported.step");
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("CapabilityUnavailable", result.ErrorCategory);
+        Assert.NotEmpty(result.ErrorMessage);
+        Assert.Empty(result.Annotations);
+    }
     [Fact(DisplayName = "TD-05 keeps missing STEP PMI capability explicit")]
     public void Missing_pmi_capability_is_not_reported_as_not_verified()
     {

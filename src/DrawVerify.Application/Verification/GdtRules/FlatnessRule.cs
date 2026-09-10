@@ -7,5 +7,5 @@ using DrawVerify.Core.Models;
 /// </summary>
 public sealed class FlatnessRule
 {
-    public VerificationStatus Evaluate(GdtResult result) => result.ControlType == GdtControlType.Flatness ? VerificationStatus.Passed : throw new ArgumentException("FlatnessRule received a different control type.", nameof(result));
+    public VerificationStatus Evaluate(GdtResult result) => result.ControlType != GdtControlType.Flatness ? throw new ArgumentException("FlatnessRule received a different control type.", nameof(result)) : string.IsNullOrWhiteSpace(result.ToleranceValue) || string.IsNullOrWhiteSpace(result.ControlledFeature) ? VerificationStatus.NotVerified : VerificationStatus.Passed;
 }
