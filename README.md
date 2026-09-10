@@ -34,6 +34,10 @@ DrawVerify.sln
 
 See `docs/architecture.md` and `docs/engineering-rules.md` for the full record.
 
+The canonical [GD&T support and capability contract](docs/gdt-subset.md)
+documents the 14-control target scope, standards alignment, current
+implementation baseline, and known extraction/verification limitations.
+
 ## Build notes
 
 - The `DrawVerify.App` WPF project targets `net9.0-windows` and requires a Windows build host.
