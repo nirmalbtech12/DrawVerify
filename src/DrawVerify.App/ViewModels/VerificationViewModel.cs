@@ -12,7 +12,7 @@ using DrawVerify.Core.Interfaces;
 
 namespace DrawVerify.App.ViewModels;
 
-public sealed class VerificationViewModel : INotifyPropertyChanged
+public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly ISessionAuthenticationService _session;
     private readonly RoleAuthorization _authorization;
@@ -342,6 +342,7 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
     };
     private void RaiseCommands() { ((RelayCommand)SelectPairCommand).Raise(); ((RelayCommand)MatchDimensionsCommand).Raise(); ((RelayCommand)RefreshMatchesCommand).Raise(); ((RelayCommand)UpdateToleranceCommand).Raise(); ((RelayCommand)AddMissingDimensionCommentCommand).Raise(); ((RelayCommand)ResolveMissingDimensionCommand).Raise(); ((RelayCommand)AddExtraDimensionCommentCommand).Raise(); ((RelayCommand)FlagExtraDimensionCommand).Raise(); }
     private void Notify([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    public void Dispose() { StepPreview.Dispose(); GC.SuppressFinalize(this); }
     private void ClearResults(string message) { _allMatchResults = Array.Empty<DimensionMatchItemViewModel>(); MatchResults = Array.Empty<DimensionMatchItemViewModel>(); UpdateStatusSummaries(); MatchingStatus = message; Notify(nameof(MatchResults)); Notify(nameof(UnmatchedResults)); Notify(nameof(MatchingStatus)); }
     private void SetEffectiveTolerance(double value, bool updateInput = false) { _effectiveToleranceThresholdMm = value; if (updateInput) { ToleranceThresholdInput = FormatTolerance(value); Notify(nameof(ToleranceThresholdInput)); } Notify(nameof(ToleranceSummary)); }
     private static string FormatTolerance(double value) => value.ToString("0.############", CultureInfo.InvariantCulture);
