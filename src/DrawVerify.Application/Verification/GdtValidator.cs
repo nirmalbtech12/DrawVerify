@@ -144,7 +144,7 @@ public sealed class GdtValidator
         Status = status, Reason = reason, ComparisonDetails = details
     };
     }
-    private static bool Unsupported(GdtAnnotationData a) => a.HasCompositeFrame || a.DatumScheme?.Contains("unsupported", StringComparison.OrdinalIgnoreCase) == true || a.Modifiers?.Contains("unsupported", StringComparison.OrdinalIgnoreCase) == true;
+    private static bool Unsupported(GdtAnnotationData a) => a.UnsupportedSyntax || a.HasCompositeFrame || a.DatumScheme?.Contains("unsupported", StringComparison.OrdinalIgnoreCase) == true || a.Modifiers?.Contains("unsupported", StringComparison.OrdinalIgnoreCase) == true;
     private static bool HasParsingDiagnostic(GdtAnnotationData a) => (a.Diagnostics ?? Array.Empty<string>()).Any(d => d.Contains("parse", StringComparison.OrdinalIgnoreCase) || d.Contains("syntax", StringComparison.OrdinalIgnoreCase) || d.Contains("unrecognized", StringComparison.OrdinalIgnoreCase) || d.Contains("not recognized", StringComparison.OrdinalIgnoreCase) || d.Contains("not extracted", StringComparison.OrdinalIgnoreCase));
     private static string? Missing(GdtAnnotationData a, GdtAnnotationData b)
     {

@@ -28,4 +28,5 @@ public sealed record GdtAnnotationData(
     string? ComparisonCriteria = null,
     string? SourcePairId = null,
     string? SourceDocumentVersion = null,
-    string? ExtractionErrorCategory = null);
+    string? ExtractionErrorCategory = null,
+    bool UnsupportedSyntax = false);

@@ -42,7 +42,27 @@ public sealed class DxfGdtParserTests
         Assert.Equal(VerificationStatus.CannotValidate, result.Status);
         Assert.Equal(GdtResult.UnsupportedSyntaxReason, result.Reason);
         Assert.True(annotation.HasCompositeFrame);
+        Assert.True(annotation.UnsupportedSyntax);
         Assert.Contains(annotation.Diagnostics!, diagnostic => diagnostic.Contains("unsupported", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory(DisplayName = "TD-KAN45-REVIEW-01 classifies every recognized unsupported DXF modifier")]
+    [InlineData("MMC")]
+    [InlineData("RFS")]
+    [InlineData("LMC")]
+    [InlineData("PROJECTED")]
+    [InlineData("TANGENT")]
+    [InlineData("FREE STATE")]
+    public async Task Every_recognized_unsupported_modifier_is_cannot_validate(string modifier)
+    {
+        await using var stream = new MemoryStream(Encoding.UTF8.GetBytes($"0\nTEXT\n1\nPOSITION 0.1 {modifier}\n"));
+
+        var annotation = Assert.Single(await new DxfGdtParser().ParseAsync(stream, Guid.NewGuid(), Guid.NewGuid()));
+        var result = Assert.Single(new GdtValidator().Validate(new[] { annotation }));
+
+        Assert.Equal(VerificationStatus.CannotValidate, result.Status);
+        Assert.Equal(GdtResult.UnsupportedSyntaxReason, result.Reason);
+        Assert.True(annotation.UnsupportedSyntax);
     }
     [Fact(DisplayName = "TD-04 parses supported DXF feature-control frames and preserves source data")]
     public async Task Parses_supported_frame_fields_and_leaves_stream_open()

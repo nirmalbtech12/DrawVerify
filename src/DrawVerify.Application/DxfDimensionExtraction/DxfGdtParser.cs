@@ -83,6 +83,6 @@ public sealed class DxfGdtParser : IDxfGdtParser
         if (diagnostics is not null)
             foreach (var message in annotationDiagnostics)
                 diagnostics.Add($"Entity {ordinal}: {message}");
-        results.Add(new GdtAnnotationData($"DXF:{documentId:N}:{versionId:N}:{entityHandle}", type, symbol, tolerance, modifiers, datums, $"DXF:{documentId:N}", location, raw, ordinal, entityHandle, layer, block, view, annotationDiagnostics, HasCompositeFrame: hasCompositeFrame, SourceDocumentVersion: versionId.ToString()));
+        results.Add(new GdtAnnotationData($"DXF:{documentId:N}:{versionId:N}:{entityHandle}", type, symbol, tolerance, modifiers, datums, $"DXF:{documentId:N}", location, raw, ordinal, entityHandle, layer, block, view, annotationDiagnostics, HasCompositeFrame: hasCompositeFrame, SourceDocumentVersion: versionId.ToString(), UnsupportedSyntax: unsupportedModifier));
     }
 }
