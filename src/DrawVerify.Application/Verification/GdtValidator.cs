@@ -57,10 +57,7 @@ public sealed class GdtValidator
         var result = Create(step, sessionId, VerificationStatus.NotVerified, null, null);
         if (!_supported.Contains(step.ControlType)) return result.Copy(VerificationStatus.NotVerified, GdtResult.UnsupportedReason, null);
         if (Unsupported(step)) return result.Copy(VerificationStatus.NotVerified, "Unsupported GD&T modifier, composite frame, datum scheme, or syntax.", null);
-        var candidates = dxf.Where(a => a.ControlType == step.ControlType && IsCounterpart(step, a)).ToArray();
-        if (candidates.Length == 0) return result.Copy(VerificationStatus.NotVerified, "Corresponding DXF control could not be reliably identified.", null);
-        if (candidates.Length > 1) return result.Copy(VerificationStatus.NotVerified, "Ambiguous GD&T control match.", null);
-        var other = candidates[0];
+        if (!TryFindCounterpart(step, dxf, out var other, out var matchingReason)) return result.Copy(VerificationStatus.NotVerified, matchingReason, null);
         if (Unsupported(other)) return result.Copy(VerificationStatus.NotVerified, "Corresponding control contains unsupported GD&T syntax.", null);
         var missing = Missing(step, other);
         if (missing is not null) return result.Copy(VerificationStatus.NotVerified, missing, null);
@@ -72,10 +69,62 @@ public sealed class GdtValidator
         if (criterion == CriterionOutcome.NotVerified) return result.Copy(VerificationStatus.NotVerified, "The GD&T comparison criterion could not be evaluated.", $"{details} Criterion: {step.ComparisonCriteria}.");
         return result.Copy(VerificationStatus.Passed, null, $"{details} Criterion: {step.ComparisonCriteria ?? DefaultCriteria(step.ControlType)}.");
     }
-    private static bool IsCounterpart(GdtAnnotationData step, GdtAnnotationData candidate) =>
-        (!string.IsNullOrWhiteSpace(step.Identifier) && string.Equals(step.Identifier, candidate.Identifier, StringComparison.OrdinalIgnoreCase)) ||
-        (!string.IsNullOrWhiteSpace(step.ControlledFeature) && string.Equals(step.ControlledFeature, candidate.ControlledFeature, StringComparison.OrdinalIgnoreCase)) ||
-        (!string.IsNullOrWhiteSpace(step.SourcePairId) && string.Equals(step.SourcePairId, candidate.SourcePairId, StringComparison.OrdinalIgnoreCase));
+    private static bool TryFindCounterpart(GdtAnnotationData step, IReadOnlyList<GdtAnnotationData> dxf, out GdtAnnotationData counterpart, out string reason)
+    {
+        var sameType = dxf.Where(candidate => candidate.ControlType == step.ControlType).ToArray();
+        var identifierMatches = sameType.Where(candidate => string.Equals(step.Identifier, candidate.Identifier, StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (identifierMatches.Length > 1)
+        {
+            counterpart = null!;
+            reason = "Ambiguous GD&T control match for the stable identifier.";
+            return false;
+        }
+        if (identifierMatches.Length == 1)
+        {
+            var identifierMatch = identifierMatches[0];
+            var conflictingFallback = sameType.Any(candidate => !ReferenceEquals(candidate, identifierMatch) &&
+                !string.Equals(step.Identifier, candidate.Identifier, StringComparison.OrdinalIgnoreCase) &&
+                MatchesFallbackAssociation(step, candidate));
+            if (conflictingFallback)
+            {
+                counterpart = null!;
+                reason = "Conflicting GD&T identifiers share the same feature or source-pair association.";
+                return false;
+            }
+            counterpart = identifierMatch;
+            reason = string.Empty;
+            return true;
+        }
+
+        var fallbackMatches = sameType.Where(candidate => MatchesFallbackAssociation(step, candidate)).ToArray();
+        if (fallbackMatches.Length == 0)
+        {
+            counterpart = null!;
+            reason = "Corresponding DXF control could not be reliably identified by stable identifier, feature, or source-pair association.";
+            return false;
+        }
+        if (fallbackMatches.Length > 1)
+        {
+            counterpart = null!;
+            reason = "Ambiguous GD&T fallback match by controlled feature or source-pair association.";
+            return false;
+        }
+        counterpart = fallbackMatches[0];
+        if (!string.IsNullOrWhiteSpace(counterpart.Identifier) && !string.Equals(step.Identifier, counterpart.Identifier, StringComparison.OrdinalIgnoreCase))
+        {
+            counterpart = null!;
+            reason = "Conflicting GD&T identifiers prevent fallback matching for the shared feature or source-pair association.";
+            return false;
+        }
+        reason = string.Empty;
+        return true;
+    }
+    private static bool MatchesFallbackAssociation(GdtAnnotationData step, GdtAnnotationData candidate)
+    {
+        var featureMatches = !string.IsNullOrWhiteSpace(step.ControlledFeature) && !string.IsNullOrWhiteSpace(candidate.ControlledFeature) && string.Equals(step.ControlledFeature, candidate.ControlledFeature, StringComparison.OrdinalIgnoreCase);
+        var sourcePairMatches = !string.IsNullOrWhiteSpace(step.SourcePairId) && !string.IsNullOrWhiteSpace(candidate.SourcePairId) && string.Equals(step.SourcePairId, candidate.SourcePairId, StringComparison.OrdinalIgnoreCase);
+        return featureMatches || sourcePairMatches;
+    }
     private GdtResult Create(GdtAnnotationData a, Guid sessionId, VerificationStatus status, string? reason, string? details)
     {
         if (string.IsNullOrWhiteSpace(a.Identifier)) throw new ArgumentException("A GD&T annotation identifier is required.", nameof(a));
