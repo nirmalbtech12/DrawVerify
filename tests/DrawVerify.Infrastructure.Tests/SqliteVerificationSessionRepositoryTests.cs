@@ -9,6 +9,55 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteVerificationSessionRepositoryTests
 {
+    [Fact(DisplayName = "TD-INF-EXTRA-001 round-trips extra metadata and completion audit")]
+    public async Task Extra_row_survives_reload_and_recomparison_with_review_state()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "drawverify-extra-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            var step = Guid.NewGuid(); var dxf = Guid.NewGuid(); var stepVersion = Guid.NewGuid(); var dxfVersion = Guid.NewGuid();
+            await CreateCurrentDocumentsAsync(path, step, dxf, stepVersion, dxfVersion);
+            var repository = new SqliteVerificationSessionRepository(path); var session = await repository.GetOrCreateAsync(step, dxf) with { StepDocumentVersionId = stepVersion, DxfDocumentVersionId = dxfVersion, Status = VerificationSessionStatus.DimensionsMatched };
+            var id = Guid.NewGuid(); var extra = new DimensionMatch { DimensionMatchId = id, VerificationSessionId = session.VerificationSessionId, StepDocumentVersionId = stepVersion, DxfDocumentVersionId = dxfVersion, DxfDimensionReference = -1, StepGeometryReference = "Face:extra", GeometryType = "Hole", Status = DimensionMatchStatus.ExtraDimension, MeasuredValue = 24, EffectiveLowerTolerance = -.2, EffectiveUpperTolerance = .1, LocationX = 3, LocationY = 4, Review = new DimensionReview { DimensionMatchId = id, Comment = "Should be shown", RequiresDesignUpdate = true } };
+            var details = JsonSerializer.Serialize(new { stepDocumentId = step, dxfDocumentId = dxf, extraStepCount = 1, timestampUtc = DateTime.UtcNow, triggeredBy = "checker" });
+            await repository.ReplaceResultsAsync(session, new[] { extra }, DocumentAuditAction.ToleranceComparisonApplied, "checker", details);
+            var loaded = Assert.Single(await new SqliteVerificationSessionRepository(path).GetMatchesAsync(session.VerificationSessionId));
+            Assert.Equal(DimensionMatchStatus.ExtraDimension, loaded.Status); Assert.Equal("Face:extra", loaded.StepGeometryReference); Assert.Equal(24, loaded.MeasuredValue); Assert.Equal("Should be shown", loaded.Review!.Comment); Assert.True(loaded.Review.RequiresDesignUpdate);
+            using var audit = JsonDocument.Parse(details); Assert.Equal(1, audit.RootElement.GetProperty("extraStepCount").GetInt32());
+        }
+        finally { await DeleteDatabaseAsync(path); }
+    }
+
+    [Fact(DisplayName = "TD-INF-EXTRA-002 preserves extra review state across repository replacement")]
+    public async Task Extra_review_state_is_keyed_by_step_reference()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "drawverify-extra-recompare-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            var step = Guid.NewGuid(); var dxf = Guid.NewGuid(); var stepVersion = Guid.NewGuid(); var dxfVersion = Guid.NewGuid(); await CreateCurrentDocumentsAsync(path, step, dxf, stepVersion, dxfVersion);
+            var repository = new SqliteVerificationSessionRepository(path); var session = await repository.GetOrCreateAsync(step, dxf) with { StepDocumentVersionId = stepVersion, DxfDocumentVersionId = dxfVersion, Status = VerificationSessionStatus.DimensionsMatched };
+            var first = new DimensionMatch { DimensionMatchId = Guid.NewGuid(), VerificationSessionId = session.VerificationSessionId, StepDocumentVersionId = stepVersion, DxfDocumentVersionId = dxfVersion, DxfDimensionReference = -1, StepGeometryReference = "Edge:stable", Status = DimensionMatchStatus.ExtraDimension, Review = new DimensionReview { Comment = "Keep me", RequiresDesignUpdate = true } };
+            await repository.ReplaceResultsAsync(session, new[] { first }, DocumentAuditAction.ToleranceComparisonApplied, "checker", "{}");
+            var replacement = first with { DimensionMatchId = Guid.NewGuid(), Review = null, MeasuredValue = 7 };
+            await repository.ReplaceResultsAsync(session, new[] { replacement }, DocumentAuditAction.ToleranceComparisonApplied, "checker", "{}");
+            var loaded = Assert.Single(await repository.GetMatchesAsync(session.VerificationSessionId)); Assert.Equal("Keep me", loaded.Review!.Comment); Assert.True(loaded.Review.RequiresDesignUpdate); Assert.Equal(7, loaded.MeasuredValue);
+        }
+        finally { await DeleteDatabaseAsync(path); }
+    }
+
+    [Fact(DisplayName = "TD-INF-EXTRA-003 rejects stale versions without writing extra results")]
+    public async Task Stale_version_validation_is_explicit()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "drawverify-extra-stale-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            var repository = new SqliteVerificationSessionRepository(path); var session = await repository.GetOrCreateAsync(Guid.NewGuid(), Guid.NewGuid());
+            var extra = new DimensionMatch { VerificationSessionId = session.VerificationSessionId, StepDocumentVersionId = Guid.NewGuid(), DxfDocumentVersionId = Guid.NewGuid(), Status = DimensionMatchStatus.ExtraDimension, StepGeometryReference = "Edge:stale", DxfDimensionReference = -1 };
+            await Assert.ThrowsAsync<InvalidOperationException>(() => repository.ReplaceResultsAsync(session with { StepDocumentVersionId = Guid.NewGuid(), DxfDocumentVersionId = Guid.NewGuid() }, new[] { extra }, DocumentAuditAction.ToleranceComparisonApplied, "checker", "{}"));
+            Assert.Empty(await repository.GetMatchesAsync(session.VerificationSessionId));
+        }
+        finally { await DeleteDatabaseAsync(path); }
+    }
     [Fact(DisplayName = "TD-INF-001 replaces SQLite results and persists unmatched audit details atomically")]
     public async Task Session_pair_is_unique_and_results_are_replaced_atomically()
     {

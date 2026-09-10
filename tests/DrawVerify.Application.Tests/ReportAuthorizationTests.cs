@@ -8,6 +8,15 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class ReportAuthorizationTests
 {
+    [Theory(DisplayName = "TD-APP-EXTRA-005 extra report access follows existing role permissions")]
+    [InlineData("Checker", true)] [InlineData("Approver", true)] [InlineData("Viewer", false)] [InlineData("Maker", true)]
+    public async Task Extra_report_authorization_is_explicit(string role, bool allowed)
+    {
+        var authentication = new SessionAuthenticationService(); authentication.SignIn(new AuthenticatedUser("user", new[] { role }));
+        var service = new ReportService(new Sessions(), authentication, new RoleAuthorization());
+        if (allowed) Assert.Contains("Extra Dimensions", await service.GenerateMarkdownAsync(Guid.NewGuid()));
+        else await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.GenerateMarkdownAsync(Guid.NewGuid()));
+    }
     [Fact(DisplayName = "TD-009 Approver has the same report permission as Checker")]
     public void Approver_and_checker_are_authorized_for_summary_report()
     {

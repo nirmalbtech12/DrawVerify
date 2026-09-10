@@ -12,7 +12,24 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class ReportServiceStatusTests
 {
-    [Fact(DisplayName = "TD-001 derives overall counts and excludes MissingDimension from total")]
+    [Fact(DisplayName = "TD-APP-EXTRA-003 renders Extra Dimensions report rows with key properties")]
+    public void Extra_report_projection_contains_section_and_metadata()
+    {
+        var extra = new DimensionMatch { Status = DimensionMatchStatus.ExtraDimension, StepGeometryReference = "Face:42", GeometryType = "Hole", MeasuredValue = 12, EffectiveLowerTolerance = -.1, EffectiveUpperTolerance = .2, ToleranceUnit = "mm", ViewName = "Front", LocationX = 5, LocationY = 6 };
+        var markdown = new VerificationReport { DimensionMatches = new[] { extra } }.ToMarkdown();
+        Assert.Contains("## Extra Dimensions", markdown); Assert.Contains("Face:42", markdown); Assert.Contains("Hole", markdown); Assert.Contains("12", markdown); Assert.Contains("Front", markdown); Assert.Contains("(5, 6)", markdown);
+    }
+
+    [Fact(DisplayName = "TD-APP-EXTRA-003 exports extra dimensions as CSV")]
+    public async Task Extra_csv_export_contains_header_and_row()
+    {
+        var sessionId = Guid.NewGuid();
+        var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser("checker", new[] { "Checker" }));
+        var service = new ReportService(new Sessions(new[] { new DimensionMatch { Status = DimensionMatchStatus.ExtraDimension, StepGeometryReference = "Edge:extra", MeasuredValue = 8, VerificationSessionId = sessionId } }), auth, new RoleAuthorization(), new MarkdownReportGenerator(), null, null);
+        var csv = await service.GenerateExtraDimensionsCsvAsync(sessionId);
+        Assert.Contains("StepReference", csv); Assert.Contains("Edge:extra", csv); Assert.Contains("8", csv);
+    }
+    [Fact(DisplayName = "TD-001 derives overall counts and projects legacy MissingDimension as extra")]
     public void Comparison_summary_counts_zero_and_missing_rows_separately()
     {
         var empty = ComparisonSummary.From(Array.Empty<DimensionMatch>());
@@ -26,11 +43,12 @@ public sealed class ReportServiceStatusTests
             Status = DimensionMatchStatus.MissingDimension
         }));
 
-        Assert.Equal(4, summary.TotalDimensions);
+        Assert.Equal(5, summary.TotalDimensions);
         Assert.Equal(2, summary.MatchedDimensions);
         Assert.Equal(1, summary.MismatchedDimensions);
         Assert.Equal(1, summary.UnmatchedDimensions);
         Assert.Equal(1, summary.MissingDimensions);
+        Assert.Equal(1, summary.ExtraDimensions);
     }
 
     [Fact(DisplayName = "TD-002 calculates exact percentage and typed breakdown")]

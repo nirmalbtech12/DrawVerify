@@ -53,6 +53,13 @@ public sealed class MissingDimensionReviewService
         var items = await QueryAsync(sessionId, cancellationToken: cancellationToken).ConfigureAwait(false);
         return new MissingDimensionSummary(items.Count, Group(items, m => m.DxfLayer), Group(items, m => m.ViewName));
     }
+    public async Task<IReadOnlyList<DimensionMatch>> QueryExtraAsync(Guid sessionId, CancellationToken cancellationToken = default)
+    {
+        Ensure(RolePermission.ViewExtraDimensions);
+        if (sessionId == Guid.Empty) throw new ArgumentException("A verification session is required.", nameof(sessionId));
+        var matches = await _sessions.GetMatchesAsync(sessionId, cancellationToken: cancellationToken).ConfigureAwait(false);
+        return matches.Where(item => DimensionMatchingService.IsExtraDimensionStatus(item.Status)).ToArray();
+    }
 
     private void Ensure(RolePermission permission)
     { if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, permission)) throw new UnauthorizedAccessException("You are not authorized to review missing dimensions."); }

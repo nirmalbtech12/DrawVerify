@@ -17,6 +17,33 @@ using System.Text.Json;
 
 public sealed class DimensionMatchingServiceTests
 {
+    [Fact(DisplayName = "TD-APP-EXTRA-002 persists extra results, summary counts, and audit fields")]
+    public async Task Matching_persists_step_extra_and_canonical_audit_fields()
+    {
+        var step = NewDocument(CoreDocumentType.StepModel, CoreGeometryStatus.Processed, VerificationStatus.Unknown);
+        var dxf = NewDocument(CoreDocumentType.DxfDrawing, CoreGeometryStatus.NotExtracted, VerificationStatus.DimensionsExtracted);
+        var session = new VerificationSession { VerificationSessionId = Guid.NewGuid(), StepDocumentId = step.DocumentId, DxfDocumentId = dxf.DocumentId };
+        var dimensions = new[] { new CoreDimensionData(dxf.DocumentId, dxf.Version!.VersionId, 1, DimensionType.Linear, 10) };
+        var sessions = new SessionFake(session); var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser("checker", new[] { "Checker" }) { UserId = "checker" });
+        var service = new DimensionMatchingService(new DocumentsFake(step, dxf, dimensions), sessions, new GeometryFake(new GeometryFeatureData { Reference = "matched", Length = 10 }, new GeometryFeatureData { Reference = "extra", GeometryType = "Hole", Diameter = 20 }), auth, new DimensionMatchingConfiguration());
+        await service.MatchDimensionsToGeometryAsync(session.VerificationSessionId);
+        Assert.Single(sessions.Matches, match => match.Status == DimensionMatchStatus.ExtraDimension);
+        using var details = JsonDocument.Parse(sessions.DetailsJson!);
+        Assert.Equal(1, details.RootElement.GetProperty("extraStepCount").GetInt32()); Assert.Equal(step.DocumentId, details.RootElement.GetProperty("stepDocumentId").GetGuid());
+        Assert.Equal(dxf.DocumentId, details.RootElement.GetProperty("dxfDocumentId").GetGuid()); Assert.Equal("checker", details.RootElement.GetProperty("triggeredBy").GetString());
+    }
+
+    [Fact(DisplayName = "TD-APP-EXTRA-005 enforces extra viewing and mutation authorization")]
+    public async Task Extra_result_queries_and_mutations_follow_role_permissions()
+    {
+        var id = Guid.NewGuid(); var matchId = Guid.NewGuid();
+        var sessions = new SessionFake(new VerificationSession { VerificationSessionId = id }) { Matches = new[] { new DimensionMatch { DimensionMatchId = matchId, VerificationSessionId = id, Status = DimensionMatchStatus.ExtraDimension, StepGeometryReference = "Edge:extra" } } };
+        var auth = new SessionAuthenticationService(); var service = new DimensionMatchingService(new DocumentsFake(), sessions, new GeometryFake(), auth, new DimensionMatchingConfiguration());
+        auth.SignIn(new AuthenticatedUser("viewer", new[] { "Viewer" })); Assert.Single(await service.GetExtraResultsAsync(id)); await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.AddExtraCommentAsync(id, matchId, "not allowed"));
+        auth.SignIn(new AuthenticatedUser("checker", new[] { "Checker" }) { UserId = "checker" });
+        await service.AddExtraCommentAsync(id, matchId, "Should be shown on drawing"); await service.FlagExtraForDesignUpdateAsync(id, matchId, true);
+        Assert.True(sessions.LastReview!.RequiresDesignUpdate); Assert.Equal("Should be shown on drawing", sessions.LastReview.Comment);
+    }
     [Fact(DisplayName = "TD-APP-004 replaces stale deltas after recomparison")]
     public async Task Recomparison_replaces_previous_match_values_and_delta()
     {
@@ -116,7 +143,7 @@ public sealed class DimensionMatchingServiceTests
         var features = new[] { new GeometryFeatureData { Reference = "Edge:matched", GeometryType = "Line", Length = 10 }, new GeometryFeatureData { Reference = "Edge:extra", GeometryType = "Line", Length = 99 } };
         await new DimensionMatchingService(new DocumentsFake(step, dxf, dimensions), sessions, new GeometryFake(features), auth, new DimensionMatchingConfiguration()).MatchDimensionsToGeometryAsync(session.VerificationSessionId);
         using var details = JsonDocument.Parse(sessions.DetailsJson!);
-        Assert.Equal(0, details.RootElement.GetProperty("missingDxfCount").GetInt32()); Assert.Equal(1, details.RootElement.GetProperty("extraStepCount").GetInt32()); Assert.Equal(1, sessions.Matches.Count(match => match.Status == DimensionMatchStatus.MissingDimension));
+        Assert.Equal(0, details.RootElement.GetProperty("missingDxfCount").GetInt32()); Assert.Equal(1, details.RootElement.GetProperty("extraStepCount").GetInt32()); Assert.Equal(1, sessions.Matches.Count(match => match.Status == DimensionMatchStatus.ExtraDimension));
     }
 
     [Fact(DisplayName = "TD-03 enforces Maker comment and resolution role boundaries")]

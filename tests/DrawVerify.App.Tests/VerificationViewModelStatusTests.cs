@@ -11,6 +11,24 @@ namespace DrawVerify.App.Tests;
 
 public sealed class VerificationViewModelStatusTests
 {
+    [Fact(DisplayName = "TD-APPUI-EXTRA-003 exposes extra review state for refreshed items")]
+    public void Extra_review_metadata_is_visible_after_result_refresh()
+    {
+        var vm = CreateViewModel(new[] { new DimensionMatch { Status = DimensionMatchStatus.ExtraDimension, StepGeometryReference = "Face:1", Review = new DimensionReview { Comment = "Intentional omission", RequiresDesignUpdate = true } } });
+        vm.ApplyFilterCommand.Execute(null);
+        var item = Assert.Single(vm.ExtraDimensionResults); Assert.Equal("Intentional omission", item.Comment); Assert.True(item.RequiresDesignUpdate);
+        SetResults(vm, new[] { item.Match with { Review = item.Match.Review } }); vm.ApplyFilterCommand.Execute(null); Assert.Equal("Intentional omission", Assert.Single(vm.ExtraDimensionResults).Comment);
+    }
+
+    [Theory(DisplayName = "TD-APPUI-EXTRA-004 exposes role-aware extra review access")]
+    [InlineData("Checker", true)] [InlineData("Approver", true)] [InlineData("Viewer", false)] [InlineData("Maker", false)]
+    public void Extra_review_command_boundary_matches_authorization(string role, bool canModify)
+    {
+        var authentication = new SessionAuthenticationService(); authentication.SignIn(new AuthenticatedUser("user", new[] { role }));
+        var authorization = new RoleAuthorization();
+        Assert.Equal(canModify, authorization.IsAllowed(authentication.CurrentUser, RolePermission.CommentOnExtraDimensions));
+        Assert.Equal(canModify, authorization.IsAllowed(authentication.CurrentUser, RolePermission.FlagExtraDimensions));
+    }
     [Fact(DisplayName = "TD-004 failed refresh state is explicitly empty")]
     public void Failed_refresh_clear_contract_has_no_stale_summary()
     {
@@ -36,20 +54,21 @@ public sealed class VerificationViewModelStatusTests
         });
         vm.ApplyFilterCommand.Execute(null);
 
-        Assert.Equal(3, vm.TotalDimensions);
+        Assert.Equal(4, vm.TotalDimensions);
         Assert.Equal(1, vm.MatchedDimensions);
         Assert.Equal(1, vm.MismatchedDimensions);
         Assert.Equal(1, vm.UnmatchedDimensions);
         Assert.Equal(1, vm.MissingDimensions);
-        Assert.Equal(33.333333333333336, vm.MatchPercentage);
-        Assert.Equal("1/3 Matched", vm.MatchRatio);
+        Assert.Equal(25, vm.MatchPercentage);
+        Assert.Equal("1/4 Matched", vm.MatchRatio);
 
         vm.StatusFilter = "Matched";
         vm.ApplyFilterCommand.Execute(null);
         Assert.Single(vm.MatchResults);
-        Assert.Equal(3, vm.TotalDimensions);
+        Assert.Equal(4, vm.TotalDimensions);
         Assert.Equal((1, 1, 0), Counts(vm, DimensionType.Linear));
         Assert.Equal((0, 0, 1), Counts(vm, DimensionType.Angular));
+        Assert.Equal(1, Assert.Single(vm.StatusSummaries.Where(item => item.DimensionType == DimensionType.Radial)).ExtraCount);
     }
 
     [Fact(DisplayName = "TD-010 aggregates a 500-row session in memory")]

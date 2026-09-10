@@ -6,5 +6,5 @@ public enum RolePermission
     ReviewVerification, ResolveUnmatched, ApproveVerification, FinalApproval, ControlDocumentAccess,
     GenerateFinalReports, ReadApprovedDocuments, ReadApprovedReports,
     MatchDimensionsToGeometry, ViewDimensionMatchResults, ManageToleranceComparison,
-    ViewMissingDimensions, CommentOnMissingDimensions
+    ViewMissingDimensions, CommentOnMissingDimensions, ViewExtraDimensions, CommentOnExtraDimensions, FlagExtraDimensions
 }
