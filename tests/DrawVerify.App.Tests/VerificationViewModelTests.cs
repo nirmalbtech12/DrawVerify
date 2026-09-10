@@ -325,6 +325,20 @@ public sealed class VerificationViewModelTests
         Assert.Contains("highlighted", viewModel.MatchingStatus, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact(DisplayName = "TD-09 makes unresolved STEP GD&T navigation visibly unavailable")]
+    public void Gdt_selection_reports_unavailable_step_source()
+    {
+        var viewModel = new VerificationViewModel(new SessionAuthenticationService(), new RoleAuthorization());
+        viewModel.SelectedGdtResult = new GdtResultItemViewModel(new GdtResult
+        {
+            Identifier = "STEP:gdt-1", SourceDocument = "model.step", SourceLocation = "pmi:17",
+            EntityHandle = "pmi:17", Status = VerificationStatus.NotVerified, Reason = GdtResult.UnsupportedReason
+        });
+
+        Assert.Contains("unavailable", viewModel.MatchingStatus, StringComparison.OrdinalIgnoreCase);
+        Assert.False(viewModel.StepPreview.IsFeatureResolved);
+    }
+
     [Fact(DisplayName = "TD-APPUI-002 filters, searches, and sorts mixed results deterministically")]
     public void Authorized_view_filters_searches_and_sorts_mixed_results_deterministically()
     {

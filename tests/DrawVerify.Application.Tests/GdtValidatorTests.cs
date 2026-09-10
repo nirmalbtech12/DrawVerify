@@ -49,6 +49,19 @@ public class GdtValidatorTests
         finally { File.Delete(path); }
     }
 
+    [Fact(DisplayName = "TD-11 fails visibly for malformed or unsupported subset configuration")]
+    public void Malformed_subset_configuration_is_not_silently_defaulted()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path, "{\"gdtSubset\":{\"version\":99,\"controls\":[]}}");
+            var exception = Assert.Throws<InvalidDataException>(() => GdtValidator.FromSubsetFile(path));
+            Assert.Contains("unsupported schema version", exception.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { File.Delete(path); }
+    }
+
     private static GdtAnnotationData Annotation(GdtControlType type, string symbol) =>
         new("annotation-1", type, symbol, "0.1", "MMC", new[] { "A" }, "drawing.dxf", "entity:7", symbol, 7);
 }

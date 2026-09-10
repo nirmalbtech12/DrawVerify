@@ -80,14 +80,42 @@ public sealed class DimensionMatchingService
     {
         if (_gdtVerification is null || _dxfFiles is null || _dxfGdtParser is null || _stepGdtService is null) return;
         var annotations = new List<GdtAnnotationData>();
-        await using (var dxf = await _dxfFiles.OpenReadAsync(dxfVersion.StoredRelativePath, cancellationToken).ConfigureAwait(false))
-            annotations.AddRange(await _dxfGdtParser.ParseAsync(dxf, session.DxfDocumentId, dxfVersion.VersionId, cancellationToken).ConfigureAwait(false));
+        DxfGdtExtractionResult dxfExtraction;
+        try
+        {
+            await using var dxf = await _dxfFiles.OpenReadAsync(dxfVersion.StoredRelativePath, cancellationToken).ConfigureAwait(false);
+            dxfExtraction = await _dxfGdtParser.ParseDetailedAsync(dxf, session.DxfDocumentId, dxfVersion.VersionId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger?.Log(exception, "DXF GD&T extraction", $"Unable to extract GD&T annotations for verificationSessionId={session.VerificationSessionId}.");
+            throw new InvalidOperationException("DXF GD&T extraction failed.", exception);
+        }
+
+        if (!dxfExtraction.Succeeded)
+        {
+            var diagnostic = dxfExtraction.ErrorMessage ?? string.Join("; ", dxfExtraction.Diagnostics);
+            var failure = new InvalidOperationException(diagnostic is null or "" ? "DXF GD&T extraction failed." : diagnostic);
+            _logger?.Log(failure, "DXF GD&T extraction", $"Structured extraction failure for verificationSessionId={session.VerificationSessionId}, category={dxfExtraction.ErrorCategory ?? "Unknown"}.");
+            throw failure;
+        }
+
+        var dxfDiagnostics = dxfExtraction.Diagnostics;
+        annotations.AddRange(dxfExtraction.Annotations.Select(annotation =>
+            dxfDiagnostics.Count == 0
+                ? annotation
+                : annotation with { Diagnostics = (annotation.Diagnostics ?? Array.Empty<string>()).Concat(dxfDiagnostics).Distinct(StringComparer.Ordinal).ToArray() }));
         var step = _stepGdtService.ExtractAnnotations(stepVersion.StoredRelativePath, cancellationToken);
         if (step.Succeeded) annotations.AddRange(step.Annotations);
         else if (step.ErrorCategory is not "CapabilityUnavailable")
             throw new InvalidOperationException(step.ErrorMessage ?? "STEP GD&T extraction failed.");
         else
+        {
             _logger?.Log(new NotSupportedException(step.ErrorMessage ?? "STEP GD&T extraction is unavailable."), "STEP GD&T extraction", $"Explicit capability limitation for verificationSessionId={session.VerificationSessionId}.");
+            var capabilityDiagnostic = step.ErrorMessage ?? "STEP GD&T extraction is unavailable.";
+            for (var index = 0; index < annotations.Count; index++)
+                annotations[index] = annotations[index] with { Diagnostics = (annotations[index].Diagnostics ?? Array.Empty<string>()).Append($"STEP capability unavailable: {capabilityDiagnostic}").Distinct(StringComparer.Ordinal).ToArray() };
+        }
         await _gdtVerification.VerifyGdtAsync(session.VerificationSessionId, annotations, _authentication.CurrentUser?.UserId ?? throw new UnauthorizedAccessException("An authenticated user is required."), cancellationToken).ConfigureAwait(false);
     }
     public async Task<VerificationSession> UpdateToleranceAndRecompareAsync(Guid sessionId, double toleranceThresholdMm, CancellationToken cancellationToken = default)

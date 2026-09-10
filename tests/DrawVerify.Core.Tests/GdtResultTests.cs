@@ -50,4 +50,20 @@ public sealed class GdtResultTests
         Assert.Throws<ArgumentException>(() => GdtResult.Unsupported("gdt-3"));
         Assert.Throws<ArgumentException>(() => GdtResult.Unsupported("gdt-4", (GdtControlType)99, sourceDocument: "drawing.dxf"));
     }
+
+    [Fact(DisplayName = "TD-06 counts Not Verified GD&T separately from dimension outcomes")]
+    public void Not_verified_count_does_not_change_dimension_totals()
+    {
+        var dimensions = new[]
+        {
+            new DimensionMatch { Status = DimensionMatchStatus.Matched, DxfDimensionReference = 1 },
+            new DimensionMatch { Status = DimensionMatchStatus.Mismatched, DxfDimensionReference = 2 }
+        };
+        var summary = ComparisonSummary.From(dimensions, new[] { GdtResult.Unsupported("gdt-count", sourceDocument: "drawing.dxf") });
+
+        Assert.Equal(2, summary.TotalDimensions);
+        Assert.Equal(1, summary.MatchedDimensions);
+        Assert.Equal(1, summary.MismatchedDimensions);
+        Assert.Equal(1, summary.NotVerifiedGdtControls);
+    }
 }

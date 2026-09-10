@@ -16,10 +16,11 @@ public sealed class ReportService
     private readonly ISessionAuthenticationService _authentication;
     private readonly RoleAuthorization _authorization;
     private readonly IReportGenerator _generator;
+    private readonly IPdfReportGenerator? _pdfGenerator;
     private readonly ICentralizedLogger? _logger;
     private readonly IAuditLogger? _audit;
-    public ReportService(IVerificationSessionRepository sessions, ISessionAuthenticationService authentication, RoleAuthorization? authorization = null, IReportGenerator? generator = null, ICentralizedLogger? logger = null, IAuditLogger? audit = null)
-    { _sessions = sessions; _authentication = authentication; _authorization = authorization ?? new RoleAuthorization(); _generator = generator ?? new MarkdownReportGenerator(); _logger = logger; _audit = audit; }
+    public ReportService(IVerificationSessionRepository sessions, ISessionAuthenticationService authentication, RoleAuthorization? authorization = null, IReportGenerator? generator = null, ICentralizedLogger? logger = null, IAuditLogger? audit = null, IPdfReportGenerator? pdfGenerator = null)
+    { _sessions = sessions; _authentication = authentication; _authorization = authorization ?? new RoleAuthorization(); _generator = generator ?? new MarkdownReportGenerator(); _logger = logger; _audit = audit; _pdfGenerator = pdfGenerator; }
     public async Task<string> GenerateMarkdownAsync(Guid sessionId, CancellationToken cancellationToken = default)
     {
         if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ViewDimensionMatchResults)) throw new UnauthorizedAccessException("Only authenticated Maker, Checker, or Approver users may access verification reports.");
@@ -42,6 +43,28 @@ public sealed class ReportService
             _logger?.Log(exception, "Verification report generation", $"Unable to generate Markdown report for verificationSessionId={sessionId}.");
             throw;
         }
+    }
+
+    public async Task<byte[]> GeneratePdfAsync(Guid sessionId, CancellationToken cancellationToken = default)
+    {
+        if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ViewDimensionMatchResults)) throw new UnauthorizedAccessException("Only authenticated Maker, Checker, or Approver users may access verification reports.");
+        if (_pdfGenerator is null) throw new InvalidOperationException("PDF report generation is not configured.");
+        try
+        {
+            var matches = await _sessions.GetMatchesAsync(sessionId, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var gdtResults = await _sessions.GetGdtResultsAsync(sessionId, cancellationToken).ConfigureAwait(false);
+            var report = new VerificationReport { DimensionMatches = matches, GdtResults = gdtResults };
+            var content = await _pdfGenerator.GeneratePdfAsync(report, cancellationToken).ConfigureAwait(false);
+            if (_audit is not null)
+            {
+                var summary = report.ComparisonSummary;
+                var details = JsonSerializer.Serialize(new { verificationSessionId = sessionId, totalDimensions = summary.TotalDimensions, matchedDimensions = summary.MatchedDimensions, mismatchedDimensions = summary.MismatchedDimensions, unmatchedDimensions = summary.UnmatchedDimensions, missingDimensions = summary.MissingDimensions, extraDimensions = summary.ExtraDimensions, notVerifiedGdtControls = summary.NotVerifiedGdtControls, matchPercentage = summary.MatchPercentage, reportFormat = "PDF" });
+                await _audit.WriteAsync(new AuditEntry { DocumentId = sessionId, UserId = _authentication.CurrentUser!.UserId, Action = DocumentAuditAction.VerificationReportGenerated, TimestampUtc = DateTime.UtcNow, DetailsJson = details }, cancellationToken).ConfigureAwait(false);
+            }
+            return content;
+        }
+        catch (Exception exception) when (exception is not UnauthorizedAccessException and not OperationCanceledException)
+        { _logger?.Log(exception, "Verification PDF report generation", $"Unable to generate PDF report for verificationSessionId={sessionId}."); throw; }
     }
 
     public async Task<string> GenerateMissingDimensionsCsvAsync(Guid sessionId, CancellationToken cancellationToken = default)

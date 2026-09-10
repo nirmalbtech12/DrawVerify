@@ -1,6 +1,7 @@
 using System.Text;
 using DrawVerify.Application.DxfDimensionExtraction;
 using DrawVerify.Core.Enums;
+using DrawVerify.Geometry.Models;
 using Xunit;
 
 namespace DrawVerify.Application.Tests;
@@ -37,6 +38,20 @@ public sealed class DxfGdtParserTests
         Assert.StartsWith("entity:", result.SourceLocation);
     }
 
+    [Fact(DisplayName = "TD-04 exposes structured DXF diagnostics through the production parser contract")]
+    public async Task Detailed_parse_preserves_diagnostics()
+    {
+        await using var stream = new MemoryStream(Encoding.UTF8.GetBytes("0\nMTEXT\n1\nPOSITION\n"));
+
+        IDxfGdtParser parser = new DxfGdtParser();
+        var result = await parser.ParseDetailedAsync(stream, Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.True(result.Succeeded);
+        Assert.NotEmpty(result.Diagnostics);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Contains("tolerance", StringComparison.OrdinalIgnoreCase));
+        Assert.NotEmpty(Assert.Single(result.Annotations).Diagnostics!);
+    }
+
     [Fact(DisplayName = "TD-04 honors cancellation")]
     public async Task Cancellation_is_visible()
     {
@@ -45,5 +60,16 @@ public sealed class DxfGdtParserTests
         cancellation.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new DxfGdtParser().ParseAsync(stream, Guid.NewGuid(), Guid.NewGuid(), cancellation.Token));
+    }
+
+    [Fact(DisplayName = "TD-05 distinguishes unsupported STEP capability from operational extraction failure")]
+    public void Extraction_failure_categories_remain_explicit()
+    {
+        var unsupported = GdtAnnotationExtractionResult.Unsupported("STEP annotations are not supported by this worker.");
+        var failure = GdtAnnotationExtractionResult.Failure("WorkerTimeout", "STEP annotation worker timed out.");
+
+        Assert.Equal("CapabilityUnavailable", unsupported.ErrorCategory);
+        Assert.Equal("WorkerTimeout", failure.ErrorCategory);
+        Assert.NotEqual(unsupported.ErrorCategory, failure.ErrorCategory);
     }
 }

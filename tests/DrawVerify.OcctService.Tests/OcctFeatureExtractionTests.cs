@@ -6,6 +6,17 @@ namespace DrawVerify.OcctService.Tests;
 
 public sealed class OcctFeatureExtractionTests
 {
+    [Fact(DisplayName = "TD-05 keeps missing STEP PMI capability explicit")]
+    public void Missing_pmi_capability_is_not_reported_as_not_verified()
+    {
+        var result = new GdtAnnotationService().ExtractAnnotations("unused.step");
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("CapabilityUnavailable", result.ErrorCategory);
+        Assert.Empty(result.Annotations);
+        Assert.DoesNotContain(result.Annotations, annotation => annotation.ControlType == DrawVerify.Core.Enums.GdtControlType.Unknown);
+    }
+
     private static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 
     [Fact(DisplayName = "TD-APP-003 projects finite stable edge and face references")]

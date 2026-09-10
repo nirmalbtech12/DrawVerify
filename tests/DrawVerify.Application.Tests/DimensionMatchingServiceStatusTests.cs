@@ -15,6 +15,15 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class DimensionMatchingServiceStatusTests
 {
+    [Fact(DisplayName = "TD-12 keeps legacy dimension-only sessions free of GD&T rows")]
+    public void Legacy_session_result_defaults_to_empty_gdt_collection()
+    {
+        var result = new VerificationSessionResult(new VerificationSession(), Array.Empty<DimensionMatch>());
+
+        Assert.Empty(result.GdtResults);
+        Assert.Empty(result.Matches);
+    }
+
     [Fact(DisplayName = "TD-APP-005 refreshes persisted statuses after tolerance re-comparison")]
     public async Task Recomparison_replaces_stale_statuses()
     {

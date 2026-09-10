@@ -3,6 +3,7 @@ namespace DrawVerify.Infrastructure.Tests;
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Models;
 using DrawVerify.Infrastructure.Persistence;
+using DrawVerify.Infrastructure.Pdf;
 using Microsoft.Data.Sqlite;
 using System.Text.Json;
 using Xunit;
@@ -77,4 +78,45 @@ public class PdfReportTests
     [Fact(DisplayName = "TD-INFRA-002 emits an explicit unmatched section for an empty report")]
     public void Markdown_report_has_an_explicit_unmatched_section_when_there_are_no_matches()
         => Assert.Contains("Unmatched Dimensions – Requires Manual Review", new VerificationReport().ToMarkdown());
+
+    [Fact(DisplayName = "TD-10 PDF generator consumes normalized GD&T report fields")]
+    public async Task Pdf_report_contains_summary_and_not_verified_fields()
+    {
+        var report = new VerificationReport
+        {
+            GdtResults = new[]
+            {
+                new GdtResult
+                {
+                    Identifier = "gdt-pdf-1", ControlType = GdtControlType.Unknown, Symbol = "◇", ToleranceValue = "0.2",
+                    SourceDocument = "drawing.dxf", SourceLocation = "entity:4", Status = VerificationStatus.NotVerified,
+                    Reason = GdtResult.UnsupportedReason, ReviewComment = "Needs checker review"
+                }
+            }
+        };
+
+        var pdf = await new PdfReportGenerator().GeneratePdfAsync(report);
+        var content = System.Text.Encoding.ASCII.GetString(pdf);
+
+        Assert.StartsWith("%PDF-1.4", content, StringComparison.Ordinal);
+        Assert.Contains("Not Verified / Unsupported GD&T Controls", content);
+        Assert.Contains("gdt-pdf-1", content);
+        Assert.Contains("Needs checker review", content);
+        Assert.Contains("%%EOF", content);
+    }
+
+    [Fact(DisplayName = "TD-10 PDF generator preserves empty and legacy dimension reports")]
+    public async Task Pdf_report_handles_empty_and_legacy_reports()
+    {
+        var generator = new PdfReportGenerator();
+        var empty = System.Text.Encoding.ASCII.GetString(await generator.GeneratePdfAsync(new VerificationReport()));
+        var legacy = System.Text.Encoding.ASCII.GetString(await generator.GeneratePdfAsync(new VerificationReport
+        {
+            DimensionMatches = new[] { new DimensionMatch { Status = DimensionMatchStatus.Matched, DxfDimensionReference = 3, DimensionType = DimensionType.Linear, NominalValue = 12 } }
+        }));
+
+        Assert.Contains("None identified.", empty);
+        Assert.Contains("Dimension Status Details", legacy);
+        Assert.Contains("3", legacy);
+    }
 }

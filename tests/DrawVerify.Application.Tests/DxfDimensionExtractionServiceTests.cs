@@ -15,6 +15,18 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class DxfDimensionExtractionServiceTests
 {
+    [Fact(DisplayName = "TD-04 keeps detected DXF GD&T annotations when fields are partial")]
+    public async Task Gdt_extraction_is_additive_to_dimension_extraction()
+    {
+        await using var stream = new MemoryStream(Encoding.UTF8.GetBytes("0\nMTEXT\n1\nFLATNESS 0.3\n"));
+        var result = await new DxfGdtParser().ParseDetailedAsync(stream, Guid.NewGuid(), Guid.NewGuid());
+
+        var annotation = Assert.Single(result.Annotations);
+        Assert.Equal(GdtControlType.Flatness, annotation.ControlType);
+        Assert.Equal("0.3", annotation.ToleranceValue);
+        Assert.True(stream.CanRead);
+    }
+
     [Theory(DisplayName = "TD-KAN25-APP-002 invokes extraction for Maker and Checker")]
     [InlineData(SystemRoles.Maker)]
     [InlineData(SystemRoles.Checker)]

@@ -2,10 +2,12 @@ namespace DrawVerify.Application.Tests;
 
 using System.Text.Json;
 using DrawVerify.Application.Services;
+using DrawVerify.Application.Verification;
 using DrawVerify.Core.Authorization;
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
+using DrawVerify.Geometry.Models;
 using Xunit;
 
 /// <summary>
@@ -14,6 +16,28 @@ using Xunit;
 /// </summary>
 public class VerificationServiceTests
 {
+    [Fact(DisplayName = "TD-03 keeps mixed supported and unsupported GD&T verification independent")]
+    public async Task Mixed_gdt_annotations_produce_independent_results()
+    {
+        var sessionId = Guid.NewGuid();
+        var repository = new GdtResultRepository();
+        var service = new VerificationService(new VerificationEngine(new GdtValidator()), repository);
+        var annotations = new[]
+        {
+            new GdtAnnotationData("position-1", GdtControlType.Position, "⌖", "0.1", null, Array.Empty<string>(), "model.step", "pmi:1", null),
+            new GdtAnnotationData("unknown-1", GdtControlType.Unknown, "◇", "0.2", "MMC", new[] { "A" }, "drawing.dxf", "entity:2", null)
+        };
+
+        var results = await service.VerifyGdtAsync(sessionId, annotations, "checker");
+
+        Assert.Equal(2, results.Count);
+        Assert.Equal(VerificationStatus.Passed, results.Single(result => result.Identifier == "position-1").Status);
+        var unsupported = results.Single(result => result.Identifier == "unknown-1");
+        Assert.Equal(VerificationStatus.NotVerified, unsupported.Status);
+        Assert.Equal(GdtResult.UnsupportedReason, unsupported.Reason);
+        Assert.Equal(2, repository.Saved.Count);
+    }
+
     [Fact(DisplayName = "TD-APP-001 generates Markdown delta content and audit metadata for Checker")]
     public async Task Authorized_report_contains_deltas_and_writes_export_audit()
     {
@@ -54,4 +78,14 @@ public class VerificationServiceTests
     }
     private sealed class AuditFake : IAuditLogger { public List<AuditEntry> Entries { get; } = new(); public bool ThrowOnWrite { get; init; } public Task WriteAsync(AuditEntry entry, CancellationToken cancellationToken = default) { if (ThrowOnWrite) return Task.FromException(new InvalidOperationException("audit unavailable")); Entries.Add(entry); return Task.CompletedTask; } }
     private sealed class LoggerFake : ICentralizedLogger { public List<Exception> Exceptions { get; } = new(); public void Log(Exception exception, string operation, string context) => Exceptions.Add(exception); }
+
+    private sealed class GdtResultRepository : IVerificationSessionRepository
+    {
+        public IReadOnlyList<GdtResult> Saved { get; private set; } = Array.Empty<GdtResult>();
+        public Task<IReadOnlyList<DimensionMatch>> GetMatchesAsync(Guid id, DimensionMatchStatus? status = null, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DimensionMatch>>(Array.Empty<DimensionMatch>());
+        public Task<VerificationSession?> GetAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<VerificationSession?>(new VerificationSession { VerificationSessionId = id });
+        public Task<VerificationSession> GetOrCreateAsync(Guid stepDocumentId, Guid dxfDocumentId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task ReplaceGdtResultsAsync(Guid sessionId, IReadOnlyCollection<GdtResult> results, string userId, CancellationToken cancellationToken = default) { Saved = results.ToArray(); return Task.CompletedTask; }
+        public Task ReplaceResultsAsync(VerificationSession session, IReadOnlyCollection<DimensionMatch> matches, DocumentAuditAction auditAction, string userId, string detailsJson, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+    }
 }
