@@ -1,6 +1,8 @@
 using System.Text;
 using DrawVerify.Application.DxfDimensionExtraction;
+using DrawVerify.Application.Verification;
 using DrawVerify.Core.Enums;
+using DrawVerify.Core.Models;
 using DrawVerify.Geometry.Models;
 using Xunit;
 
@@ -27,6 +29,20 @@ public sealed class DxfGdtParserTests
         var annotation = Assert.Single(result);
         Assert.Equal(GdtControlType.Position, annotation.ControlType);
         Assert.Contains("UNSUPPORTED", annotation.RawText!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact(DisplayName = "TD-KAN45-REVIEW-01 classifies unsupported DXF modifiers through the validator")]
+    public async Task Unsupported_modifier_is_cannot_validate_with_canonical_reason()
+    {
+        await using var stream = new MemoryStream(Encoding.UTF8.GetBytes("0\nTEXT\n1\nPOSITION 0.1 COMPOSITE UNSUPPORTED\n"));
+
+        var annotation = Assert.Single(await new DxfGdtParser().ParseAsync(stream, Guid.NewGuid(), Guid.NewGuid()));
+        var result = Assert.Single(new GdtValidator().Validate(new[] { annotation }));
+
+        Assert.Equal(VerificationStatus.CannotValidate, result.Status);
+        Assert.Equal(GdtResult.UnsupportedSyntaxReason, result.Reason);
+        Assert.True(annotation.HasCompositeFrame);
+        Assert.Contains(annotation.Diagnostics!, diagnostic => diagnostic.Contains("unsupported", StringComparison.OrdinalIgnoreCase));
     }
     [Fact(DisplayName = "TD-04 parses supported DXF feature-control frames and preserves source data")]
     public async Task Parses_supported_frame_fields_and_leaves_stream_open()

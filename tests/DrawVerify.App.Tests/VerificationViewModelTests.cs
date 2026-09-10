@@ -58,9 +58,14 @@ public sealed class VerificationViewModelTests
         var vm = new VerificationViewModel(session, new RoleAuthorization());
 
         Assert.Equal(expected, vm.CanModifyGdtReview);
-        Assert.False(vm.AddGdtCommentCommand.CanExecute(null));
-        Assert.False(vm.FlagGdtEngineeringReviewCommand.CanExecute(null));
-        Assert.False(vm.SetGdtDispositionCommand.CanExecute(null));
+        if (expected)
+        {
+            typeof(VerificationViewModel).GetField("<SelectedSessionId>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(vm, Guid.NewGuid());
+            vm.SelectedGdtResult = new GdtResultItemViewModel(NewGdt(Guid.NewGuid(), VerificationStatus.CannotValidate, "capability", "DXF:drawing", "entity:1"));
+        }
+        Assert.Equal(expected, vm.AddGdtCommentCommand.CanExecute(null));
+        Assert.Equal(expected, vm.FlagGdtEngineeringReviewCommand.CanExecute("true"));
+        Assert.Equal(expected, vm.SetGdtDispositionCommand.CanExecute("Future scope"));
     }
 
     [Fact(DisplayName = "TD-APPUI-003 presents supported and Cannot Validate GD&T statuses and evidence")]
@@ -400,6 +405,83 @@ public sealed class VerificationViewModelTests
         Assert.False(viewModel.ResolveMissingDimensionCommand.CanExecute("Accepted"));
     }
 
+    [Fact(DisplayName = "TD-KAN45-REVIEW-03 refreshes mixed GD&T results into the dedicated list and count")]
+    public async Task Refresh_loads_mixed_gdt_results_and_cannot_validate_metadata()
+    {
+        var session = new SessionAuthenticationService();
+        session.SignIn(new AuthenticatedUser("checker", new[] { "Checker" }) { UserId = "checker" });
+        var sessionId = Guid.NewGuid();
+        var results = new[]
+        {
+            NewGdt(sessionId, VerificationStatus.Passed, "pass", "model.step", "pmi:1"),
+            NewGdt(sessionId, VerificationStatus.Failed, "fail", "model.step", "pmi:2"),
+            NewGdt(sessionId, VerificationStatus.Mismatched, "mismatch", "drawing.dxf", "entity:3"),
+            NewGdt(sessionId, VerificationStatus.NotVerified, "not-verified", "drawing.dxf", "entity:4"),
+            NewGdt(sessionId, VerificationStatus.CannotValidate, "cannot", "DXF:drawing", "entity:42")
+        };
+        var repository = new ViewerSessionRepository(sessionId, new DimensionMatch { Status = DimensionMatchStatus.Matched }, results);
+        var matching = new DimensionMatchingService(new EmptyDocuments(), repository, new EmptyGeometry(), session, new DimensionMatchingConfiguration());
+        var viewModel = new VerificationViewModel(session, new RoleAuthorization(), matching);
+
+        await viewModel.RefreshMatchesAsync(sessionId);
+
+        Assert.Equal(5, viewModel.GdtResults.Count);
+        var cannot = Assert.Single(viewModel.CannotValidateGdtResults);
+        Assert.Equal("DXF:drawing @ entity:42", cannot.Source);
+        Assert.Equal("Cannot Validate / Manual Review Required", cannot.StatusLabel);
+        Assert.Equal(1, viewModel.CannotValidateGdtControls);
+        Assert.Contains("Cannot Validate", viewModel.StatusFilters);
+        viewModel.SelectedGdtResult = cannot;
+        Assert.Equal("42", viewModel.DxfPreview.SelectedEntityReference);
+    }
+
+    [Fact(DisplayName = "TD-KAN45-REVIEW-04 executes review commands for Checker and refreshes without changing generated status")]
+    public async Task Checker_review_commands_persist_and_refresh_review_fields()
+    {
+        var session = new SessionAuthenticationService();
+        session.SignIn(new AuthenticatedUser("checker", new[] { "Checker" }) { UserId = "checker" });
+        var sessionId = Guid.NewGuid();
+        var initial = NewGdt(sessionId, VerificationStatus.CannotValidate, "cannot", "DXF:drawing", "entity:42");
+        var repository = new ViewerSessionRepository(sessionId, new DimensionMatch { Status = DimensionMatchStatus.Matched }, new[] { initial });
+        var matching = new DimensionMatchingService(new EmptyDocuments(), repository, new EmptyGeometry(), session, new DimensionMatchingConfiguration());
+        var viewModel = new VerificationViewModel(session, new RoleAuthorization(), matching);
+        typeof(VerificationViewModel).GetField("<SelectedSessionId>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, sessionId);
+        await viewModel.RefreshMatchesAsync(sessionId);
+        viewModel.SelectedGdtResult = Assert.Single(viewModel.CannotValidateGdtResults);
+        viewModel.GdtReviewComment = "Needs engineering review";
+
+        Assert.True(viewModel.CanModifyGdtReview);
+        Assert.True(viewModel.AddGdtCommentCommand.CanExecute(null));
+        Assert.True(viewModel.FlagGdtEngineeringReviewCommand.CanExecute("true"));
+        Assert.True(viewModel.SetGdtDispositionCommand.CanExecute("Future scope"));
+        viewModel.AddGdtCommentCommand.Execute(null);
+        await WaitForAsync(() => repository.Current.Single().ReviewComment == "Needs engineering review" && !viewModel.IsBusy);
+        viewModel.SelectedGdtResult = new GdtResultItemViewModel(repository.Current.Single());
+        viewModel.FlagGdtEngineeringReviewCommand.Execute("true");
+        await WaitForAsync(() => repository.Current.Single().RequiresEngineeringReview && !viewModel.IsBusy);
+        viewModel.SetGdtDispositionCommand.Execute("Future scope");
+        await WaitForAsync(() => repository.Current.Single().ReviewDisposition == "Future scope" && !viewModel.IsBusy);
+
+        var refreshed = Assert.Single(viewModel.CannotValidateGdtResults);
+        Assert.Equal(VerificationStatus.CannotValidate, refreshed.Result.Status);
+        Assert.Equal("Needs engineering review", refreshed.Comment);
+        Assert.True(refreshed.RequiresEngineeringReview);
+        Assert.Equal("Future scope", refreshed.Disposition);
+    }
+
+    private static GdtResult NewGdt(Guid sessionId, VerificationStatus status, string identifier, string source, string location) => new()
+    {
+        GdtResultId = Guid.NewGuid(), VerificationSessionId = sessionId, Identifier = identifier, ControlType = GdtControlType.Position,
+        SourceDocument = source, SourceLocation = location, Status = status, Reason = status == VerificationStatus.CannotValidate ? GdtResult.UnsupportedSyntaxReason : null,
+        RuleVersion = GdtResult.CurrentRuleVersion, ToleranceValue = "0.1"
+    };
+
+    private static async Task WaitForAsync(Func<bool> condition)
+    {
+        for (var attempt = 0; attempt < 100 && !condition(); attempt++) await Task.Delay(10);
+        Assert.True(condition());
+    }
+
     [Fact(DisplayName = "TD-KAN44-012 selecting a DXF GD&T result navigates to its persisted source reference")]
     public void Gdt_selection_navigates_to_dxf_source()
     {
@@ -499,9 +581,10 @@ public sealed class VerificationViewModelTests
         public Task<IReadOnlyList<DimensionMatch>> GetMatchesAsync(Guid sessionId, DimensionMatchStatus? status = null, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DimensionMatch>>(Array.Empty<DimensionMatch>());
         public Task ReplaceResultsAsync(VerificationSession session, IReadOnlyCollection<DimensionMatch> matches, DocumentAuditAction auditAction, string userId, string detailsJson, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
-    private sealed class ViewerSessionRepository(Guid sessionId, DimensionMatch unmatched) : IVerificationSessionRepository
+    private sealed class ViewerSessionRepository(Guid sessionId, DimensionMatch unmatched, IReadOnlyList<GdtResult>? gdtResults = null) : IVerificationSessionRepository
     {
         public int MissingResultsCallCount { get; private set; }
+        public IReadOnlyList<GdtResult> Current { get; private set; } = gdtResults ?? Array.Empty<GdtResult>();
         public Task<VerificationSession> GetOrCreateAsync(Guid stepDocumentId, Guid dxfDocumentId, CancellationToken cancellationToken = default) => Task.FromResult(new VerificationSession { VerificationSessionId = sessionId, StepDocumentId = stepDocumentId, DxfDocumentId = dxfDocumentId });
         public Task<VerificationSession?> GetAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<VerificationSession?>(new VerificationSession { VerificationSessionId = sessionId });
         public Task<IReadOnlyList<DimensionMatch>> GetMatchesAsync(Guid id, DimensionMatchStatus? status = null, CancellationToken cancellationToken = default)
@@ -511,6 +594,11 @@ public sealed class VerificationViewModelTests
             return Task.FromResult(result);
         }
         public Task ReplaceResultsAsync(VerificationSession session, IReadOnlyCollection<DimensionMatch> matches, DocumentAuditAction auditAction, string userId, string detailsJson, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<IReadOnlyList<GdtResult>> GetGdtResultsAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult(Current);
+        public Task UpdateGdtReviewAsync(Guid id, Guid resultId, string? comment, bool requiresEngineeringReview, string userId, CancellationToken cancellationToken = default)
+        { Current = Current.Select(result => result.GdtResultId == resultId ? result.WithReview(comment, requiresEngineeringReview) : result).ToArray(); return Task.CompletedTask; }
+        public Task UpdateGdtDispositionAsync(Guid id, Guid resultId, string disposition, string userId, CancellationToken cancellationToken = default)
+        { Current = Current.Select(result => result.GdtResultId == resultId ? result.WithDisposition(disposition) : result).ToArray(); return Task.CompletedTask; }
     }
     private sealed class EmptyGeometry : IMatchableGeometryService
     {

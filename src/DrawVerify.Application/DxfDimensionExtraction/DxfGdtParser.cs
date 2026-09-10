@@ -10,6 +10,7 @@ namespace DrawVerify.Application.DxfDimensionExtraction;
 public sealed class DxfGdtParser : IDxfGdtParser
 {
     private static readonly Regex Supported = new("(?<symbol>⌖|⏥|∥|⊥|POSITION|FLATNESS|PARALLELISM|PERPENDICULARITY)\\s*(?<tol>[^;|]*)(?:\\|(?<datum>[A-Z](?:\\s*[A-Z])*))?", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    private static readonly Regex UnsupportedModifier = new("\\b(COMPOSITE|UNSUPPORTED|MMC|RFS|LMC|PROJECTED|TANGENT|FREE[\\s_-]*STATE)\\b", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     public async Task<IReadOnlyList<GdtAnnotationData>> ParseAsync(Stream content, Guid documentId, Guid documentVersionId, CancellationToken cancellationToken = default)
         => (await ParseDetailedAsync(content, documentId, documentVersionId, cancellationToken).ConfigureAwait(false)).Annotations;
@@ -74,9 +75,14 @@ public sealed class DxfGdtParser : IDxfGdtParser
         var annotationDiagnostics = new List<string>();
         if (!match.Success) annotationDiagnostics.Add("GD&T symbol or tolerance was not recognized.");
         if (match.Success && string.IsNullOrWhiteSpace(match.Groups["tol"].Value)) annotationDiagnostics.Add("GD&T tolerance was not extracted.");
+        var tolerance = match.Success ? match.Groups["tol"].Value.Trim() : null;
+        var unsupportedModifier = match.Success && UnsupportedModifier.IsMatch(tolerance ?? string.Empty);
+        var modifiers = unsupportedModifier ? tolerance : null;
+        var hasCompositeFrame = unsupportedModifier && tolerance!.Contains("COMPOSITE", StringComparison.OrdinalIgnoreCase);
+        if (unsupportedModifier) annotationDiagnostics.Add("GD&T modifier or composite frame is unsupported.");
         if (diagnostics is not null)
             foreach (var message in annotationDiagnostics)
                 diagnostics.Add($"Entity {ordinal}: {message}");
-        results.Add(new GdtAnnotationData($"DXF:{documentId:N}:{versionId:N}:{entityHandle}", type, symbol, match.Success ? match.Groups["tol"].Value.Trim() : null, null, datums, $"DXF:{documentId:N}", location, raw, ordinal, entityHandle, layer, block, view, annotationDiagnostics, SourceDocumentVersion: versionId.ToString()));
+        results.Add(new GdtAnnotationData($"DXF:{documentId:N}:{versionId:N}:{entityHandle}", type, symbol, tolerance, modifiers, datums, $"DXF:{documentId:N}", location, raw, ordinal, entityHandle, layer, block, view, annotationDiagnostics, HasCompositeFrame: hasCompositeFrame, SourceDocumentVersion: versionId.ToString()));
     }
 }
