@@ -9,6 +9,49 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteVerificationSessionRepositoryTests
 {
+    [Fact(DisplayName = "TD-INF-001 round-trips extra metadata and filters by extra status")]
+    public async Task Extra_dimension_metadata_round_trips_through_sqlite()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-extra-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteVerificationSessionRepository(path);
+            var session = await repository.GetOrCreateAsync(Guid.NewGuid(), Guid.NewGuid());
+            var extra = new DimensionMatch { DimensionMatchId = Guid.NewGuid(), VerificationSessionId = session.VerificationSessionId, StepDocumentVersionId = Guid.NewGuid(), DxfDocumentVersionId = Guid.NewGuid(), DxfDimensionReference = -1, StepGeometryReference = "Face:7:Cylinder", GeometryType = "Hole", Status = DimensionMatchStatus.ExtraDimension, ReasonCode = "NoCorrespondingDimension", StepFeatureValue = 12.5, StepLocationX = 1.25, StepLocationY = 2.5, StepLocationZ = 3.75, Review = new DimensionReview { DimensionMatchId = Guid.NewGuid(), Comment = "Review extra", Status = DimensionResolutionStatus.Open } };
+            var saved = session with { StepDocumentVersionId = extra.StepDocumentVersionId, DxfDocumentVersionId = extra.DxfDocumentVersionId, Status = VerificationSessionStatus.DimensionsMatched };
+            await repository.ReplaceResultsAsync(saved, new[] { extra }, DocumentAuditAction.ToleranceComparisonApplied, "checker", JsonSerializer.Serialize(new { extraDimensionCount = 1 }));
+
+            var persisted = Assert.Single(await repository.GetMatchesAsync(session.VerificationSessionId, DimensionMatchStatus.ExtraDimension));
+            Assert.Equal(extra.StepGeometryReference, persisted.StepGeometryReference);
+            Assert.Equal(extra.StepFeatureValue, persisted.StepFeatureValue);
+            Assert.Equal((extra.StepLocationX, extra.StepLocationY, extra.StepLocationZ), (persisted.StepLocationX, persisted.StepLocationY, persisted.StepLocationZ));
+            Assert.Equal("Review extra", persisted.Review!.Comment);
+        }
+        finally { await DeleteDatabaseAsync(path); }
+    }
+
+    [Fact(DisplayName = "TD-INF-002 preserves extra review state across same-identity replacement")]
+    public async Task Extra_review_survives_recomparison_by_stable_step_reference()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-extra-review-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteVerificationSessionRepository(path);
+            var session = await repository.GetOrCreateAsync(Guid.NewGuid(), Guid.NewGuid());
+            var stepVersion = Guid.NewGuid(); var dxfVersion = Guid.NewGuid();
+            var persistedSession = session with { StepDocumentVersionId = stepVersion, DxfDocumentVersionId = dxfVersion, Status = VerificationSessionStatus.DimensionsMatched };
+            var first = new DimensionMatch { DimensionMatchId = Guid.NewGuid(), VerificationSessionId = session.VerificationSessionId, StepDocumentVersionId = stepVersion, DxfDocumentVersionId = dxfVersion, DxfDimensionReference = -1, StepGeometryReference = "Edge:stable", Status = DimensionMatchStatus.ExtraDimension, ReasonCode = "NoCorrespondingDimension" };
+            await repository.ReplaceResultsAsync(persistedSession, new[] { first }, DocumentAuditAction.ToleranceComparisonApplied, "checker", "{}");
+            await repository.UpdateReviewAsync(session.VerificationSessionId, first.DimensionMatchId, new DimensionReview { DimensionMatchId = first.DimensionMatchId, Comment = "Intentionally omitted", Status = DimensionResolutionStatus.Rejected });
+            var replacement = first with { DimensionMatchId = Guid.NewGuid(), Review = null, StepFeatureValue = 8 };
+            await repository.ReplaceResultsAsync(persistedSession, new[] { replacement }, DocumentAuditAction.ToleranceComparisonApplied, "checker", "{}");
+
+            var result = Assert.Single(await repository.GetMatchesAsync(session.VerificationSessionId, DimensionMatchStatus.ExtraDimension));
+            Assert.Equal("Intentionally omitted", result.Review!.Comment);
+            Assert.Equal(DimensionResolutionStatus.Rejected, result.Review.Status);
+        }
+        finally { await DeleteDatabaseAsync(path); }
+    }
     [Fact(DisplayName = "TD-INF-001 replaces SQLite results and persists unmatched audit details atomically")]
     public async Task Session_pair_is_unique_and_results_are_replaced_atomically()
     {

@@ -9,7 +9,7 @@ public sealed class DimensionMatchItemViewModel
 {
     public DimensionMatchItemViewModel(DimensionMatch match) { Match = match; }
     public DimensionMatch Match { get; }
-    public string StatusLabel => Match.Status switch { DimensionMatchStatus.Matched when Match.RequiresManualReview => "Manual review" , DimensionMatchStatus.Matched => "Matched", DimensionMatchStatus.Mismatched => "Mismatched", DimensionMatchStatus.Unmatched => "Unmatched", DimensionMatchStatus.MissingDimension => "Missing Dimension", _ => "Unknown" };
+    public string StatusLabel => Match.Status switch { DimensionMatchStatus.Matched when Match.RequiresManualReview => "Manual review" , DimensionMatchStatus.Matched => "Matched", DimensionMatchStatus.Mismatched => "Mismatched", DimensionMatchStatus.Unmatched => "Unmatched", DimensionMatchStatus.ExtraDimension when IsExplicitExtraDimension => "Extra Dimension", DimensionMatchStatus.ExtraDimension => "Missing Dimension", _ => "Unknown" };
     public string ConfidenceLabel => Match.Confidence?.ToString() ?? "-";
     public string GeometryReference => Match.StepGeometryReference ?? "-";
     public string Reason => Match.ReasonCode ?? string.Empty;
@@ -28,6 +28,11 @@ public sealed class DimensionMatchItemViewModel
     public string Comment => Match.Review?.Comment ?? "";
     public string ResolutionStatus => Match.Review?.Status.ToString() ?? "Open";
     public bool IsUnmatched => Match.Status == DimensionMatchStatus.Unmatched;
+    public bool IsExtraDimension => Match.Status == DimensionMatchStatus.ExtraDimension;
+    public bool IsExplicitExtraDimension => IsExtraDimension && string.Equals(Match.ReasonCode, "NoCorrespondingDimension", StringComparison.Ordinal);
+    public string ExtraDimensionDetailsLabel => IsExtraDimension ? "In 3D but not in 2D" : string.Empty;
+    public string FeatureValue => FormatValue(Match.FeatureValue);
+    public string FeatureLocation => Match.StepLocationX is double x && Match.StepLocationY is double y && Match.StepLocationZ is double z ? $"({x.ToString("0.###", CultureInfo.InvariantCulture)}, {y.ToString("0.###", CultureInfo.InvariantCulture)}, {z.ToString("0.###", CultureInfo.InvariantCulture)})" : "Unavailable";
     public string MeasuredValue => FormatValue(Match.MeasuredValue);
     public string DeltaUnit => Match.DeltaUnit;
     public string SignedDelta => FormatDelta(Match.SignedDelta, Match.DeltaUnit);

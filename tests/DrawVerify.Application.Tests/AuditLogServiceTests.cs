@@ -8,6 +8,16 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class AuditLogServiceTests
 {
+    [Fact(DisplayName = "TD-APP-003 audit details deserialize extra count and trigger identity")]
+    public void Extra_dimension_audit_payload_has_required_fields()
+    {
+        var payload = System.Text.Json.JsonSerializer.Serialize(new { stepDocumentId = Guid.NewGuid(), dxfDocumentId = Guid.NewGuid(), extraDimensionCount = 2, timestampUtc = DateTime.UtcNow, triggeredBy = "checker" });
+        using var document = System.Text.Json.JsonDocument.Parse(payload);
+        var root = document.RootElement;
+        Assert.Equal(2, root.GetProperty("extraDimensionCount").GetInt32());
+        Assert.Equal("checker", root.GetProperty("triggeredBy").GetString());
+        Assert.Equal(DateTimeKind.Utc, root.GetProperty("timestampUtc").GetDateTime().Kind);
+    }
     [Fact(DisplayName = "TD-05 queries and exports filtered audit data for Admin only")]
     public async Task Admin_query_is_ordered_and_csv_escapes_values()
     {

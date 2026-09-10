@@ -12,6 +12,29 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class ReportServiceStatusTests
 {
+    [Fact(DisplayName = "TD-REPORT-001 renders populated and empty Extra Dimensions sections")]
+    public void Report_contains_extra_properties_and_explicit_empty_state()
+    {
+        var extra = new DimensionMatch { Status = DimensionMatchStatus.ExtraDimension, StepGeometryReference = "Face:7", GeometryType = "Hole", StepFeatureValue = 12.5, StepLocationX = 1, StepLocationY = 2, StepLocationZ = 3, EffectiveLowerTolerance = -.1, EffectiveUpperTolerance = .2, ToleranceUnit = "mm", Review = new DimensionReview { DimensionMatchId = Guid.NewGuid(), Comment = "Potential drawing error", Status = DimensionResolutionStatus.Rejected } };
+        var populated = new VerificationReport { DimensionMatches = new[] { extra } }.ToMarkdown();
+        var empty = new VerificationReport().ToMarkdown();
+
+        Assert.Contains("## Extra Dimensions", populated);
+        Assert.Contains("Face:7", populated); Assert.Contains("Geometry: Hole", populated); Assert.Contains("Value: 12.5", populated); Assert.Contains("Tolerance:", populated); Assert.Contains("Location: (1, 2, 3)", populated); Assert.Contains("Potential drawing error", populated); Assert.Contains("Rejected", populated);
+        Assert.Contains("## Extra Dimensions", empty); Assert.Contains("None identified", empty);
+    }
+
+    [Fact(DisplayName = "TD-REPORT-002 exports extra dimensions with invariant values and CSV escaping")]
+    public async Task Extra_csv_export_contains_status_properties_and_escaped_review()
+    {
+        var sessionId = Guid.NewGuid();
+        var extra = new DimensionMatch { Status = DimensionMatchStatus.ExtraDimension, StepGeometryReference = "Face:7", GeometryType = "Hole", StepFeatureValue = 12.5, StepLocationX = 1.25, StepLocationY = 2.5, StepLocationZ = 3.75, Review = new DimensionReview { DimensionMatchId = Guid.NewGuid(), Comment = "Needs, review", Status = DimensionResolutionStatus.Open } };
+        var csv = await new ReportService(new Sessions(new[] { extra }), Authenticated("checker", "Checker")).GenerateMissingDimensionsCsvAsync(sessionId);
+
+        Assert.Contains("Status,DimensionValue", csv);
+        Assert.Contains("ExtraDimension", csv);
+        Assert.Contains("12.5", csv); Assert.Contains("Face:7", csv); Assert.Contains("Hole", csv); Assert.Contains("1.25", csv); Assert.Contains("\"Needs, review\"", csv);
+    }
     [Fact(DisplayName = "TD-001 derives overall counts and excludes MissingDimension from total")]
     public void Comparison_summary_counts_zero_and_missing_rows_separately()
     {
@@ -127,7 +150,8 @@ public sealed class ReportServiceStatusTests
         var authentication = Authenticated("checker", "Checker");
         var match = new DimensionMatch { Status = DimensionMatchStatus.Unmatched, DxfDimensionReference = 4, NominalValue = 50, DxfLayer = "DIM", BlockName = "B1", ViewName = "Front", LocationX = 1.25, LocationY = 2.5, DimensionText = "50,00", Review = new DimensionReview { DimensionMatchId = Guid.NewGuid(), Comment = "Needs \"design\"\nreview", Status = DimensionResolutionStatus.Open } };
         var csv = await new ReportService(new Sessions(new[] { match }), authentication).GenerateMissingDimensionsCsvAsync(Guid.NewGuid());
-        Assert.Contains("DimensionMatchId,DimensionValue,Tolerance,Layer,Block,View,X,Y,Annotation,Resolution,Comment", csv);
+        Assert.StartsWith("DimensionMatchId,DimensionValue,Tolerance,Layer,Block,View,X,Y,Annotation,Resolution,Comment", csv);
+        Assert.Contains(",Status,DimensionValue,FeatureReference,GeometryType,Z", csv);
         Assert.Contains("DIM,B1,Front,1.25,2.5", csv);
         Assert.Contains("\"Needs \"\"design\"\"\nreview\"", csv);
     }

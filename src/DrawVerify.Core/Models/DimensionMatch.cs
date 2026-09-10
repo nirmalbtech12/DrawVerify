@@ -29,6 +29,11 @@ public sealed record DimensionMatch
     public string? ViewName { get; init; }
     public double? LocationX { get; init; }
     public double? LocationY { get; init; }
+    public double? StepFeatureValue { get; init; }
+    public double? StepLocationX { get; init; }
+    public double? StepLocationY { get; init; }
+    public double? StepLocationZ { get; init; }
+    public double? FeatureValue => StepFeatureValue ?? MeasuredValue;
     public double? X => LocationX;
     public double? Y => LocationY;
     public string? AnnotationText => DimensionText;

@@ -6,6 +6,7 @@ public sealed class VerificationReport
     public ComparisonSummary ComparisonSummary => DrawVerify.Core.Models.ComparisonSummary.From(DimensionMatches);
     public IReadOnlyList<DimensionMatch> UnmatchedDimensions => DimensionMatches.Where(match => match.Status == Enums.DimensionMatchStatus.Unmatched).ToArray();
     public IReadOnlyList<DimensionMatch> MismatchedDimensions => DimensionMatches.Where(match => match.Status == Enums.DimensionMatchStatus.Mismatched).ToArray();
+    public IReadOnlyList<DimensionMatch> ExtraDimensions => DimensionMatches.Where(match => match.Status == Enums.DimensionMatchStatus.ExtraDimension).ToArray();
     public string ToMarkdown()
     {
         var summary = ComparisonSummary;
@@ -15,6 +16,8 @@ public sealed class VerificationReport
             $"- Mismatched: {summary.MismatchedDimensions}",
             $"- Unmatched: {summary.UnmatchedDimensions}",
             $"- Missing Dimensions: {summary.MissingDimensions}",
+            $"- Missing in 3D: {summary.MissingIn3DCount}",
+            $"- Extra in 3D: {summary.ExtraDimensionCount}",
             $"- Match Percentage: {(summary.MatchPercentage is double percentage ? percentage.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + "%" : "N/A")}",
             string.Empty,
             "### Summary by Dimension Type",
@@ -44,6 +47,13 @@ public sealed class VerificationReport
             lines.Add("- None identified.");
         foreach (var match in UnmatchedDimensions)
             lines.Add($"- Reference: `{match.DxfDimensionReference}` | Type: {match.DimensionType?.ToString() ?? "-"} | Value: {Format(match.NominalValue)} {match.DeltaUnit} | Nominal value: {Format(match.NominalValue)} {match.DeltaUnit} | Tolerance: {FormatTolerance(match)} | Layer: {match.DxfLayer ?? "-"} | Text: {match.DimensionText ?? "-"} | Reason: {match.ReasonCode ?? "-"} ({match.ReasonExplanation ?? "-"}) | Comment: {match.Review?.Comment ?? "-"} | Resolution: {match.Review?.Status.ToString() ?? "Open"}");
+        lines.Add(string.Empty);
+        lines.Add("## Extra Dimensions");
+        lines.Add(string.Empty);
+        if (ExtraDimensions.Count == 0)
+            lines.Add("- None identified.");
+        foreach (var match in ExtraDimensions)
+            lines.Add($"- Feature: `{match.StepGeometryReference ?? "-"}` | Geometry: {match.GeometryType ?? "-"} | Value: {Format(match.FeatureValue)} {match.DeltaUnit} | Tolerance: {FormatTolerance(match)} | Location: {FormatLocation(match)} | Comment: {match.Review?.Comment ?? "-"} | Resolution: {match.Review?.Status.ToString() ?? "Open"}");
         return string.Join(Environment.NewLine, lines);
     }
     private static string FormatStatus(Enums.DimensionMatchStatus status) => status switch
@@ -51,10 +61,11 @@ public sealed class VerificationReport
         Enums.DimensionMatchStatus.Matched => "Matched",
         Enums.DimensionMatchStatus.Mismatched => "Mismatched",
         Enums.DimensionMatchStatus.Unmatched => "Unmatched",
-        Enums.DimensionMatchStatus.MissingDimension => "Missing Dimension",
+        Enums.DimensionMatchStatus.ExtraDimension => "Extra Dimension",
         _ => "Unknown"
     };
     private static string Format(double? value) => value is double number && double.IsFinite(number) ? number.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) : "-";
     private static string FormatSigned(double? value) => value is double number && double.IsFinite(number) ? $"{number:+0.###;-0.###;0}" : "-";
     private static string FormatTolerance(DimensionMatch match) => match.EffectiveLowerTolerance is double lower && match.EffectiveUpperTolerance is double upper ? $"{Format(lower)} / +{Format(upper)} {match.ToleranceUnit ?? ""}" : "-";
+    private static string FormatLocation(DimensionMatch match) => match.StepLocationX is double x && match.StepLocationY is double y && match.StepLocationZ is double z ? $"({Format(x)}, {Format(y)}, {Format(z)})" : "Unavailable";
 }

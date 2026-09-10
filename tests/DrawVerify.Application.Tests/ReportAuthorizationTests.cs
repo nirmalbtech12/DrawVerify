@@ -8,6 +8,15 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class ReportAuthorizationTests
 {
+    [Fact(DisplayName = "TD-REPORT-002 report authorization remains enforced for extra exports")]
+    public void Viewer_cannot_use_extra_dimension_report_surface()
+    {
+        var authorization = new RoleAuthorization();
+        Assert.True(authorization.IsAllowed(new AuthenticatedUser("checker", new[] { "Checker" }), RolePermission.GenerateFinalReports));
+        Assert.True(authorization.IsAllowed(new AuthenticatedUser("approver", new[] { "Approver" }), RolePermission.GenerateFinalReports));
+        Assert.False(authorization.IsAllowed(new AuthenticatedUser("viewer", new[] { "Viewer" }), RolePermission.GenerateFinalReports));
+    }
+
     [Fact(DisplayName = "TD-009 Approver has the same report permission as Checker")]
     public void Approver_and_checker_are_authorized_for_summary_report()
     {

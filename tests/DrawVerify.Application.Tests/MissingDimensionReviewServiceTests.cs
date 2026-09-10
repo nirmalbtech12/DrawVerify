@@ -9,6 +9,16 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class MissingDimensionReviewServiceTests
 {
+    [Fact(DisplayName = "TD-APP-002 review queries do not return extra dimensions as missing DXF rows")]
+    public async Task Missing_query_excludes_extra_dimension_status()
+    {
+        var sessionId = Guid.NewGuid(); var repository = new ReviewRepository(sessionId, new[] { Match(1, "A", "B", "Front", 1, 2), new DimensionMatch { Status = DimensionMatchStatus.ExtraDimension, StepGeometryReference = "Edge:extra" } });
+        var authentication = new SessionAuthenticationService(); authentication.SignIn(new AuthenticatedUser("checker", new[] { SystemRoles.Checker }));
+        var results = await new MissingDimensionReviewService(repository, authentication).QueryAsync(sessionId);
+
+        Assert.Single(results);
+        Assert.All(results, item => Assert.Equal(DimensionMatchStatus.Unmatched, item.Status));
+    }
     [Fact(DisplayName = "TD-004 queries missing dimensions by location and summarizes them")]
     public async Task Query_filters_sorts_and_summarizes_location_metadata()
     {

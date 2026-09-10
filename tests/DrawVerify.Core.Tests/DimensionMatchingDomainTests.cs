@@ -8,6 +8,35 @@ namespace DrawVerify.Core.Tests;
 
 public sealed class DimensionMatchingDomainTests
 {
+    [Fact(DisplayName = "TD-CORE-001 classifies extra dimensions separately from missing DXF dimensions")]
+    public void Extra_summary_counts_unconsumed_step_rows_without_inflating_dxf_total()
+    {
+        var rows = new[]
+        {
+            new DimensionMatch { Status = DimensionMatchStatus.Matched, DimensionType = DimensionType.Linear },
+            new DimensionMatch { Status = DimensionMatchStatus.Unmatched, DimensionType = DimensionType.Linear },
+            new DimensionMatch { Status = DimensionMatchStatus.ExtraDimension, DimensionType = DimensionType.Radial, StepGeometryReference = "Edge:unused" }
+        };
+
+        var summary = ComparisonSummary.From(rows);
+
+        Assert.Equal(2, summary.TotalDimensions);
+        Assert.Equal(1, summary.MissingIn3DCount);
+        Assert.Equal(1, summary.ExtraDimensionCount);
+        Assert.Equal(DimensionMatchStatus.ExtraDimension, DimensionMatchStatus.MissingDimension);
+        Assert.Equal(3, (int)DimensionMatchStatus.MissingDimension);
+    }
+
+    [Fact(DisplayName = "TD-CORE-002 validates extra metadata and review status contract")]
+    public void Extra_metadata_rejects_non_finite_values_when_persisted_contract_is_checked()
+    {
+        var extra = new DimensionMatch { Status = DimensionMatchStatus.ExtraDimension, StepGeometryReference = "Face:4", StepFeatureValue = 12.5, StepLocationX = 1, StepLocationY = 2, StepLocationZ = 3, Review = new DimensionReview { DimensionMatchId = Guid.NewGuid(), Status = DimensionResolutionStatus.Open } };
+
+        Assert.Equal("Face:4", extra.StepGeometryReference);
+        Assert.True(double.IsFinite(extra.FeatureValue!.Value));
+        Assert.True(double.IsFinite(extra.StepLocationX!.Value));
+        Assert.Equal(DimensionResolutionStatus.Open, extra.Review!.Status);
+    }
     [Fact(DisplayName = "TD-CORE-001 calculates signed and absolute deltas with dimension units")]
     public void Mismatched_match_calculates_directional_delta_without_rounding()
     {

@@ -32,5 +32,17 @@ public sealed class DxfPreviewViewModel : INotifyPropertyChanged
         return IsHighlightVisible;
     }
 
+    public void ClearSelection()
+    {
+        SelectedEntityReference = null;
+        SelectedAnchor = null;
+        SelectedX = null;
+        SelectedY = null;
+        NavigationTarget = null;
+        IsHighlightVisible = false;
+        PreviewStatus = "No DXF dimension selected.";
+        Notify(nameof(SelectedEntityReference)); Notify(nameof(SelectedAnchor)); Notify(nameof(SelectedX)); Notify(nameof(SelectedY)); Notify(nameof(NavigationTarget)); Notify(nameof(IsHighlightVisible)); Notify(nameof(PreviewStatus));
+    }
+
     private void Notify([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

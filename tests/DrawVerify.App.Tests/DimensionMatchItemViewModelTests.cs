@@ -35,4 +35,19 @@ public sealed class DimensionMatchItemViewModelTests
         Assert.Equal("Gray", legacy.StatusColor);
         Assert.NotEqual("Matched", legacy.StatusLabel);
     }
+
+    [Fact(DisplayName = "TD-UI-001 renders extra dimension properties and unavailable location")]
+    public void Extra_item_exposes_feature_value_reference_tolerance_and_location()
+    {
+        var complete = new DimensionMatchItemViewModel(new DimensionMatch { Status = DimensionMatchStatus.ExtraDimension, ReasonCode = "NoCorrespondingDimension", StepGeometryReference = "Face:7:Cylinder", GeometryType = "Hole", StepFeatureValue = 12.5, StepLocationX = 1.25, StepLocationY = 2.5, StepLocationZ = 3.75, EffectiveLowerTolerance = -.1, EffectiveUpperTolerance = .2, ToleranceUnit = "mm" });
+        var unavailable = new DimensionMatchItemViewModel(new DimensionMatch { Status = DimensionMatchStatus.ExtraDimension, StepGeometryReference = "Face:8" });
+
+        Assert.True(complete.IsExtraDimension);
+        Assert.Equal("Extra Dimension", complete.StatusLabel);
+        Assert.Equal("Face:7:Cylinder", complete.GeometryReference);
+        Assert.Equal("12.5", complete.FeatureValue);
+        Assert.Equal("(1.25, 2.5, 3.75)", complete.FeatureLocation);
+        Assert.Contains("mm", complete.Tolerance);
+        Assert.Equal("Unavailable", unavailable.FeatureLocation);
+    }
 }

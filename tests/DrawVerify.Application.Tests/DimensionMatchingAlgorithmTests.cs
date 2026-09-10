@@ -13,6 +13,26 @@ public sealed class DimensionMatchingAlgorithmTests
     private static readonly Guid StepVersion = Guid.NewGuid();
     private static readonly Guid DxfVersion = Guid.NewGuid();
 
+    [Fact(DisplayName = "TD-CORE-001 emits one extra row for every unconsumed STEP feature")]
+    public void Every_unconsumed_step_feature_is_an_extra_dimension_with_metadata()
+    {
+        var session = new VerificationSession { VerificationSessionId = Guid.NewGuid(), StepDocumentVersionId = StepVersion, DxfDocumentVersionId = DxfVersion };
+        var result = new DimensionMatchingAlgorithm(new DimensionMatchingConfiguration()).Match(
+            session,
+            new[] { new CoreDimensionData(Guid.NewGuid(), DxfVersion, 1, DimensionType.Linear, 10) },
+            new[]
+            {
+                new GeometryFeatureData { Reference = "Edge:used", GeometryType = "Line", Length = 10 },
+                new GeometryFeatureData { Reference = "Edge:extra", GeometryType = "Line", Length = 25, FeatureValue = 25, LocationX = 1, LocationY = 2, LocationZ = 3 }
+            });
+
+        var extra = Assert.Single(result.Where(item => item.Status == DimensionMatchStatus.ExtraDimension));
+        Assert.Equal("Edge:extra", extra.StepGeometryReference);
+        Assert.Equal("NoCorrespondingDimension", extra.ReasonCode);
+        Assert.Equal(25, extra.FeatureValue);
+        Assert.Equal((1, 2, 3), (extra.StepLocationX, extra.StepLocationY, extra.StepLocationZ));
+    }
+
     [Fact(DisplayName = "TD-APP-001 compares linear, radial, and angular dimensions with tolerance evidence")]
     public void Matches_linear_radial_and_angular_dimensions_and_emits_missing_features()
     {

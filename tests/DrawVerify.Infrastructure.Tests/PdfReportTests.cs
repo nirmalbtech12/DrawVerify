@@ -12,6 +12,14 @@ using Xunit;
 /// </summary>
 public class PdfReportTests
 {
+    [Fact(DisplayName = "TD-REPORT-002 report output includes an Extra Dimensions section")]
+    public void Extra_dimension_report_contains_required_properties()
+    {
+        var markdown = new VerificationReport { DimensionMatches = new[] { new DimensionMatch { Status = DimensionMatchStatus.ExtraDimension, StepGeometryReference = "Face:9", GeometryType = "Plane", StepFeatureValue = 4.25, StepLocationX = 1, StepLocationY = 2, StepLocationZ = 3 } } }.ToMarkdown();
+
+        Assert.Contains("## Extra Dimensions", markdown);
+        Assert.Contains("Face:9", markdown); Assert.Contains("Geometry: Plane", markdown); Assert.Contains("Value: 4.25", markdown); Assert.Contains("Location: (1, 2, 3)", markdown);
+    }
     [Fact(DisplayName = "TD-APP-004 report rendering reflects replacement delta values")]
     public void Report_uses_current_recomparison_delta_and_not_the_stale_value()
     {

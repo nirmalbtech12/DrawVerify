@@ -29,6 +29,8 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
         ApplyFilterCommand = new RelayCommand(_ => ApplyResultView()); SortResultsCommand = new RelayCommand(_ => ApplyResultView());
         AddMissingDimensionCommentCommand = new RelayCommand(async _ => await AddMissingDimensionCommentAsync(), _ => CanCommentMissingDimensions && SelectedSessionId is not null && SelectedUnmatchedDimension is not null && !IsBusy);
         ResolveMissingDimensionCommand = new RelayCommand(async value => await ResolveSelectedMissingDimensionAsync(value), _ => CanResolveMissingDimensions && SelectedSessionId is not null && SelectedUnmatchedDimension is not null && !IsBusy);
+        AddExtraDimensionCommentCommand = new RelayCommand(async _ => await AddExtraDimensionCommentAsync(), _ => CanCommentExtraDimensions && SelectedSessionId is not null && SelectedExtraDimension is not null && !IsBusy);
+        ResolveExtraDimensionCommand = new RelayCommand(async value => await ResolveSelectedExtraDimensionAsync(value), _ => CanResolveExtraDimensions && SelectedSessionId is not null && SelectedExtraDimension is not null && !IsBusy);
     }
     public event PropertyChangedEventHandler? PropertyChanged;
     public bool CanReview => _authorization.IsAllowed(_session.CurrentUser, RolePermission.ReviewVerification);
@@ -40,6 +42,9 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
     public bool CanManageTolerance => _matching is not null && _authorization.IsAllowed(_session.CurrentUser, RolePermission.ManageToleranceComparison);
     public bool CanCommentMissingDimensions => _matching is not null && _authorization.IsAllowed(_session.CurrentUser, RolePermission.CommentOnMissingDimensions);
     public bool CanResolveMissingDimensions => _matching is not null && _authorization.IsAllowed(_session.CurrentUser, RolePermission.ResolveUnmatched);
+    public bool CanViewExtraDimensions => _matching is not null && _authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewExtraDimensions);
+    public bool CanCommentExtraDimensions => _matching is not null && _authorization.IsAllowed(_session.CurrentUser, RolePermission.CommentOnExtraDimensions);
+    public bool CanResolveExtraDimensions => _matching is not null && _authorization.IsAllowed(_session.CurrentUser, RolePermission.ResolveExtraDimensions);
     public string ToleranceThresholdInput { get; set; } = "0.1";
     public string StepDocumentId { get; set; } = string.Empty;
     public string DxfDocumentId { get; set; } = string.Empty;
@@ -62,6 +67,8 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
     public int MismatchedDimensions => ComparisonSummary.MismatchedDimensions;
     public int UnmatchedDimensions => ComparisonSummary.UnmatchedDimensions;
     public int MissingDimensions => ComparisonSummary.MissingDimensions;
+    public int MissingIn3DCount => ComparisonSummary.MissingIn3DCount;
+    public int ExtraDimensionCount => ComparisonSummary.ExtraDimensionCount;
     public double? MatchPercentage => ComparisonSummary.MatchPercentage;
     public string MatchPercentageText => MatchPercentage is double percentage ? $"{percentage.ToString("0.##", CultureInfo.InvariantCulture)}% Matched" : "N/A (no dimensions)";
     public string MatchRatio => TotalDimensions == 0 ? "0/0 Matched" : $"{MatchedDimensions}/{TotalDimensions} Matched";
@@ -74,17 +81,24 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
     public ICommand SortResultsCommand { get; }
     public ICommand AddMissingDimensionCommentCommand { get; }
     public ICommand ResolveMissingDimensionCommand { get; }
+    public ICommand AddExtraDimensionCommentCommand { get; }
+    public ICommand ResolveExtraDimensionCommand { get; }
     public string MatchingStatus { get; private set; } = "No matching session selected.";
     public string MissingDimensionComment { get; set; } = string.Empty;
+    public string ExtraDimensionComment { get; set; } = string.Empty;
     public string ToleranceSummary => $"Tolerance: ±{FormatTolerance(_effectiveToleranceThresholdMm ?? _configuredToleranceThresholdMm)} mm (configured/session; explicit dimension tolerances override)";
     public IReadOnlyList<DimensionMatchItemViewModel> MatchResults { get; private set; } = Array.Empty<DimensionMatchItemViewModel>();
     public IReadOnlyList<DimensionMatchItemViewModel> UnmatchedResults => _allMatchResults.Where(item => item.IsUnmatched).ToArray();
+    public IReadOnlyList<DimensionMatchItemViewModel> ExtraDimensionResults => _allMatchResults.Where(item => item.IsExtraDimension).ToArray();
     public string MissingDimensionDetailsLabel => "Missing from 3D (STEP)";
     public int MissingDimensionLocationTotal => _allMatchResults.Count(item => item.IsUnmatched);
     public IReadOnlyList<LocationBreakdown> MissingDimensionsByLayer => BuildBreakdown(item => item.Match.DxfLayer);
     public IReadOnlyList<LocationBreakdown> MissingDimensionsByView => BuildBreakdown(item => item.Match.ViewName);
     public DxfPreviewViewModel DxfPreview { get; } = new();
+    public StepPreviewViewModel StepPreview { get; } = new();
     private DimensionMatchItemViewModel? _selectedUnmatchedDimension;
+    private DimensionMatchItemViewModel? _selectedExtraDimension;
+    public DimensionMatchItemViewModel? SelectedExtraDimension { get => _selectedExtraDimension; set { _selectedExtraDimension = value; if (value is not null) StepPreview.SelectFeature(value.Match.StepGeometryReference, value.Match.StepLocationX, value.Match.StepLocationY, value.Match.StepLocationZ); Notify(); RaiseCommands(); } }
     public DimensionMatchItemViewModel? SelectedUnmatchedDimension
     {
         get => _selectedUnmatchedDimension;
@@ -92,7 +106,10 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
         {
             _selectedUnmatchedDimension = value;
             if (value is not null)
-                DxfPreview.SelectDimension(value.Match.DxfDimensionReference, value.Match.PreviewAnchor, value.Match.LocationX, value.Match.LocationY);
+            {
+                if (value.IsExtraDimension) StepPreview.SelectFeature(value.Match.StepGeometryReference, value.Match.StepLocationX, value.Match.StepLocationY, value.Match.StepLocationZ);
+                else DxfPreview.SelectDimension(value.Match.DxfDimensionReference, value.Match.PreviewAnchor, value.Match.LocationX, value.Match.LocationY);
+            }
             Notify();
             Notify(nameof(DxfPreview));
             RaiseCommands();
@@ -133,6 +150,20 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
         }
         finally { IsBusy = false; Notify(nameof(IsBusy)); RaiseCommands(); }
     }
+    public async Task AddExtraDimensionCommentAsync()
+    {
+        if (SelectedSessionId is not Guid sessionId || SelectedExtraDimension is null) return;
+        try { IsBusy = true; Notify(nameof(IsBusy)); await _matching!.AddExtraDimensionCommentAsync(sessionId, SelectedExtraDimension.Match.DimensionMatchId, ExtraDimensionComment); await RefreshMatchesAsync(sessionId); ExtraDimensionComment = string.Empty; Notify(nameof(ExtraDimensionComment)); MatchingStatus = "Extra dimension comment saved."; Notify(nameof(MatchingStatus)); }
+        catch (Exception exception) { _logger?.Log(exception, "Extra dimension comment", $"Unable to save dimensionMatchId={SelectedExtraDimension.Match.DimensionMatchId}."); MatchingStatus = exception is UnauthorizedAccessException ? "Access denied." : $"Unable to save comment: {exception.Message}"; Notify(nameof(MatchingStatus)); }
+        finally { IsBusy = false; Notify(nameof(IsBusy)); RaiseCommands(); }
+    }
+    private async Task ResolveSelectedExtraDimensionAsync(object? value)
+    {
+        if (SelectedSessionId is not Guid sessionId || SelectedExtraDimension is null || !Enum.TryParse<DimensionResolutionStatus>(value?.ToString(), true, out var status)) return;
+        try { IsBusy = true; Notify(nameof(IsBusy)); await _matching!.ResolveExtraDimensionAsync(sessionId, SelectedExtraDimension.Match.DimensionMatchId, status); await RefreshMatchesAsync(sessionId); MatchingStatus = "Extra dimension resolution saved."; Notify(nameof(MatchingStatus)); }
+        catch (Exception exception) { _logger?.Log(exception, "Extra dimension resolution", $"Unable to save dimensionMatchId={SelectedExtraDimension.Match.DimensionMatchId}."); MatchingStatus = exception is UnauthorizedAccessException ? "Access denied." : $"Unable to save resolution: {exception.Message}"; Notify(nameof(MatchingStatus)); }
+        finally { IsBusy = false; Notify(nameof(IsBusy)); RaiseCommands(); }
+    }
     private IReadOnlyList<DimensionMatchItemViewModel> _allMatchResults = Array.Empty<DimensionMatchItemViewModel>();
     public async Task<bool> MatchDimensionsAsync(Guid sessionId, CancellationToken cancellationToken = default)
     {
@@ -150,7 +181,7 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
                 SetEffectiveTolerance(await _matching!.GetEffectiveToleranceThresholdAsync(sessionId, cancellationToken));
             var matches = _authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewDimensionMatchResults)
                 ? await _matching!.GetResultsAsync(sessionId, cancellationToken: cancellationToken)
-                : await _matching!.GetMissingResultsAsync(sessionId, cancellationToken);
+                : (await _matching!.GetMissingResultsAsync(sessionId, cancellationToken)).Concat(CanViewExtraDimensions ? await _matching.GetExtraResultsAsync(sessionId, cancellationToken) : Array.Empty<DimensionMatch>()).ToArray();
             _allMatchResults = matches.Select(match => new DimensionMatchItemViewModel(match)).ToArray(); ApplyResultView();
         }
         catch (UnauthorizedAccessException) { ClearResults("Access denied."); }
@@ -208,6 +239,7 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
             MatchResults = (SortDescending ? filtered.OrderByDescending(item => item.DimensionType).ThenByDescending(item => item.NominalValue) : filtered.OrderBy(item => item.DimensionType).ThenBy(item => item.NominalValue)).ToArray();
         Notify(nameof(MatchResults));
         Notify(nameof(UnmatchedResults));
+        Notify(nameof(ExtraDimensionResults));
         Notify(nameof(MissingDimensionLocationTotal));
         Notify(nameof(MissingDimensionsByLayer));
         Notify(nameof(MissingDimensionsByView));
@@ -229,6 +261,8 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
         Notify(nameof(MismatchedDimensions));
         Notify(nameof(UnmatchedDimensions));
         Notify(nameof(MissingDimensions));
+        Notify(nameof(MissingIn3DCount));
+        Notify(nameof(ExtraDimensionCount));
         Notify(nameof(MatchPercentage));
         Notify(nameof(MatchPercentageText));
         Notify(nameof(MatchRatio));
@@ -246,9 +280,28 @@ public sealed class VerificationViewModel : INotifyPropertyChanged
         DimensionMatchStatus.Matched => 2,
         _ => 3
     };
-    private void RaiseCommands() { ((RelayCommand)SelectPairCommand).Raise(); ((RelayCommand)MatchDimensionsCommand).Raise(); ((RelayCommand)RefreshMatchesCommand).Raise(); ((RelayCommand)UpdateToleranceCommand).Raise(); ((RelayCommand)AddMissingDimensionCommentCommand).Raise(); ((RelayCommand)ResolveMissingDimensionCommand).Raise(); }
+    private void RaiseCommands() { ((RelayCommand)SelectPairCommand).Raise(); ((RelayCommand)MatchDimensionsCommand).Raise(); ((RelayCommand)RefreshMatchesCommand).Raise(); ((RelayCommand)UpdateToleranceCommand).Raise(); ((RelayCommand)AddMissingDimensionCommentCommand).Raise(); ((RelayCommand)ResolveMissingDimensionCommand).Raise(); ((RelayCommand)AddExtraDimensionCommentCommand).Raise(); ((RelayCommand)ResolveExtraDimensionCommand).Raise(); }
     private void Notify([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
-    private void ClearResults(string message) { _allMatchResults = Array.Empty<DimensionMatchItemViewModel>(); MatchResults = Array.Empty<DimensionMatchItemViewModel>(); UpdateStatusSummaries(); MatchingStatus = message; Notify(nameof(MatchResults)); Notify(nameof(UnmatchedResults)); Notify(nameof(MatchingStatus)); }
+    private void ClearResults(string message)
+    {
+        _allMatchResults = Array.Empty<DimensionMatchItemViewModel>();
+        MatchResults = Array.Empty<DimensionMatchItemViewModel>();
+        _selectedUnmatchedDimension = null;
+        _selectedExtraDimension = null;
+        DxfPreview.ClearSelection();
+        StepPreview.ClearSelection();
+        UpdateStatusSummaries();
+        MatchingStatus = message;
+        Notify(nameof(MatchResults));
+        Notify(nameof(UnmatchedResults));
+        Notify(nameof(ExtraDimensionResults));
+        Notify(nameof(SelectedUnmatchedDimension));
+        Notify(nameof(SelectedExtraDimension));
+        Notify(nameof(DxfPreview));
+        Notify(nameof(StepPreview));
+        Notify(nameof(MatchingStatus));
+        RaiseCommands();
+    }
     private void SetEffectiveTolerance(double value, bool updateInput = false) { _effectiveToleranceThresholdMm = value; if (updateInput) { ToleranceThresholdInput = FormatTolerance(value); Notify(nameof(ToleranceThresholdInput)); } Notify(nameof(ToleranceSummary)); }
     private static string FormatTolerance(double value) => value.ToString("0.############", CultureInfo.InvariantCulture);
     private sealed class RelayCommand(Action<object?> execute, Predicate<object?>? canExecute = null) : ICommand { public event EventHandler? CanExecuteChanged; public bool CanExecute(object? parameter) => canExecute?.Invoke(parameter) ?? true; public void Execute(object? parameter) => execute(parameter); public void Raise() => CanExecuteChanged?.Invoke(this, EventArgs.Empty); }

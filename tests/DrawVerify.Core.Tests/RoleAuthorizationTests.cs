@@ -6,6 +6,18 @@ namespace DrawVerify.Core.Tests;
 
 public sealed class RoleAuthorizationTests
 {
+    [Theory(DisplayName = "TD-CORE-002 extra-dimension permission matrix is explicit")]
+    [InlineData("Checker", true, true, true)]
+    [InlineData("Approver", true, true, true)]
+    [InlineData("Viewer", true, false, false)]
+    [InlineData("Maker", true, false, false)]
+    public void Extra_permissions_follow_role_policy(string role, bool canView, bool canComment, bool canResolve)
+    {
+        var authorization = new RoleAuthorization(); var user = new AuthenticatedUser("user", new[] { role });
+        Assert.Equal(canView, authorization.IsAllowed(user, RolePermission.ViewExtraDimensions));
+        Assert.Equal(canComment, authorization.IsAllowed(user, RolePermission.CommentOnExtraDimensions));
+        Assert.Equal(canResolve, authorization.IsAllowed(user, RolePermission.ResolveExtraDimensions));
+    }
     [Fact(DisplayName = "TD-CORE-001 validates the immutable five-role catalog and permission union")]
     public void Catalog_has_exactly_five_roles_and_permissions_are_centralized()
     {

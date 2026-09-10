@@ -7,6 +7,16 @@ namespace DrawVerify.App.Tests;
 
 public sealed class MissingDimensionReviewViewModelTests
 {
+    [Theory(DisplayName = "TD-UI-003 read-only roles cannot mutate extra review state")]
+    [InlineData("Checker", true)] [InlineData("Approver", true)] [InlineData("Viewer", false)] [InlineData("Maker", false)]
+    public void Extra_review_permission_matrix_is_read_only_for_viewer_and_maker(string role, bool canMutate)
+    {
+        var authorization = new DrawVerify.Core.Authorization.RoleAuthorization();
+        var user = new DrawVerify.Core.Models.AuthenticatedUser("user", new[] { role });
+        Assert.Equal(canMutate, authorization.IsAllowed(user, DrawVerify.Core.Authorization.RolePermission.CommentOnExtraDimensions));
+        Assert.Equal(canMutate, authorization.IsAllowed(user, DrawVerify.Core.Authorization.RolePermission.ResolveExtraDimensions));
+    }
+
     [Fact(DisplayName = "TD-006 and TD-007 expose location details and DXF navigation")]
     public void Item_and_preview_preserve_location_and_unavailable_anchor_state()
     {

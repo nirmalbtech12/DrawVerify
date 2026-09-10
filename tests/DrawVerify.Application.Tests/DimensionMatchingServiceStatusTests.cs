@@ -15,6 +15,19 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class DimensionMatchingServiceStatusTests
 {
+    [Fact(DisplayName = "TD-APP-001 re-comparison retains explicit extra status for unused STEP features")]
+    public async Task Recomparison_preserves_extra_classification()
+    {
+        var step = Document(CoreDocumentType.StepModel, CoreGeometryStatus.Processed, VerificationStatus.Unknown);
+        var dxf = Document(CoreDocumentType.DxfDrawing, CoreGeometryStatus.NotExtracted, VerificationStatus.DimensionsExtracted);
+        var session = new VerificationSession { VerificationSessionId = Guid.NewGuid(), StepDocumentId = step.DocumentId, DxfDocumentId = dxf.DocumentId };
+        var sessions = new Sessions(session); var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser("maker", new[] { "Maker" }));
+        var service = new DimensionMatchingService(new Documents(step, dxf, Array.Empty<CoreDimensionData>()), sessions, new Geometry(new GeometryFeatureData { Reference = "Edge:extra", GeometryType = "Line", Length = 25 }), auth, new DrawVerify.Core.Configuration.DimensionMatchingConfiguration());
+
+        await service.MatchDimensionsToGeometryAsync(session.VerificationSessionId);
+
+        Assert.Equal(DimensionMatchStatus.ExtraDimension, Assert.Single(sessions.Matches).Status);
+    }
     [Fact(DisplayName = "TD-APP-005 refreshes persisted statuses after tolerance re-comparison")]
     public async Task Recomparison_replaces_stale_statuses()
     {

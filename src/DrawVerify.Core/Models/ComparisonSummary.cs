@@ -18,6 +18,8 @@ public sealed record ComparisonSummary
     public int MismatchedDimensions { get; init; }
     public int UnmatchedDimensions { get; init; }
     public int MissingDimensions { get; init; }
+    public int MissingIn3DCount { get; init; }
+    public int ExtraDimensionCount { get; init; }
     public double? MatchPercentage { get; init; }
     public IReadOnlyList<DimensionTypeSummary> DimensionTypes { get; init; } = Array.Empty<DimensionTypeSummary>();
 
@@ -28,12 +30,12 @@ public sealed record ComparisonSummary
         var matched = rows.Count(match => match.Status == DimensionMatchStatus.Matched);
         var mismatched = rows.Count(match => match.Status == DimensionMatchStatus.Mismatched);
         var unmatched = rows.Count(match => match.Status == DimensionMatchStatus.Unmatched);
-        var missing = rows.Count(match => match.Status == DimensionMatchStatus.MissingDimension);
+        var extra = rows.Count(match => match.Status == DimensionMatchStatus.ExtraDimension);
         var total = matched + mismatched + unmatched;
 
         foreach (var match in rows)
         {
-            if (match.Status is not (DimensionMatchStatus.Matched or DimensionMatchStatus.Mismatched or DimensionMatchStatus.Unmatched or DimensionMatchStatus.MissingDimension))
+            if (match.Status is not (DimensionMatchStatus.Matched or DimensionMatchStatus.Mismatched or DimensionMatchStatus.Unmatched or DimensionMatchStatus.ExtraDimension))
                 throw new InvalidOperationException($"Unsupported dimension match status '{match.Status}'.");
         }
 
@@ -55,7 +57,9 @@ public sealed record ComparisonSummary
             MatchedDimensions = matched,
             MismatchedDimensions = mismatched,
             UnmatchedDimensions = unmatched,
-            MissingDimensions = missing,
+            MissingDimensions = extra,
+            MissingIn3DCount = unmatched,
+            ExtraDimensionCount = extra,
             MatchPercentage = total == 0 ? null : matched * 100d / total,
             DimensionTypes = byType
         };

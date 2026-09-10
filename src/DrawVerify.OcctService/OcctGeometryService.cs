@@ -67,7 +67,10 @@ public sealed class OcctGeometryService : IGeometryService, IMatchableGeometrySe
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (double.IsFinite(edge.Length) && edge.Length > 0)
-                    features.Add(new GeometryFeatureData { Reference = $"Edge:{edge.Id}", GeometryType = edge.GeometryType, Length = edge.Length });
+                {
+                    var location = Center(edge.BoundingBox);
+                    features.Add(new GeometryFeatureData { Reference = $"Edge:{edge.Id}", GeometryType = edge.GeometryType, Length = edge.Length, FeatureValue = edge.Length, LocationX = location.X, LocationY = location.Y, LocationZ = location.Z });
+                }
             }
             foreach (var face in model.GetFaces())
             {
@@ -75,10 +78,14 @@ public sealed class OcctGeometryService : IGeometryService, IMatchableGeometrySe
                 if (double.IsFinite(face.Area) && face.Area > 0)
                 {
                     var height = Math.Abs(face.BoundingBox.MaximumZ - face.BoundingBox.MinimumZ);
-                    features.Add(new GeometryFeatureData { Reference = $"Face:{face.Id}", GeometryType = face.SurfaceType, Height = double.IsFinite(height) && height > 0 ? height : null, AngleDegrees = double.IsFinite(face.SemiAngle) && Math.Abs(face.SemiAngle) > 1e-12 ? Math.Abs(face.SemiAngle) * 180d / Math.PI : null });
+                    var location = Center(face.BoundingBox);
+                    features.Add(new GeometryFeatureData { Reference = $"Face:{face.Id}", GeometryType = face.SurfaceType, Height = double.IsFinite(height) && height > 0 ? height : null, FeatureValue = double.IsFinite(height) && height > 0 ? height : null, AngleDegrees = double.IsFinite(face.SemiAngle) && Math.Abs(face.SemiAngle) > 1e-12 ? Math.Abs(face.SemiAngle) * 180d / Math.PI : null, LocationX = location.X, LocationY = location.Y, LocationZ = location.Z });
                 }
                 if (string.Equals(face.SurfaceType, "Cylinder", StringComparison.OrdinalIgnoreCase) && double.IsFinite(face.Radius) && face.Radius > 0)
-                    features.Add(new GeometryFeatureData { Reference = $"Face:{face.Id}:Cylinder", GeometryType = face.Orientation == -1 ? "Hole" : "CylindricalFace", Radius = face.Radius, Diameter = face.Radius * 2 });
+                {
+                    var location = Center(face.BoundingBox);
+                    features.Add(new GeometryFeatureData { Reference = $"Face:{face.Id}:Cylinder", GeometryType = face.Orientation == -1 ? "Hole" : "CylindricalFace", Radius = face.Radius, Diameter = face.Radius * 2, FeatureValue = face.Radius * 2, LocationX = location.X, LocationY = location.Y, LocationZ = location.Z });
+                }
             }
             return new MatchableGeometryExtractionResult(true, features);
         }
@@ -89,6 +96,9 @@ public sealed class OcctGeometryService : IGeometryService, IMatchableGeometrySe
     private static bool ValuesAreFinite(OcctBoundingBox box) =>
         double.IsFinite(box.MinimumX) && double.IsFinite(box.MinimumY) && double.IsFinite(box.MinimumZ) &&
         double.IsFinite(box.MaximumX) && double.IsFinite(box.MaximumY) && double.IsFinite(box.MaximumZ);
+
+    private static (double? X, double? Y, double? Z) Center(OcctBoundingBox box) =>
+        box.IsVoid || !ValuesAreFinite(box) ? (null, null, null) : ((box.MinimumX + box.MaximumX) / 2d, (box.MinimumY + box.MaximumY) / 2d, (box.MinimumZ + box.MaximumZ) / 2d);
 
     private static IReadOnlyList<FeatureData> DetectFeatures(IReadOnlyList<OcctFace> faces, out string? uncertainty)
     {

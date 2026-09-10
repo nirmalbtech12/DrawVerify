@@ -14,6 +14,16 @@ public class OcctGeometryServiceTests
     private static string DatasetStep(int id) => Path.Combine(AppContext.BaseDirectory, "Dataset", $"sample-{id:000000}", $"{id:000000}.step");
     private static string DatasetDxf(int id) => Path.Combine(AppContext.BaseDirectory, "Dataset", $"sample-{id:000000}", $"{id:000000}.dxf");
 
+    [Fact(DisplayName = "TD-OCCT-002 cancellation and disposal remain visible at the managed boundary")]
+    public void Disposed_model_rejects_operations_and_invalid_input_is_not_silent()
+    {
+        var model = new OcctModelLoader().LoadStep(Fixture("cube.step"));
+        model.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => model.GetFaces());
+        var error = Assert.Throws<OcctOperationException>(() => new OcctModelLoader().LoadStep(Fixture("invalid.step")));
+        Assert.Equal("StepReadFailed", error.ErrorCode);
+    }
+
     [Fact]
     public void Runtime_reports_real_occt_capabilities()
     {

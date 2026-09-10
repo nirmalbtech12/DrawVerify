@@ -9,6 +9,17 @@ using Xunit;
 /// </summary>
 public class MissingDimensionDetectorTests
 {
+    [Fact(DisplayName = "TD-CORE-001 keeps unmatched DXF detection distinct from STEP extras")]
+    public void Detector_returns_unmatched_dxf_rows_only()
+    {
+        var session = new VerificationSession { VerificationSessionId = Guid.NewGuid(), StepDocumentVersionId = Guid.NewGuid() };
+        var dimension = new DimensionData(Guid.NewGuid(), Guid.NewGuid(), 11, DimensionType.Linear, 20);
+        var result = Assert.Single(new MissingDimensionDetector().Detect(session, new[] { dimension }, Array.Empty<int>()));
+
+        Assert.Equal(DimensionMatchStatus.Unmatched, result.Status);
+        Assert.NotEqual(DimensionMatchStatus.ExtraDimension, result.Status);
+        Assert.Null(result.StepGeometryReference);
+    }
     [Fact(DisplayName = "TD-01 classifies every DXF dimension absent from STEP with stable metadata")]
     public void Detect_returns_only_unmatched_dxf_dimensions_and_preserves_metadata()
     {

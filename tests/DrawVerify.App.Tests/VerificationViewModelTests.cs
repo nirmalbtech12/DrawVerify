@@ -19,6 +19,100 @@ public sealed class VerificationViewModelTests
         typeof(VerificationViewModel).GetField("_allMatchResults", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(vm, matches.Select(match => new DimensionMatchItemViewModel(match)).ToArray());
 
+    [Fact(DisplayName = "TD-UI-001 displays extras in a separate collection with summary counts")]
+    public void Extra_rows_are_separate_from_missing_rows_and_summary_counts_are_distinct()
+    {
+        var vm = new VerificationViewModel(new SessionAuthenticationService(), new RoleAuthorization());
+        SetResults(vm, new[]
+        {
+            new DimensionMatch { Status = DimensionMatchStatus.Matched, DimensionType = DimensionType.Linear },
+            new DimensionMatch { Status = DimensionMatchStatus.Unmatched, DimensionType = DimensionType.Linear },
+            new DimensionMatch { Status = DimensionMatchStatus.ExtraDimension, DimensionType = DimensionType.Radial, StepGeometryReference = "Edge:extra" }
+        });
+        vm.ApplyFilterCommand.Execute(null);
+
+        Assert.Single(vm.UnmatchedResults);
+        Assert.Single(vm.ExtraDimensionResults);
+        Assert.Equal(1, vm.MissingIn3DCount);
+        Assert.Equal(1, vm.ExtraDimensionCount);
+    }
+
+    [Fact(DisplayName = "TD-UI-002 selecting an extra row highlights and targets the STEP feature")]
+    public void Extra_selection_updates_step_preview_target()
+    {
+        var vm = new VerificationViewModel(new SessionAuthenticationService(), new RoleAuthorization());
+        var item = new DimensionMatchItemViewModel(new DimensionMatch { Status = DimensionMatchStatus.ExtraDimension, StepGeometryReference = "Edge:extra", StepLocationX = 4, StepLocationY = 5, StepLocationZ = 6 });
+        vm.SelectedExtraDimension = item;
+
+        Assert.Equal("Edge:extra", vm.StepPreview.SelectedFeatureReference);
+        Assert.Equal((4d, 5d, 6d), (vm.StepPreview.TargetX, vm.StepPreview.TargetY, vm.StepPreview.TargetZ));
+        Assert.True(vm.StepPreview.IsFeatureHighlighted);
+        Assert.Contains("Highlighted", vm.StepPreview.SelectionStatus);
+    }
+
+    [Fact(DisplayName = "TD-UI-002 reports unavailable STEP preview location explicitly")]
+    public void Extra_selection_without_location_does_not_claim_highlight()
+    {
+        var preview = new StepPreviewViewModel();
+        preview.SelectFeature("Face:missing-location", null, 2, 3);
+
+        Assert.False(preview.IsFeatureHighlighted);
+        Assert.False(preview.IsLocationAvailable);
+        Assert.Contains("no valid preview location", preview.SelectionStatus);
+    }
+
+    [Fact(DisplayName = "TD-UI-002 failed refresh clears stale extra results and STEP preview selection")]
+    public async Task Failed_refresh_clears_extra_results_and_preview_state()
+    {
+        var session = new SessionAuthenticationService();
+        session.SignIn(new AuthenticatedUser("checker", new[] { "Checker" }));
+        var sessionId = Guid.NewGuid();
+        var repository = new RefreshFailureRepository(sessionId);
+        var matching = new DimensionMatchingService(new EmptyDocuments(), repository, new EmptyGeometry(), session, new DimensionMatchingConfiguration());
+        var viewModel = new VerificationViewModel(session, new RoleAuthorization(), matching);
+        typeof(VerificationViewModel).GetField("<SelectedSessionId>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, sessionId);
+
+        await viewModel.RefreshMatchesAsync(sessionId);
+        var extra = Assert.Single(viewModel.ExtraDimensionResults);
+        viewModel.SelectedExtraDimension = extra;
+        Assert.True(viewModel.StepPreview.IsFeatureHighlighted);
+
+        repository.ThrowOnRead = true;
+        await viewModel.RefreshMatchesAsync(sessionId);
+
+        Assert.Empty(viewModel.ExtraDimensionResults);
+        Assert.Null(viewModel.SelectedExtraDimension);
+        Assert.Null(viewModel.StepPreview.SelectedFeatureReference);
+        Assert.False(viewModel.StepPreview.IsFeatureHighlighted);
+        Assert.Null(viewModel.StepPreview.TargetX);
+        Assert.Null(viewModel.StepPreview.TargetY);
+        Assert.Null(viewModel.StepPreview.TargetZ);
+    }
+
+    [Theory(DisplayName = "TD-UI-003 exposes extra-dimension mutation only to Checker and Approver")]
+    [InlineData("Checker", true)]
+    [InlineData("Approver", true)]
+    [InlineData("Viewer", false)]
+    [InlineData("Maker", false)]
+    public void Extra_review_commands_follow_role_permissions(string role, bool canMutate)
+    {
+        var session = new SessionAuthenticationService();
+        session.SignIn(new AuthenticatedUser("user", new[] { role }));
+        var vm = new VerificationViewModel(session, new RoleAuthorization(), new DimensionMatchingService(new EmptyDocuments(), new EmptySessions(), new EmptyGeometry(), session, new DimensionMatchingConfiguration()));
+
+        Assert.True(vm.CanViewExtraDimensions);
+        if (canMutate)
+        {
+            Assert.True(vm.CanCommentExtraDimensions);
+            Assert.True(vm.CanResolveExtraDimensions);
+        }
+        else
+        {
+            Assert.False(vm.CanCommentExtraDimensions);
+            Assert.False(vm.CanResolveExtraDimensions);
+        }
+    }
+
     [Fact(DisplayName = "TD-003 filtered result grid does not change overall summary")]
     public void Filtered_rows_do_not_change_summary_values()
     {
@@ -363,6 +457,16 @@ public sealed class VerificationViewModelTests
             IReadOnlyList<DimensionMatch> result = status is null || status == DimensionMatchStatus.Unmatched ? new[] { unmatched } : Array.Empty<DimensionMatch>();
             return Task.FromResult(result);
         }
+        public Task ReplaceResultsAsync(VerificationSession session, IReadOnlyCollection<DimensionMatch> matches, DocumentAuditAction auditAction, string userId, string detailsJson, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+    private sealed class RefreshFailureRepository(Guid sessionId) : IVerificationSessionRepository
+    {
+        public bool ThrowOnRead { get; set; }
+        private readonly DimensionMatch _extra = new() { DimensionMatchId = Guid.NewGuid(), VerificationSessionId = sessionId, Status = DimensionMatchStatus.ExtraDimension, ReasonCode = "NoCorrespondingDimension", StepGeometryReference = "Edge:extra", StepLocationX = 1, StepLocationY = 2, StepLocationZ = 3 };
+        public Task<VerificationSession> GetOrCreateAsync(Guid stepDocumentId, Guid dxfDocumentId, CancellationToken cancellationToken = default) => Task.FromResult(new VerificationSession { VerificationSessionId = sessionId, StepDocumentId = stepDocumentId, DxfDocumentId = dxfDocumentId });
+        public Task<VerificationSession?> GetAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<VerificationSession?>(new VerificationSession { VerificationSessionId = sessionId });
+        public Task<IReadOnlyList<DimensionMatch>> GetMatchesAsync(Guid id, DimensionMatchStatus? status = null, CancellationToken cancellationToken = default)
+            => ThrowOnRead ? Task.FromException<IReadOnlyList<DimensionMatch>>(new InvalidOperationException("refresh failure")) : Task.FromResult<IReadOnlyList<DimensionMatch>>(status is null ? new[] { _extra } : status == DimensionMatchStatus.ExtraDimension ? new[] { _extra } : Array.Empty<DimensionMatch>());
         public Task ReplaceResultsAsync(VerificationSession session, IReadOnlyCollection<DimensionMatch> matches, DocumentAuditAction auditAction, string userId, string detailsJson, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
     private sealed class EmptyGeometry : IMatchableGeometryService
