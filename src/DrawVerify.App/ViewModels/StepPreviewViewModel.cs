@@ -63,13 +63,16 @@ public sealed class StepPreviewViewModel : INotifyPropertyChanged, IDisposable
         IsFeatureResolved = false;
         CameraZoom = 1;
         _highlightContent = null;
-        if (_model is not null && TryResolveFeature(featureReference, out var featureId, out var bounds))
+        if (_model is not null && TryResolveFeature(featureReference, out var featureId, out var bounds, out var edge))
         {
-            var mesh = _model.GenerateMeshData();
-            _highlightContent = BuildMesh(mesh, featureId, Brushes.Orange);
+            _highlightContent = edge is not null
+                ? BuildEdgeHighlight(edge, Brushes.Orange)
+                : BuildMesh(_model.GenerateMeshData(), featureId, Brushes.Orange);
             CameraTarget = new Point3D((bounds.MinimumX + bounds.MaximumX) / 2, (bounds.MinimumY + bounds.MaximumY) / 2, (bounds.MinimumZ + bounds.MaximumZ) / 2);
             CameraZoom = 2;
-            IsFeatureResolved = true;
+            IsFeatureResolved = _highlightContent.Children.Count > 0;
+            if (!IsFeatureResolved)
+                _logger?.Log(new InvalidOperationException($"STEP feature '{featureReference}' produced no renderable highlight geometry."), "STEP preview navigation", "Unable to highlight and fit the selected extra dimension.");
         }
         else
             _logger?.Log(new InvalidOperationException($"STEP feature '{featureReference ?? "<empty>"}' could not be resolved in the loaded model."), "STEP preview navigation", "Unable to highlight and fit the selected extra dimension.");
@@ -77,18 +80,53 @@ public sealed class StepPreviewViewModel : INotifyPropertyChanged, IDisposable
         return IsPreviewAvailable;
     }
 
-    private bool TryResolveFeature(string? reference, out int id, out OcctBoundingBox bounds)
+    private bool TryResolveFeature(string? reference, out int id, out OcctBoundingBox bounds, out OcctEdge? edge)
     {
-        id = 0; bounds = default!;
+        id = 0; bounds = default!; edge = null;
         if (string.IsNullOrWhiteSpace(reference)) return false;
         var parts = reference.Split(':', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length < 2 || !int.TryParse(parts[1], out id)) return false;
         try
         {
-            bounds = parts[0] switch { "Edge" => _model!.GetEdgeBoundingBox(id), "Face" => _model!.GetFaceBoundingBox(id), _ => default! };
+            if (parts[0] == "Edge")
+            {
+                edge = _model!.GetEdge(id);
+                bounds = edge.BoundingBox;
+            }
+            else if (parts[0] == "Face")
+                bounds = _model!.GetFaceBoundingBox(id);
+            else
+                return false;
             return !bounds.IsVoid;
         }
         catch (ArgumentOutOfRangeException) { return false; }
+    }
+
+    private static Model3DGroup BuildEdgeHighlight(OcctEdge edge, Brush brush)
+    {
+        var group = new Model3DGroup();
+        var start = new Point3D(edge.StartPoint.X, edge.StartPoint.Y, edge.StartPoint.Z);
+        var end = new Point3D(edge.EndPoint.X, edge.EndPoint.Y, edge.EndPoint.Z);
+        var direction = end - start;
+        if (direction.Length <= 1e-9 || !double.IsFinite(direction.Length)) return group;
+        direction.Normalize();
+        var up = Math.Abs(Vector3D.DotProduct(direction, new Vector3D(0, 0, 1))) > 0.95 ? new Vector3D(0, 1, 0) : new Vector3D(0, 0, 1);
+        var side = Vector3D.CrossProduct(direction, up); side.Normalize();
+        var other = Vector3D.CrossProduct(direction, side); other.Normalize();
+        var radius = Math.Max(edge.Length * 0.015, 0.05);
+        var positions = new Point3DCollection();
+        for (var endIndex = 0; endIndex < 2; endIndex++)
+        {
+            var center = endIndex == 0 ? start : end;
+            for (var corner = 0; corner < 4; corner++)
+            {
+                var offset = (corner is 0 or 3 ? side : -side) * radius + (corner < 2 ? other : -other) * radius;
+                positions.Add(center + offset);
+            }
+        }
+        var indices = new Int32Collection(new[] { 0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6, 0, 4, 5, 0, 5, 1, 1, 5, 6, 1, 6, 2, 2, 6, 7, 2, 7, 3, 3, 7, 4, 3, 4, 0 });
+        group.Children.Add(new GeometryModel3D(new MeshGeometry3D { Positions = positions, TriangleIndices = indices }, new DiffuseMaterial(brush)));
+        return group;
     }
 
     private static Model3DGroup BuildMesh(OcctMeshData data, int? highlightFaceId = null, Brush? brush = null)
