@@ -6,6 +6,18 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class OcctWorkerGeometryServiceTests
 {
+    [Fact(DisplayName = "TD-05 keeps STEP worker extraction failures explicit")]
+    public void Gdt_worker_missing_file_is_not_converted_to_not_verified()
+    {
+        var result = new OcctWorkerGeometryService("worker-that-does-not-exist", timeoutSeconds: 1)
+            .ExtractAnnotations(Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".step"));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("FileNotFound", result.ErrorCategory);
+        Assert.Empty(result.Annotations);
+        Assert.Contains("stored STEP file", result.ErrorMessage);
+    }
+
     [Fact(DisplayName = "TD-APP-002 rejects missing files before worker launch")]
     public void Missing_file_is_a_clear_failure()
     {

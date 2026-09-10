@@ -10,6 +10,7 @@ using DrawVerify.Infrastructure.Persistence;
 using DrawVerify.Infrastructure.Logging;
 using DrawVerify.App.ViewModels;
 using DrawVerify.OcctService;
+using DrawVerify.Application.Verification;
 
 namespace DrawVerify.App.Services;
 
@@ -31,6 +32,13 @@ public static class CompositionRoot
     public static ISessionAuthenticationService SessionAuthentication => Session;
     public static RoleAuthorization RoleAuthorization => Authorization;
     public static DimensionMatchingConfiguration ConfiguredDimensionMatching => DimensionMatchingConfiguration;
+    public static GdtValidator CreateGdtValidator()
+    {
+        var configuredPath = Path.Combine(AppContext.BaseDirectory, "config", "gdt-subset.default.json");
+        if (!File.Exists(configuredPath)) configuredPath = Path.Combine(Directory.GetCurrentDirectory(), "config", "gdt-subset.default.json");
+        return GdtValidator.FromSubsetFile(configuredPath);
+    }
+    public static VerificationEngine CreateVerificationEngine() => new(CreateGdtValidator());
     public static UsernamePasswordAuthenticationService CreateAuthenticationService()
     {
         var logger=new CentralizedLogger(); var database=DatabasePath();
@@ -88,12 +96,17 @@ public static class CompositionRoot
         var database = DatabasePath();
         var logger = new CentralizedLogger();
         var workerPath = Path.Combine(AppContext.BaseDirectory, DimensionMatchingConfiguration.WorkerPath);
-        return new DimensionMatchingService(new SqliteDocumentRepository(database, logger), new SqliteVerificationSessionRepository(database), new OcctWorkerGeometryService(workerPath, DimensionMatchingConfiguration.MaximumStepFileSizeBytes, DimensionMatchingConfiguration.TimeoutSeconds, logger), Session, DimensionMatchingConfiguration, Authorization, logger);
+        var documents = new SqliteDocumentRepository(database, logger);
+        var sessions = new SqliteVerificationSessionRepository(database);
+        var dxfFiles = new DxfDocumentFileStore(AppContext.BaseDirectory, DxfUploadConfiguration);
+        var worker = new OcctWorkerGeometryService(workerPath, DimensionMatchingConfiguration.MaximumStepFileSizeBytes, DimensionMatchingConfiguration.TimeoutSeconds, logger);
+        var gdtVerification = new VerificationService(CreateVerificationEngine(), sessions);
+        return new DimensionMatchingService(documents, sessions, worker, Session, DimensionMatchingConfiguration, Authorization, logger, gdtVerification, dxfFiles, new DxfGdtParser(), worker);
     }
     public static ReportService CreateReportService()
     {
         var database = DatabasePath();
-        return new ReportService(new SqliteVerificationSessionRepository(database), Session, Authorization, new MarkdownReportGenerator(), new CentralizedLogger(), new SqliteAuditRepository(database));
+        return new ReportService(new SqliteVerificationSessionRepository(database), Session, Authorization, new MarkdownReportGenerator(), new CentralizedLogger(), new SqliteAuditRepository(database), new DrawVerify.Infrastructure.Pdf.PdfReportGenerator());
     }
     public static MissingDimensionReviewService CreateMissingDimensionReviewService()
     {

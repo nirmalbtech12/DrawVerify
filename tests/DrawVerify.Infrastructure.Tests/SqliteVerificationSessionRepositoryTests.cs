@@ -201,6 +201,67 @@ public sealed class SqliteVerificationSessionRepositoryTests
         finally { await DeleteDatabaseAsync(path); }
     }
 
+    [Fact(DisplayName = "TD-REVIEW-04 round-trips GD&T source metadata and review audit payloads")]
+    public async Task Gdt_source_metadata_and_review_survive_reload()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "drawverify-gdt-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            var repository = new SqliteVerificationSessionRepository(path);
+            var session = await repository.GetOrCreateAsync(Guid.NewGuid(), Guid.NewGuid());
+            var result = new GdtResult
+            {
+                VerificationSessionId = session.VerificationSessionId, Identifier = "DXF:gdt-1", ControlType = GdtControlType.Unknown,
+                SourceDocument = "DXF:drawing", SourceDocumentVersion = "v1", SourceLocation = "entity:17", RawText = "◇ 0.2",
+                EntityHandle = "17", Layer = "GD&T", BlockName = "BLOCK_A", ViewName = "VIEW_1", Diagnostics = new[] { "malformed modifier retained" },
+                Status = VerificationStatus.NotVerified, Reason = GdtResult.UnsupportedReason
+            };
+            await repository.ReplaceGdtResultsAsync(session.VerificationSessionId, new[] { result }, "checker");
+            var reloaded = Assert.Single(await repository.GetGdtResultsAsync(session.VerificationSessionId));
+            Assert.Equal(result.EntityHandle, reloaded.EntityHandle); Assert.Equal(result.Layer, reloaded.Layer); Assert.Equal(result.BlockName, reloaded.BlockName); Assert.Equal(result.ViewName, reloaded.ViewName); Assert.Equal(result.Diagnostics, reloaded.Diagnostics);
+            await repository.UpdateGdtReviewAsync(session.VerificationSessionId, reloaded.GdtResultId, "Review", true, "checker");
+            await using var connection = new SqliteConnection($"Data Source={path}"); await connection.OpenAsync(); await using var command = connection.CreateCommand(); command.CommandText = "SELECT COUNT(*) FROM DocumentAuditLog WHERE Action=$action"; command.Parameters.AddWithValue("$action", (int)DocumentAuditAction.UnsupportedGdtReviewChanged); Assert.Equal(1L, await command.ExecuteScalarAsync());
+        }
+        finally { await DeleteDatabaseAsync(path); }
+    }
+
+    [Fact(DisplayName = "TD-06 round-trips Not Verified GD&T status and review data")]
+    public async Task Not_verified_gdt_round_trip_preserves_status_and_comment()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "drawverify-gdt-td06-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            var repository = new SqliteVerificationSessionRepository(path);
+            var session = await repository.GetOrCreateAsync(Guid.NewGuid(), Guid.NewGuid());
+            var unsupported = GdtResult.Unsupported("td06-gdt", GdtControlType.Unknown, "◇", "drawing.dxf", "entity:6");
+            var result = new GdtResult { GdtResultId = unsupported.GdtResultId, VerificationSessionId = session.VerificationSessionId, Identifier = unsupported.Identifier, ControlType = unsupported.ControlType, Symbol = unsupported.Symbol, SourceDocument = unsupported.SourceDocument, SourceLocation = unsupported.SourceLocation, ToleranceValue = "0.2", DatumReferences = new[] { "A" }, Status = unsupported.Status, Reason = unsupported.Reason };
+
+            await repository.ReplaceGdtResultsAsync(session.VerificationSessionId, new[] { result }, "checker");
+            var loaded = Assert.Single(await repository.GetGdtResultsAsync(session.VerificationSessionId));
+            await repository.UpdateGdtReviewAsync(session.VerificationSessionId, loaded.GdtResultId, "Review later", true, "checker");
+            var reviewed = Assert.Single(await new SqliteVerificationSessionRepository(path).GetGdtResultsAsync(session.VerificationSessionId));
+
+            Assert.Equal(VerificationStatus.NotVerified, reviewed.Status);
+            Assert.Equal(GdtResult.UnsupportedReason, reviewed.Reason);
+            Assert.Equal("Review later", reviewed.ReviewComment);
+            Assert.True(reviewed.RequiresEngineeringReview);
+            Assert.Equal("entity:6", reviewed.SourceLocation);
+        }
+        finally { await DeleteDatabaseAsync(path); }
+    }
+
+    [Fact(DisplayName = "TD-07 preserves Not Verified when review disposition changes")]
+    public void Review_disposition_does_not_coerce_original_status()
+    {
+        var result = GdtResult.Unsupported("td07-gdt", GdtControlType.Unknown, "◇", "drawing.dxf");
+        var reviewed = result.WithReview("Escalate", true);
+
+        Assert.Equal(VerificationStatus.NotVerified, reviewed.Status);
+        Assert.Equal(GdtResult.UnsupportedReason, reviewed.Reason);
+        Assert.Equal("Escalate", reviewed.ReviewComment);
+        Assert.True(reviewed.RequiresEngineeringReview);
+    }
+
     [Fact(DisplayName = "TD-003 round-trips structured missing-dimension location metadata")]
     public async Task Structured_location_metadata_survives_reload()
     {

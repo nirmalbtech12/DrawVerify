@@ -17,3 +17,8 @@ public sealed record WorkerResponse(int ProtocolVersion, MeasurementExtractionRe
     public string Serialize() => JsonSerializer.Serialize(this);
     public static WorkerResponse Parse(string json) => JsonSerializer.Deserialize<WorkerResponse>(json) ?? throw new InvalidDataException("Worker response is missing.");
 }
+public sealed record GdtAnnotationWorkerRequest(int ProtocolVersion, string FilePath);
+public sealed record GdtAnnotationWorkerResponse(int ProtocolVersion, GdtAnnotationExtractionResult Result)
+{
+    public string Serialize() => JsonSerializer.Serialize(this);
+}

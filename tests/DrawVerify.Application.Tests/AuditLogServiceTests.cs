@@ -1,5 +1,6 @@
 using DrawVerify.Application.Services;
 using DrawVerify.Core.Authorization;
+using DrawVerify.Core.Enums;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
 using Xunit;
@@ -8,6 +9,19 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class AuditLogServiceTests
 {
+    [Fact(DisplayName = "TD-07 audit payload carries GD&T identifier, actor, action, and UTC timestamp")]
+    public void Gdt_review_audit_contract_contains_required_fields()
+    {
+        var documentId = Guid.NewGuid();
+        var entry = new AuditEntry { DocumentId = documentId, UserId = "checker", Action = DocumentAuditAction.UnsupportedGdtReviewChanged, TimestampUtc = DateTime.UtcNow, DetailsJson = "{\"identifier\":\"gdt-7\",\"before\":{\"status\":\"NotVerified\"},\"after\":{\"comment\":\"review\"}}" };
+
+        Assert.Equal(documentId, entry.DocumentId);
+        Assert.Equal("checker", entry.UserId);
+        Assert.Equal(DocumentAuditAction.UnsupportedGdtReviewChanged, entry.Action);
+        Assert.Equal(DateTimeKind.Utc, entry.TimestampUtc.Kind);
+        Assert.Contains("gdt-7", entry.DetailsJson);
+    }
+
     [Fact(DisplayName = "TD-05 queries and exports filtered audit data for Admin only")]
     public async Task Admin_query_is_ordered_and_csv_escapes_values()
     {

@@ -8,6 +8,45 @@ namespace DrawVerify.App.Tests;
 
 public sealed class DimensionMatchItemViewModelTests
 {
+    [Fact(DisplayName = "TD-08 presents complete and partial unsupported GD&T review fields")]
+    public void Unsupported_gdt_fields_expose_explicit_unavailable_values()
+    {
+        var complete = new GdtResult { Identifier = "gdt-complete", ControlType = GdtControlType.Position, Symbol = "⌖", ToleranceValue = "0.1", Modifiers = "MMC", DatumReferences = new[] { "A", "B" }, SourceDocument = "model.step", SourceLocation = "pmi:3", Status = VerificationStatus.NotVerified, Reason = GdtResult.UnsupportedReason };
+        var partial = new GdtResult { Identifier = "gdt-partial", ControlType = GdtControlType.Unknown, SourceDocument = "drawing.dxf", Status = VerificationStatus.NotVerified, Reason = GdtResult.UnsupportedReason };
+
+        var completeItem = new GdtResultItemViewModel(complete);
+        var partialItem = new GdtResultItemViewModel(partial);
+
+        Assert.Contains("Position", completeItem.ControlTypeOrSymbol);
+        Assert.Equal("0.1", completeItem.Tolerance);
+        Assert.Equal("MMC", completeItem.Modifiers);
+        Assert.Equal("A, B", completeItem.Datums);
+        Assert.Equal("Unavailable", partialItem.Tolerance);
+        Assert.Equal("drawing.dxf", partialItem.Source);
+    }
+
+    [Fact(DisplayName = "TD-08 displays unsupported GD&T details and unavailable values")]
+    public void Unsupported_gdt_item_exposes_review_fields()
+    {
+        var result = new GdtResult
+        {
+            GdtResultId = Guid.NewGuid(), Identifier = "gdt-10", ControlType = GdtControlType.Unknown,
+            Symbol = "◇", ToleranceValue = "0.3", Modifiers = "MMC", DatumReferences = new[] { "B" },
+            SourceDocument = "drawing.dxf", SourceLocation = "entity:10", Status = VerificationStatus.NotVerified,
+            Reason = GdtResult.UnsupportedReason, ReviewComment = "Check"
+        };
+        var item = new GdtResultItemViewModel(result);
+
+        Assert.Equal("Not Verified", item.StatusLabel);
+        Assert.Equal("◇", item.ControlTypeOrSymbol);
+        Assert.Equal("0.3", item.Tolerance);
+        Assert.Equal("MMC", item.Modifiers);
+        Assert.Equal("B", item.Datums);
+        Assert.Equal("drawing.dxf @ entity:10", item.Source);
+        Assert.Equal(GdtResult.UnsupportedReason, item.Reason);
+        Assert.Equal("Check", item.Comment);
+    }
+
     [Fact(DisplayName = "TD-06 exposes unmatched metadata, comments, and resolution state")]
     public void Unmatched_item_exposes_review_metadata()
     {

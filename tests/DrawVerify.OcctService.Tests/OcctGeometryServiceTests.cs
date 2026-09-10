@@ -9,6 +9,16 @@ namespace DrawVerify.OcctService.Tests;
 /// </summary>
 public class OcctGeometryServiceTests
 {
+    [Fact(DisplayName = "TD-05 keeps OCCT boundary failures explicit")]
+    public void Malformed_managed_gdt_response_is_not_fabricated()
+    {
+        var result = DrawVerify.Geometry.Models.GdtAnnotationExtractionResult.Failure("WorkerProtocol", "Malformed GD&T worker response.");
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("WorkerProtocol", result.ErrorCategory);
+        Assert.Empty(result.Annotations);
+    }
+
     [Fact(DisplayName = "TD-OCCT-EXTRA-001 extracts stable STEP feature metadata and honors cancellation")]
     public void Matchable_step_features_have_references_and_cancellation_is_explicit()
     {

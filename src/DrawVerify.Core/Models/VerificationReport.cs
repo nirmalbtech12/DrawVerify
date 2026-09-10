@@ -3,7 +3,8 @@ namespace DrawVerify.Core.Models;
 public sealed class VerificationReport
 {
     public IReadOnlyList<DimensionMatch> DimensionMatches { get; init; } = Array.Empty<DimensionMatch>();
-    public ComparisonSummary ComparisonSummary => DrawVerify.Core.Models.ComparisonSummary.From(DimensionMatches);
+    public IReadOnlyList<GdtResult> GdtResults { get; init; } = Array.Empty<GdtResult>();
+    public ComparisonSummary ComparisonSummary => DrawVerify.Core.Models.ComparisonSummary.From(DimensionMatches, GdtResults);
     public IReadOnlyList<DimensionMatch> UnmatchedDimensions => DimensionMatches.Where(match => match.Status == Enums.DimensionMatchStatus.Unmatched).ToArray();
     public IReadOnlyList<DimensionMatch> MismatchedDimensions => DimensionMatches.Where(match => match.Status == Enums.DimensionMatchStatus.Mismatched).ToArray();
     public IReadOnlyList<DimensionMatch> ExtraDimensions => DimensionMatches.Where(match => match.Status is Enums.DimensionMatchStatus.ExtraDimension or Enums.DimensionMatchStatus.MissingDimension).ToArray();
@@ -34,6 +35,12 @@ public sealed class VerificationReport
         if (ExtraDimensions.Count == 0) lines.Add("- None identified.");
         foreach (var match in ExtraDimensions)
             lines.Add($"- STEP reference: `{match.StepGeometryReference ?? "-"}` | Geometry: {match.GeometryType ?? "-"} | Value: {Format(match.MeasuredValue ?? match.NominalValue)} {match.ToleranceUnit ?? match.DeltaUnit} | Tolerance: {FormatTolerance(match)} | View: {match.ViewName ?? "-"} | Location: {FormatLocation(match)} | Comment: {match.Review?.Comment ?? "-"} | Design update: {match.Review?.RequiresDesignUpdate == true}");
+        lines.Add(string.Empty);
+        lines.Add("## Not Verified / Unsupported GD&T Controls");
+        lines.Add(string.Empty);
+        if (GdtResults.Count == 0) lines.Add("- None identified.");
+        foreach (var result in GdtResults.Where(result => result.Status == Enums.VerificationStatus.NotVerified))
+            lines.Add($"- Identifier: `{Escape(result.Identifier)}` | Type/Symbol: {Escape(result.ControlType == Enums.GdtControlType.Unknown ? result.Symbol : result.ControlType.ToString())} | Tolerance: {Escape(result.ToleranceValue) ?? "Unavailable"} | Modifiers: {Escape(result.Modifiers) ?? "Unavailable"} | Datums: {(result.DatumReferences.Count == 0 ? "Unavailable" : Escape(string.Join(", ", result.DatumReferences)))} | Source: {Escape(result.SourceDocument)} | Location: {Escape(result.SourceLocation) ?? "Unavailable"} | Reason: {Escape(result.Reason)} | Comment: {Escape(result.ReviewComment) ?? "-"}");
         lines.Add(string.Empty);
         lines.Add("## Dimension Status Details");
         lines.Add(string.Empty);
@@ -66,4 +73,5 @@ public sealed class VerificationReport
     private static string FormatSigned(double? value) => value is double number && double.IsFinite(number) ? $"{number:+0.###;-0.###;0}" : "-";
     private static string FormatTolerance(DimensionMatch match) => match.EffectiveLowerTolerance is double lower && match.EffectiveUpperTolerance is double upper ? $"{Format(lower)} / +{Format(upper)} {match.ToleranceUnit ?? ""}" : "-";
     private static string FormatLocation(DimensionMatch match) => match.LocationX is double x && match.LocationY is double y ? $"({Format(x)}, {Format(y)})" : "Unavailable";
+    private static string? Escape(string? value) => value?.Replace("|", "\\|", StringComparison.Ordinal).Replace("\r", " ", StringComparison.Ordinal).Replace("\n", " ", StringComparison.Ordinal);
 }

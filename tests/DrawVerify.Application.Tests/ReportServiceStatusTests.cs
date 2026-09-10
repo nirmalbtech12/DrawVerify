@@ -12,6 +12,21 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class ReportServiceStatusTests
 {
+    [Fact(DisplayName = "TD-10 renders a separate unsupported GD&T report section")]
+    public void Markdown_report_includes_not_verified_details_and_comment()
+    {
+        var result = new GdtResult { Identifier = "gdt-report", ControlType = GdtControlType.Unknown, Symbol = "◇", ToleranceValue = "0.2", Modifiers = "MMC", DatumReferences = new[] { "A" }, SourceDocument = "drawing.dxf", SourceLocation = "entity:8", Status = VerificationStatus.NotVerified, Reason = GdtResult.UnsupportedReason, ReviewComment = "Engineering review" };
+        var report = new VerificationReport { GdtResults = new[] { result } };
+
+        var markdown = report.ToMarkdown();
+
+        Assert.Contains("## Not Verified / Unsupported GD&T Controls", markdown);
+        Assert.Contains("gdt-report", markdown);
+        Assert.Contains("entity:8", markdown);
+        Assert.Contains("Engineering review", markdown);
+        Assert.Equal(1, report.ComparisonSummary.NotVerifiedGdtControls);
+    }
+
     [Fact(DisplayName = "TD-APP-EXTRA-003 renders Extra Dimensions report rows with key properties")]
     public void Extra_report_projection_contains_section_and_metadata()
     {

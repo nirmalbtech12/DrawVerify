@@ -1,4 +1,5 @@
 using DrawVerify.Geometry.Models;
+using DrawVerify.Core.Enums;
 using Xunit;
 
 namespace DrawVerify.Geometry.Tests;
@@ -30,5 +31,16 @@ public sealed class MeasurementExtractionResultTests
         Assert.Equal("NonSolid", result.ErrorCategory);
         Assert.Empty(result.Features);
         Assert.Contains("valid solid", result.ErrorMessage);
+    }
+
+    [Fact(DisplayName = "TD-05 preserves managed GD&T source references without native types")]
+    public void Gdt_annotation_contract_preserves_step_source_reference()
+    {
+        var annotation = new GdtAnnotationData("step-gdt-1", GdtControlType.Unknown, "◇", "0.2", "MMC", new[] { "A" }, "model.step", "pmi:17", "◇ 0.2 A", 17);
+
+        Assert.Equal("pmi:17", annotation.SourceLocation);
+        Assert.Equal(17, annotation.SourceOrdinal);
+        Assert.Equal("MMC", annotation.Modifiers);
+        Assert.Equal("model.step", annotation.SourceDocument);
     }
 }

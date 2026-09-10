@@ -6,4 +6,10 @@ public enum VerificationStatus
     PendingVerification = 1,
     DimensionsExtracted = 2,
     Error = 3,
+    NotVerified = 4,
+    Passed = 5,
+    Failed = 6,
+    Matched = 7,
+    Missing = 8,
+    Extra = 9,
 }
