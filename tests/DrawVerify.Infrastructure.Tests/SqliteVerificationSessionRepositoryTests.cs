@@ -9,6 +9,77 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteVerificationSessionRepositoryTests
 {
+    [Fact(DisplayName = "TD-KAN44-008 round-trips complete GD&T evidence across schema migration")]
+    public async Task Complete_gdt_evidence_round_trips_with_all_statuses()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "drawverify-gdt-kan44-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            var repository = new SqliteVerificationSessionRepository(path);
+            var session = await repository.GetOrCreateAsync(Guid.NewGuid(), Guid.NewGuid());
+            var results = new[] { VerificationStatus.Passed, VerificationStatus.Failed, VerificationStatus.Mismatched, VerificationStatus.NotVerified }
+                .Select((status, index) => new GdtResult
+                {
+                    VerificationSessionId = session.VerificationSessionId, Identifier = $"gdt-{index}", ControlType = (GdtControlType)(index + 1),
+                    Symbol = "⌖", SourceDocument = "pair.step", SourceLocation = $"source:{index}", ControlledFeature = $"feature:{index}",
+                    ToleranceValue = "0.1", ToleranceZoneType = "diameter", ToleranceZoneDiameter = "0.2", NormalizedModifiers = "MMC",
+                    DatumReferences = new[] { "A", "B" }, RuleVersion = "1.0.0", ComparisonCriteria = "field comparison",
+                    ComparisonDetails = "comparison evidence", SourcePairId = "pair-1", Diagnostics = new[] { "diagnostic" },
+                    Status = status, Reason = status == VerificationStatus.NotVerified ? "ambiguous match" : null,
+                    ReviewComment = "checker note", RequiresEngineeringReview = status == VerificationStatus.NotVerified
+                }).ToArray();
+
+            await repository.ReplaceGdtResultsAsync(session.VerificationSessionId, results, "checker");
+            var loaded = await repository.GetGdtResultsAsync(session.VerificationSessionId);
+
+            Assert.Equal(4, loaded.Count);
+            Assert.Equal(results.Select(x => x.Status), loaded.Select(x => x.Status));
+            Assert.All(loaded, result =>
+            {
+                Assert.Equal("1.0.0", result.RuleVersion);
+                Assert.Equal(new[] { "A", "B" }, result.DatumReferences);
+                Assert.Equal("comparison evidence", result.ComparisonDetails);
+                Assert.Equal("checker note", result.ReviewComment);
+            });
+        }
+        finally { SqliteConnection.ClearAllPools(); if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact(DisplayName = "TD-KAN44-009 validation and review audit entries are complete and status remains immutable")]
+    public async Task Gdt_validation_and_review_write_traceable_audit_entries()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "drawverify-gdt-audit-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            var repository = new SqliteVerificationSessionRepository(path);
+            var session = await repository.GetOrCreateAsync(Guid.NewGuid(), Guid.NewGuid());
+            var result = new GdtResult { VerificationSessionId = session.VerificationSessionId, Identifier = "gdt-audit", ControlType = GdtControlType.Position, SourceDocument = "pair.step", RuleVersion = "1.0.0", Status = VerificationStatus.Passed, ToleranceValue = "0.1", ControlledFeature = "hole-1", DatumReferences = new[] { "A" } };
+            await repository.ReplaceGdtResultsAsync(session.VerificationSessionId, new[] { result }, "checker");
+            await repository.UpdateGdtReviewAsync(session.VerificationSessionId, result.GdtResultId, "Review", true, "checker");
+
+            await using var connection = new SqliteConnection($"Data Source={path}");
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT Action,UserId,TimestampUtc,DetailsJson FROM DocumentAuditLog WHERE DocumentId=$id ORDER BY rowid";
+            command.Parameters.AddWithValue("$id", session.VerificationSessionId.ToString());
+            await using var reader = await command.ExecuteReaderAsync();
+            var entries = new List<JsonDocument>();
+            while (await reader.ReadAsync())
+            {
+                Assert.Equal("checker", reader.GetString(1));
+                Assert.True(DateTime.Parse(reader.GetString(2), null, System.Globalization.DateTimeStyles.RoundtripKind).Kind == DateTimeKind.Utc);
+                entries.Add(JsonDocument.Parse(reader.GetString(3)));
+            }
+            Assert.Equal(2, entries.Count);
+            Assert.Contains(entries, json => json.RootElement.GetProperty("action").GetString() == nameof(DocumentAuditAction.GdtValidationCompleted));
+            Assert.Contains(entries, json => json.RootElement.GetProperty("action").GetString() == nameof(DocumentAuditAction.GdtReviewChanged));
+            Assert.All(entries, json => { Assert.Equal("gdt-audit", json.RootElement.GetProperty("controlIdentifier").GetString()); Assert.Equal("1.0.0", json.RootElement.GetProperty("ruleVersion").GetString()); });
+            var reviewed = Assert.Single(await repository.GetGdtResultsAsync(session.VerificationSessionId));
+            Assert.Equal(VerificationStatus.Passed, reviewed.Status);
+            Assert.Equal("Review", reviewed.ReviewComment);
+        }
+        finally { SqliteConnection.ClearAllPools(); if (File.Exists(path)) File.Delete(path); }
+    }
     [Fact(DisplayName = "TD-INF-EXTRA-001 round-trips extra metadata and completion audit")]
     public async Task Extra_row_survives_reload_and_recomparison_with_review_state()
     {
@@ -220,7 +291,7 @@ public sealed class SqliteVerificationSessionRepositoryTests
             var reloaded = Assert.Single(await repository.GetGdtResultsAsync(session.VerificationSessionId));
             Assert.Equal(result.EntityHandle, reloaded.EntityHandle); Assert.Equal(result.Layer, reloaded.Layer); Assert.Equal(result.BlockName, reloaded.BlockName); Assert.Equal(result.ViewName, reloaded.ViewName); Assert.Equal(result.Diagnostics, reloaded.Diagnostics);
             await repository.UpdateGdtReviewAsync(session.VerificationSessionId, reloaded.GdtResultId, "Review", true, "checker");
-            await using var connection = new SqliteConnection($"Data Source={path}"); await connection.OpenAsync(); await using var command = connection.CreateCommand(); command.CommandText = "SELECT COUNT(*) FROM DocumentAuditLog WHERE Action=$action"; command.Parameters.AddWithValue("$action", (int)DocumentAuditAction.UnsupportedGdtReviewChanged); Assert.Equal(1L, await command.ExecuteScalarAsync());
+            await using var connection = new SqliteConnection($"Data Source={path}"); await connection.OpenAsync(); await using var command = connection.CreateCommand(); command.CommandText = "SELECT COUNT(*) FROM DocumentAuditLog WHERE Action=$action"; command.Parameters.AddWithValue("$action", (int)DocumentAuditAction.GdtReviewChanged); Assert.Equal(1L, await command.ExecuteScalarAsync());
         }
         finally { await DeleteDatabaseAsync(path); }
     }

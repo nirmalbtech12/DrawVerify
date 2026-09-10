@@ -13,7 +13,7 @@ using Xunit;
 /// </summary>
 public class PdfReportTests
 {
-    [Fact(DisplayName = "TD-10 renders unsupported GD&T controls in a separate report section")]
+    [Fact(DisplayName = "TD-KAN44-013 renders every GD&T status with rule, evidence, and review details")]
     public void Unsupported_gdt_section_contains_details_and_comment()
     {
         var result = new GdtResult
@@ -26,12 +26,35 @@ public class PdfReportTests
         var report = new VerificationReport { GdtResults = new[] { result } };
         var markdown = report.ToMarkdown();
 
-        Assert.Contains("## Not Verified / Unsupported GD&T Controls", markdown);
+        Assert.Contains("## GD&T Validation", markdown);
         Assert.Contains("gdt-9", markdown);
         Assert.Contains("0.2", markdown);
         Assert.Contains("MMC", markdown);
         Assert.Contains("Review this control", markdown);
         Assert.Equal(1, report.ComparisonSummary.NotVerifiedGdtControls);
+    }
+
+    [Fact(DisplayName = "TD-KAN44-013 Markdown report includes all statuses and empty section")]
+    public void Markdown_report_contains_all_gdt_statuses_and_fields()
+    {
+        var results = Enum.GetValues<VerificationStatus>()
+            .Where(status => status is VerificationStatus.Passed or VerificationStatus.Failed or VerificationStatus.Mismatched or VerificationStatus.NotVerified)
+            .Select((status, index) => new GdtResult
+            {
+                Identifier = $"gdt-{index}", ControlType = (GdtControlType)(index % 4 + 1), SourceDocument = "pair.step",
+                SourceLocation = $"location:{index}", ControlledFeature = $"feature-{index}", ToleranceValue = "0.1",
+                NormalizedModifiers = "MMC", DatumReferences = new[] { "A", "B" }, RuleVersion = "1.0.0",
+                ComparisonDetails = "comparison evidence", ReviewComment = "checker note", RequiresEngineeringReview = true,
+                Status = status, Reason = status == VerificationStatus.NotVerified ? "ambiguous match" : null
+            }).ToArray();
+        var markdown = new VerificationReport { GdtResults = results }.ToMarkdown();
+
+        Assert.Contains("## GD&T Validation", markdown);
+        foreach (var status in new[] { "Passed", "Failed", "Mismatched", "NotVerified" }) Assert.Contains(status, markdown);
+        Assert.Contains("1.0.0", markdown); Assert.Contains("comparison evidence", markdown); Assert.Contains("checker note", markdown);
+        Assert.Contains("Engineering review: True", markdown);
+        Assert.Contains("## GD&T Validation", new VerificationReport().ToMarkdown());
+        Assert.Contains("None identified.", new VerificationReport().ToMarkdown());
     }
 
     [Fact(DisplayName = "TD-APP-004 report rendering reflects replacement delta values")]
@@ -79,7 +102,7 @@ public class PdfReportTests
     public void Markdown_report_has_an_explicit_unmatched_section_when_there_are_no_matches()
         => Assert.Contains("Unmatched Dimensions – Requires Manual Review", new VerificationReport().ToMarkdown());
 
-    [Fact(DisplayName = "TD-10 PDF generator consumes normalized GD&T report fields")]
+    [Fact(DisplayName = "TD-KAN44-013 PDF generator consumes normalized GD&T report fields")]
     public async Task Pdf_report_contains_summary_and_not_verified_fields()
     {
         var report = new VerificationReport
@@ -99,7 +122,7 @@ public class PdfReportTests
         var content = System.Text.Encoding.ASCII.GetString(pdf);
 
         Assert.StartsWith("%PDF-1.4", content, StringComparison.Ordinal);
-        Assert.Contains("Not Verified / Unsupported GD&T Controls", content);
+        Assert.Contains("GD&T Validation", content);
         Assert.Contains("gdt-pdf-1", content);
         Assert.Contains("Needs checker review", content);
         Assert.Contains("%%EOF", content);

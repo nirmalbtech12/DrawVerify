@@ -73,10 +73,24 @@ public sealed class SqliteUserRepository : IUserRepository
     public async Task<UserAccount?> FindByUsernameAsync(string normalizedUsername, CancellationToken cancellationToken = default)
     {
         await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(cancellationToken);
-        await using var q = c.CreateCommand(); q.CommandText = "SELECT UserId,NormalizedUsername,DisplayName,Email,IsActive,DeactivationReason,PasswordSalt,PasswordHash,PasswordAlgorithm,PasswordIterations,FailedAttempts,LockedUntilUtc,RoleVersion FROM UserAccount WHERE NormalizedUsername=$u"; q.Parameters.AddWithValue("$u", normalizedUsername);
-        await using var r = await q.ExecuteReaderAsync(cancellationToken); if (!await r.ReadAsync(cancellationToken)) return null;
-        var account = new UserAccount { Id = Guid.Parse(r.GetString(0)), Username = r.GetString(1), DisplayName = r.GetString(2), Email = r.IsDBNull(3) ? null : r.GetString(3), IsActive = r.GetInt32(4) != 0, DeactivationReason = r.IsDBNull(5) ? null : r.GetString(5), PasswordSalt = (byte[])r[6], PasswordHash = (byte[])r[7], PasswordAlgorithm = r.GetString(8), PasswordIterations = r.GetInt32(9), FailedAttempts = r.GetInt32(10), LockedUntilUtc = r.IsDBNull(11) ? null : DateTimeOffset.Parse(r.GetString(11)), RoleVersion = r.GetInt64(12) };
-        await r.DisposeAsync(); await using var roles = c.CreateCommand(); roles.CommandText = "SELECT RoleName FROM UserAccountRole WHERE UserId=$id ORDER BY RoleName"; roles.Parameters.AddWithValue("$id", account.Id.ToString()); await using var rr = await roles.ExecuteReaderAsync(cancellationToken); var list = new List<string>(); while (await rr.ReadAsync(cancellationToken)) list.Add(rr.GetString(0)); return new UserAccount { Id=account.Id, Username=account.Username, DisplayName=account.DisplayName, Email=account.Email, IsActive=account.IsActive, DeactivationReason=account.DeactivationReason, PasswordSalt=account.PasswordSalt, PasswordHash=account.PasswordHash, PasswordAlgorithm=account.PasswordAlgorithm, PasswordIterations=account.PasswordIterations, FailedAttempts=account.FailedAttempts, LockedUntilUtc=account.LockedUntilUtc, RoleVersion=account.RoleVersion, Roles=list };
+        UserAccount account;
+        await using (var q = c.CreateCommand())
+        {
+            q.CommandText = "SELECT UserId,NormalizedUsername,DisplayName,Email,IsActive,DeactivationReason,PasswordSalt,PasswordHash,PasswordAlgorithm,PasswordIterations,FailedAttempts,LockedUntilUtc,RoleVersion FROM UserAccount WHERE NormalizedUsername=$u";
+            q.Parameters.AddWithValue("$u", normalizedUsername);
+            await using var r = await q.ExecuteReaderAsync(cancellationToken);
+            if (!await r.ReadAsync(cancellationToken)) return null;
+            account = new UserAccount { Id = Guid.Parse(r.GetString(0)), Username = r.GetString(1), DisplayName = r.GetString(2), Email = r.IsDBNull(3) ? null : r.GetString(3), IsActive = r.GetInt32(4) != 0, DeactivationReason = r.IsDBNull(5) ? null : r.GetString(5), PasswordSalt = (byte[])r[6], PasswordHash = (byte[])r[7], PasswordAlgorithm = r.GetString(8), PasswordIterations = r.GetInt32(9), FailedAttempts = r.GetInt32(10), LockedUntilUtc = r.IsDBNull(11) ? null : DateTimeOffset.Parse(r.GetString(11)), RoleVersion = r.GetInt64(12) };
+        }
+        var list = new List<string>();
+        await using (var roles = c.CreateCommand())
+        {
+            roles.CommandText = "SELECT RoleName FROM UserAccountRole WHERE UserId=$id ORDER BY RoleName";
+            roles.Parameters.AddWithValue("$id", account.Id.ToString());
+            await using var rr = await roles.ExecuteReaderAsync(cancellationToken);
+            while (await rr.ReadAsync(cancellationToken)) list.Add(rr.GetString(0));
+        }
+        return new UserAccount { Id=account.Id, Username=account.Username, DisplayName=account.DisplayName, Email=account.Email, IsActive=account.IsActive, DeactivationReason=account.DeactivationReason, PasswordSalt=account.PasswordSalt, PasswordHash=account.PasswordHash, PasswordAlgorithm=account.PasswordAlgorithm, PasswordIterations=account.PasswordIterations, FailedAttempts=account.FailedAttempts, LockedUntilUtc=account.LockedUntilUtc, RoleVersion=account.RoleVersion, Roles=list };
     }
     public async Task CreateAsync(UserAccount account, AuthenticationAuditEntry audit, CancellationToken cancellationToken = default)
     {

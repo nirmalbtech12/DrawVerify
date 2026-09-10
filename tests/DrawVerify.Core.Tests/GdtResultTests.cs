@@ -6,6 +6,60 @@ namespace DrawVerify.Core.Tests;
 
 public sealed class GdtResultTests
 {
+    [Fact(DisplayName = "TD-KAN44-001 preserves complete GD&T evidence and statuses")]
+    public void Complete_result_contract_preserves_all_supported_evidence()
+    {
+        var id = Guid.NewGuid();
+        var result = new GdtResult
+        {
+            GdtResultId = id,
+            VerificationSessionId = Guid.NewGuid(),
+            Identifier = "pos-1",
+            ControlType = GdtControlType.Position,
+            Symbol = "⌖",
+            SourceDocument = "pair-1.step",
+            SourceLocation = "pmi:7",
+            ControlledFeature = "hole-7",
+            NominalBasicLocation = "10,20",
+            ToleranceValue = "0.1",
+            ToleranceZoneType = "diameter",
+            ToleranceZoneDiameter = "0.2",
+            NormalizedModifiers = "MMC",
+            DatumReferences = new[] { "A", "B", "C" },
+            RuleVersion = "1.0.0",
+            ComparisonCriteria = "feature/location/tolerance/datum-order",
+            ComparisonDetails = "All applicable GD&T fields agree.",
+            SourcePairId = "pair-1",
+            Diagnostics = new[] { "mapped from STEP PMI" },
+            Status = VerificationStatus.Passed
+        };
+
+        Assert.Equal(id, result.GdtResultId);
+        Assert.Equal(new[] { "A", "B", "C" }, result.DatumReferences);
+        Assert.Equal("1.0.0", result.RuleVersion);
+        Assert.Equal("diameter", result.ToleranceZoneType);
+        Assert.Equal("All applicable GD&T fields agree.", result.ComparisonDetails);
+        Assert.Equal(4, new[] { VerificationStatus.Passed, VerificationStatus.Failed, VerificationStatus.Mismatched, VerificationStatus.NotVerified }.Length);
+    }
+
+    [Fact(DisplayName = "TD-KAN44-001 keeps flatness datum optional and review status immutable")]
+    public void Flatness_without_datum_is_valid_contract_and_review_does_not_change_status()
+    {
+        var result = new GdtResult
+        {
+            Identifier = "flat-1", ControlType = GdtControlType.Flatness, SourceDocument = "pair.dxf",
+            ToleranceValue = "0.05", ControlledFeature = "surface-1", DatumReferences = Array.Empty<string>(),
+            RuleVersion = GdtResult.CurrentRuleVersion, Status = VerificationStatus.Mismatched
+        };
+
+        var reviewed = result.WithReview("Check surface association", true);
+
+        Assert.Empty(result.DatumReferences);
+        Assert.Equal(VerificationStatus.Mismatched, reviewed.Status);
+        Assert.Equal("Check surface association", reviewed.ReviewComment);
+        Assert.True(reviewed.RequiresEngineeringReview);
+        Assert.Equal(result.RuleVersion, reviewed.RuleVersion);
+    }
     [Fact(DisplayName = "TD-01 keeps unsupported results separate from dimension statuses")]
     public void Unsupported_result_has_exact_reason_and_separate_count()
     {

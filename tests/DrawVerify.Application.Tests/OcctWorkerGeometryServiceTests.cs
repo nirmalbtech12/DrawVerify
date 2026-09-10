@@ -6,6 +6,17 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class OcctWorkerGeometryServiceTests
 {
+    [Fact(DisplayName = "TD-KAN44-014 worker boundary preserves file, timeout, and cancellation diagnostics")]
+    public void Worker_boundary_reports_explicit_failure_categories()
+    {
+        var missing = new OcctWorkerGeometryService("worker-that-does-not-exist", timeoutSeconds: 1)
+            .ExtractAnnotations(Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".step"));
+
+        Assert.False(missing.Succeeded);
+        Assert.Equal("FileNotFound", missing.ErrorCategory);
+        Assert.Empty(missing.Annotations);
+        Assert.Contains("stored STEP file", missing.ErrorMessage);
+    }
     [Fact(DisplayName = "TD-05 keeps STEP worker extraction failures explicit")]
     public void Gdt_worker_missing_file_is_not_converted_to_not_verified()
     {

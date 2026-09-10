@@ -72,6 +72,7 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
     public int ExtraDimensions => ComparisonSummary.ExtraDimensions;
     public int NotVerifiedGdtControls => ComparisonSummary.NotVerifiedGdtControls;
     public IReadOnlyList<GdtResultItemViewModel> NotVerifiedGdtResults { get; private set; } = Array.Empty<GdtResultItemViewModel>();
+    public IReadOnlyList<GdtResultItemViewModel> GdtResults { get; private set; } = Array.Empty<GdtResultItemViewModel>();
     private GdtResultItemViewModel? _selectedGdtResult;
     public GdtResultItemViewModel? SelectedGdtResult
     {
@@ -85,7 +86,7 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
         }
     }
     public string GdtReviewComment { get; set; } = string.Empty;
-    public string NotVerifiedGdtTitle => "Not Verified GD&T Controls";
+    public string NotVerifiedGdtTitle => "GD&T Validation Results";
     public double? MatchPercentage => ComparisonSummary.MatchPercentage;
     public string MatchPercentageText => MatchPercentage is double percentage ? $"{percentage.ToString("0.##", CultureInfo.InvariantCulture)}% Matched" : "N/A (no dimensions)";
     public string MatchRatio => TotalDimensions == 0 ? "0/0 Matched" : $"{MatchedDimensions}/{TotalDimensions} Matched";
@@ -310,8 +311,9 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
                 MatchingStatus = "GD&T results unavailable; dimension results remain available.";
                 Notify(nameof(MatchingStatus));
             }
-            NotVerifiedGdtResults = gdtResults.Where(result => result.Status == VerificationStatus.NotVerified).Select(result => new GdtResultItemViewModel(result)).ToArray();
-            _allMatchResults = matches.Select(match => new DimensionMatchItemViewModel(match)).ToArray(); ApplyResultView(); Notify(nameof(NotVerifiedGdtResults)); Notify(nameof(NotVerifiedGdtControls));
+            GdtResults = gdtResults.Select(result => new GdtResultItemViewModel(result)).ToArray();
+            NotVerifiedGdtResults = GdtResults.Where(result => result.Result.Status == VerificationStatus.NotVerified).ToArray();
+            _allMatchResults = matches.Select(match => new DimensionMatchItemViewModel(match)).ToArray(); ApplyResultView(); Notify(nameof(GdtResults)); Notify(nameof(NotVerifiedGdtResults)); Notify(nameof(NotVerifiedGdtControls));
         }
         catch (UnauthorizedAccessException) { ClearResults("Access denied."); }
         catch (Exception exception) { _logger?.Log(exception, "Load dimension matching results", $"Unable to load verificationSessionId={sessionId}."); ClearResults("Unable to load matching results."); }

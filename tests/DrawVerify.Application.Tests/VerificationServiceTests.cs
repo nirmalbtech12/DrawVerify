@@ -16,19 +16,24 @@ using Xunit;
 /// </summary>
 public class VerificationServiceTests
 {
-    [Fact(DisplayName = "TD-03 keeps mixed supported and unsupported GD&T verification independent")]
+    [Fact(DisplayName = "TD-KAN44-007 keeps mixed supported and unsupported GD&T verification independent")]
     public async Task Mixed_gdt_annotations_produce_independent_results()
     {
         var sessionId = Guid.NewGuid();
         var repository = new GdtResultRepository();
         var service = new VerificationService(new VerificationEngine(new GdtValidator()), repository);
-        var annotations = new[]
+        var stepAnnotations = new[]
         {
-            new GdtAnnotationData("position-1", GdtControlType.Position, "⌖", "0.1", null, Array.Empty<string>(), "model.step", "pmi:1", null),
+            new GdtAnnotationData("position-1", GdtControlType.Position, "⌖", "0.1", null, Array.Empty<string>(), "model.step", "pmi:1", null, ControlledFeature: "hole-1", ToleranceZoneType: "diameter"),
+            new GdtAnnotationData("unknown-1", GdtControlType.Unknown, "◇", "0.2", "MMC", new[] { "A" }, "drawing.dxf", "entity:2", null)
+        };
+        var dxfAnnotations = new[]
+        {
+            new GdtAnnotationData("position-1", GdtControlType.Position, "⌖", "0.1", null, Array.Empty<string>(), "drawing.dxf", "entity:1", null, ControlledFeature: "hole-1", ToleranceZoneType: "diameter"),
             new GdtAnnotationData("unknown-1", GdtControlType.Unknown, "◇", "0.2", "MMC", new[] { "A" }, "drawing.dxf", "entity:2", null)
         };
 
-        var results = await service.VerifyGdtAsync(sessionId, annotations, "checker");
+        var results = await service.VerifyGdtAsync(sessionId, stepAnnotations, dxfAnnotations, "checker");
 
         Assert.Equal(2, results.Count);
         Assert.Equal(VerificationStatus.Passed, results.Single(result => result.Identifier == "position-1").Status);
@@ -36,6 +41,47 @@ public class VerificationServiceTests
         Assert.Equal(VerificationStatus.NotVerified, unsupported.Status);
         Assert.Equal(GdtResult.UnsupportedReason, unsupported.Reason);
         Assert.Equal(2, repository.Saved.Count);
+    }
+
+    [Fact(DisplayName = "TD-KAN44-010 reopens mixed GD&T results without changing status or review evidence")]
+    public async Task Verification_service_persists_rule_version_and_review_evidence()
+    {
+        var sessionId = Guid.NewGuid();
+        var repository = new GdtResultRepository();
+        var service = new VerificationService(new VerificationEngine(new GdtValidator()), repository);
+        var step = new[] { new GdtAnnotationData("flat-1", GdtControlType.Flatness, "⏥", "0.05", null, Array.Empty<string>(), "model.step", "pmi:1", null, ControlledFeature: "surface-1") };
+        var dxf = new[] { new GdtAnnotationData("flat-1", GdtControlType.Flatness, "⏥", "0.05", null, Array.Empty<string>(), "drawing.dxf", "entity:1", null, ControlledFeature: "surface-1") };
+
+        var generated = await service.VerifyGdtAsync(sessionId, step, dxf, "checker");
+        var result = Assert.Single(generated);
+        Assert.Equal("1.0.0", result.RuleVersion);
+        Assert.Equal(VerificationStatus.Passed, result.Status);
+        var reviewed = result.WithReview("Engineering review", true);
+        await repository.ReplaceGdtResultsAsync(sessionId, new[] { reviewed }, "checker");
+
+        Assert.Equal(VerificationStatus.Passed, repository.Saved.Single().Status);
+        Assert.Equal("Engineering review", repository.Saved.Single().ReviewComment);
+    }
+
+    [Fact(DisplayName = "TD-KAN44-013 application report includes persisted GD&T result evidence")]
+    public void Gdt_report_section_contains_status_rule_reason_and_comment()
+    {
+        var report = new VerificationReport
+        {
+            GdtResults = new[]
+            {
+                new GdtResult { Identifier = "gdt-report", ControlType = GdtControlType.Position, SourceDocument = "pair.step", SourceLocation = "pmi:4", ToleranceValue = "0.1", RuleVersion = "1.0.0", Status = VerificationStatus.NotVerified, Reason = "ambiguous match", ReviewComment = "checker note", RequiresEngineeringReview = true }
+            }
+        };
+
+        var markdown = report.ToMarkdown();
+
+        Assert.Contains("## GD&T Validation", markdown);
+        Assert.Contains("gdt-report", markdown);
+        Assert.Contains("NotVerified", markdown);
+        Assert.Contains("1.0.0", markdown);
+        Assert.Contains("ambiguous match", markdown);
+        Assert.Contains("checker note", markdown);
     }
 
     [Fact(DisplayName = "TD-APP-001 generates Markdown delta content and audit metadata for Checker")]
