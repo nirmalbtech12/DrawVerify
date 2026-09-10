@@ -64,7 +64,10 @@ public sealed class StepPreviewService : IStepPreviewService
                 return new StepPreviewHighlight(reference, false, Array.Empty<StepPreviewPoint>(), triangles, Bounds(bounds));
             }
         }
-        catch (ArgumentOutOfRangeException) { }
+        catch (Exception exception) when (exception is OcctOperationException or ObjectDisposedException or InvalidOperationException or ArgumentOutOfRangeException or IOException)
+        {
+            _logger?.Log(exception, "STEP preview feature resolution", $"Unable to resolve preview feature reference='{reference}'.");
+        }
         return null;
     }
     private static bool IsCurved(OcctEdge edge) => edge.Radius > 0 || edge.MajorRadius > 0 || edge.MinorRadius > 0 || edge.GeometryType.Contains("Arc", StringComparison.OrdinalIgnoreCase) || edge.GeometryType.Contains("Circle", StringComparison.OrdinalIgnoreCase) || edge.GeometryType.Contains("Curve", StringComparison.OrdinalIgnoreCase);
