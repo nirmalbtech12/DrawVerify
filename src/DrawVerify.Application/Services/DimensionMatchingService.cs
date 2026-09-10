@@ -82,6 +82,9 @@ public sealed class DimensionMatchingService
         return _sessions.GetOrCreateAsync(stepDocumentId, dxfDocumentId, cancellationToken);
     }
     public Task<IReadOnlyList<DimensionMatch>> GetResultsAsync(Guid sessionId, DimensionMatchStatus? status = null, CancellationToken cancellationToken = default) { EnsureAuthorized(RolePermission.ViewDimensionMatchResults); return _sessions.GetMatchesAsync(sessionId, status, cancellationToken); }
+    public Task<IReadOnlyList<GdtResult>> GetGdtResultsAsync(Guid sessionId, CancellationToken cancellationToken = default) { EnsureAuthorized(RolePermission.ViewDimensionMatchResults); return _sessions.GetGdtResultsAsync(sessionId, cancellationToken); }
+    public Task ReplaceGdtResultsAsync(Guid sessionId, IReadOnlyCollection<GdtResult> results, CancellationToken cancellationToken = default) { EnsureAuthorized(RolePermission.MatchDimensionsToGeometry); return _sessions.ReplaceGdtResultsAsync(sessionId, results, _authentication.CurrentUser?.UserId ?? throw new UnauthorizedAccessException("An authenticated user is required."), cancellationToken); }
+    public Task UpdateGdtReviewAsync(Guid sessionId, Guid resultId, string? comment, bool requiresEngineeringReview, CancellationToken cancellationToken = default) { EnsureAuthorized(RolePermission.ReviewVerification); return _sessions.UpdateGdtReviewAsync(sessionId, resultId, comment, requiresEngineeringReview, _authentication.CurrentUser?.UserId ?? throw new UnauthorizedAccessException("An authenticated user is required."), cancellationToken); }
     public Task<IReadOnlyList<DimensionMatch>> GetMissingResultsAsync(Guid sessionId, CancellationToken cancellationToken = default)
     {
         EnsureAuthorized(RolePermission.ViewMissingDimensions);

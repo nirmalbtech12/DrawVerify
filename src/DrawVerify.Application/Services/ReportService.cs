@@ -26,12 +26,13 @@ public sealed class ReportService
         try
         {
             var matches = await _sessions.GetMatchesAsync(sessionId, cancellationToken: cancellationToken).ConfigureAwait(false);
-            var report = new VerificationReport { DimensionMatches = matches };
+            var gdtResults = await _sessions.GetGdtResultsAsync(sessionId, cancellationToken).ConfigureAwait(false);
+            var report = new VerificationReport { DimensionMatches = matches, GdtResults = gdtResults };
             var content = await _generator.GenerateMarkdownAsync(report, cancellationToken).ConfigureAwait(false);
             if (_audit is not null)
             {
                 var summary = report.ComparisonSummary;
-                var details = JsonSerializer.Serialize(new { verificationSessionId = sessionId, totalDimensions = summary.TotalDimensions, matchedDimensions = summary.MatchedDimensions, mismatchedDimensions = summary.MismatchedDimensions, unmatchedDimensions = summary.UnmatchedDimensions, missingDimensions = summary.MissingDimensions, extraDimensions = summary.ExtraDimensions, matchPercentage = summary.MatchPercentage, reportFormat = "Markdown" });
+                var details = JsonSerializer.Serialize(new { verificationSessionId = sessionId, totalDimensions = summary.TotalDimensions, matchedDimensions = summary.MatchedDimensions, mismatchedDimensions = summary.MismatchedDimensions, unmatchedDimensions = summary.UnmatchedDimensions, missingDimensions = summary.MissingDimensions, extraDimensions = summary.ExtraDimensions, notVerifiedGdtControls = summary.NotVerifiedGdtControls, matchPercentage = summary.MatchPercentage, reportFormat = "Markdown" });
                 await _audit.WriteAsync(new AuditEntry { DocumentId = sessionId, UserId = _authentication.CurrentUser!.UserId, Action = DocumentAuditAction.VerificationReportGenerated, TimestampUtc = DateTime.UtcNow, DetailsJson = details }, cancellationToken).ConfigureAwait(false);
             }
             return content;

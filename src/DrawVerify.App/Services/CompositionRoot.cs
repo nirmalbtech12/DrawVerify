@@ -10,6 +10,7 @@ using DrawVerify.Infrastructure.Persistence;
 using DrawVerify.Infrastructure.Logging;
 using DrawVerify.App.ViewModels;
 using DrawVerify.OcctService;
+using DrawVerify.Application.Verification;
 
 namespace DrawVerify.App.Services;
 
@@ -31,6 +32,13 @@ public static class CompositionRoot
     public static ISessionAuthenticationService SessionAuthentication => Session;
     public static RoleAuthorization RoleAuthorization => Authorization;
     public static DimensionMatchingConfiguration ConfiguredDimensionMatching => DimensionMatchingConfiguration;
+    public static GdtValidator CreateGdtValidator()
+    {
+        var configuredPath = Path.Combine(AppContext.BaseDirectory, "config", "gdt-subset.default.json");
+        if (!File.Exists(configuredPath)) configuredPath = Path.Combine(Directory.GetCurrentDirectory(), "config", "gdt-subset.default.json");
+        return GdtValidator.FromSubsetFile(configuredPath);
+    }
+    public static VerificationEngine CreateVerificationEngine() => new(CreateGdtValidator());
     public static UsernamePasswordAuthenticationService CreateAuthenticationService()
     {
         var logger=new CentralizedLogger(); var database=DatabasePath();

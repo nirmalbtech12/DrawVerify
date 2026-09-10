@@ -6,6 +6,7 @@ using DrawVerify.Core.Configuration;
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
+using GdtAnnotationData = DrawVerify.Geometry.Models.GdtAnnotationData;
 
 namespace DrawVerify.Application.Services;
 
@@ -22,6 +23,9 @@ public sealed class DxfDimensionExtractionService
     private readonly IUserRepository? _users;
     private readonly RoleAuthorization _authorization;
     private readonly ICentralizedLogger? _logger;
+    private readonly IDxfGdtParser _gdtParser = new DxfGdtParser();
+
+    public Task<IReadOnlyList<GdtAnnotationData>> ExtractGdtAsync(Stream content, Guid documentId, Guid documentVersionId, CancellationToken cancellationToken = default) => _gdtParser.ParseAsync(content, documentId, documentVersionId, cancellationToken);
 
     public DxfDimensionExtractionService(
         IDocumentRepository documents,

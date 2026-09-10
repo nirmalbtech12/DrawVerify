@@ -13,5 +13,6 @@ public enum DocumentAuditAction
     DimensionMatchingFailed = 14,
     UnmatchedDimensionsFlagged = 15,
     ToleranceComparisonApplied = 16, VerificationReportGenerated = 17,
-    CommentAdded = 18, StatusChanged = 19
+    CommentAdded = 18, StatusChanged = 19,
+    UnsupportedGdtDetected = 20, UnsupportedGdtReviewChanged = 21
 }

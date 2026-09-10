@@ -8,6 +8,28 @@ namespace DrawVerify.App.Tests;
 
 public sealed class DimensionMatchItemViewModelTests
 {
+    [Fact(DisplayName = "TD-08 displays unsupported GD&T details and unavailable values")]
+    public void Unsupported_gdt_item_exposes_review_fields()
+    {
+        var result = new GdtResult
+        {
+            GdtResultId = Guid.NewGuid(), Identifier = "gdt-10", ControlType = GdtControlType.Unknown,
+            Symbol = "◇", ToleranceValue = "0.3", Modifiers = "MMC", DatumReferences = new[] { "B" },
+            SourceDocument = "drawing.dxf", SourceLocation = "entity:10", Status = VerificationStatus.NotVerified,
+            Reason = GdtResult.UnsupportedReason, ReviewComment = "Check"
+        };
+        var item = new GdtResultItemViewModel(result);
+
+        Assert.Equal("Not Verified", item.StatusLabel);
+        Assert.Equal("◇", item.ControlTypeOrSymbol);
+        Assert.Equal("0.3", item.Tolerance);
+        Assert.Equal("MMC", item.Modifiers);
+        Assert.Equal("B", item.Datums);
+        Assert.Equal("drawing.dxf @ entity:10", item.Source);
+        Assert.Equal(GdtResult.UnsupportedReason, item.Reason);
+        Assert.Equal("Check", item.Comment);
+    }
+
     [Fact(DisplayName = "TD-06 exposes unmatched metadata, comments, and resolution state")]
     public void Unmatched_item_exposes_review_metadata()
     {

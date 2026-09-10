@@ -12,6 +12,27 @@ using Xunit;
 /// </summary>
 public class PdfReportTests
 {
+    [Fact(DisplayName = "TD-10 renders unsupported GD&T controls in a separate report section")]
+    public void Unsupported_gdt_section_contains_details_and_comment()
+    {
+        var result = new GdtResult
+        {
+            GdtResultId = Guid.NewGuid(), Identifier = "gdt-9", ControlType = GdtControlType.Unknown,
+            Symbol = "◇", ToleranceValue = "0.2", Modifiers = "MMC", DatumReferences = new[] { "A" },
+            SourceDocument = "drawing.dxf", SourceLocation = "entity:9", Status = VerificationStatus.NotVerified,
+            Reason = GdtResult.UnsupportedReason, ReviewComment = "Review this control"
+        };
+        var report = new VerificationReport { GdtResults = new[] { result } };
+        var markdown = report.ToMarkdown();
+
+        Assert.Contains("## Not Verified / Unsupported GD&T Controls", markdown);
+        Assert.Contains("gdt-9", markdown);
+        Assert.Contains("0.2", markdown);
+        Assert.Contains("MMC", markdown);
+        Assert.Contains("Review this control", markdown);
+        Assert.Equal(1, report.ComparisonSummary.NotVerifiedGdtControls);
+    }
+
     [Fact(DisplayName = "TD-APP-004 report rendering reflects replacement delta values")]
     public void Report_uses_current_recomparison_delta_and_not_the_stale_value()
     {

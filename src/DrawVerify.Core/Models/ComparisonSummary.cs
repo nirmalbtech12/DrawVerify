@@ -14,6 +14,7 @@ public sealed record DimensionTypeSummary(
 
 public sealed record ComparisonSummary
 {
+    public int NotVerifiedGdtControls { get; init; }
     public int TotalDimensions { get; init; }
     public int MatchedDimensions { get; init; }
     public int MismatchedDimensions { get; init; }
@@ -31,6 +32,8 @@ public sealed record ComparisonSummary
         var mismatched = rows.Count(match => match.Status == DimensionMatchStatus.Mismatched);
         var unmatched = rows.Count(match => match.Status == DimensionMatchStatus.Unmatched);
         var missing = rows.Count(match => match.Status == DimensionMatchStatus.MissingDimension);
+        // MissingDimension is the legacy representation of a STEP-extra row and
+        // remains projected into ExtraDimensions for backward compatibility.
         var extra = rows.Count(match => match.Status == DimensionMatchStatus.ExtraDimension || match.Status == DimensionMatchStatus.MissingDimension);
         var total = matched + mismatched + unmatched + extra;
 
@@ -64,5 +67,12 @@ public sealed record ComparisonSummary
             MatchPercentage = total == 0 ? null : matched * 100d / total,
             DimensionTypes = byType
         };
+    }
+
+    public static ComparisonSummary From(IEnumerable<DimensionMatch> matches, IEnumerable<GdtResult> gdtResults)
+    {
+        ArgumentNullException.ThrowIfNull(gdtResults);
+        var summary = From(matches);
+        return summary with { NotVerifiedGdtControls = gdtResults.Count(result => result.Status == VerificationStatus.NotVerified) };
     }
 }

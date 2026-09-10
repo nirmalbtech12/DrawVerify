@@ -32,6 +32,8 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
         ResolveMissingDimensionCommand = new RelayCommand(async value => await ResolveSelectedMissingDimensionAsync(value), _ => CanResolveMissingDimensions && SelectedSessionId is not null && SelectedUnmatchedDimension is not null && !IsBusy);
         AddExtraDimensionCommentCommand = new RelayCommand(async _ => await AddExtraDimensionCommentAsync(), _ => CanCommentExtraDimensions && SelectedSessionId is not null && SelectedExtraDimension is not null && !IsBusy);
         FlagExtraDimensionCommand = new RelayCommand(async value => await FlagSelectedExtraDimensionAsync(value), _ => CanFlagExtraDimensions && SelectedSessionId is not null && SelectedExtraDimension is not null && !IsBusy);
+        AddGdtCommentCommand = new RelayCommand(async _ => await AddGdtCommentAsync(), _ => CanReview && SelectedSessionId is not null && SelectedGdtResult is not null && !IsBusy);
+        FlagGdtEngineeringReviewCommand = new RelayCommand(async value => await FlagGdtEngineeringReviewAsync(value), _ => CanReview && SelectedSessionId is not null && SelectedGdtResult is not null && !IsBusy);
     }
     public event PropertyChangedEventHandler? PropertyChanged;
     public bool CanReview => _authorization.IsAllowed(_session.CurrentUser, RolePermission.ReviewVerification);
@@ -68,6 +70,11 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
     public int UnmatchedDimensions => ComparisonSummary.UnmatchedDimensions;
     public int MissingDimensions => ComparisonSummary.MissingDimensions;
     public int ExtraDimensions => ComparisonSummary.ExtraDimensions;
+    public int NotVerifiedGdtControls => ComparisonSummary.NotVerifiedGdtControls;
+    public IReadOnlyList<GdtResultItemViewModel> NotVerifiedGdtResults { get; private set; } = Array.Empty<GdtResultItemViewModel>();
+    public GdtResultItemViewModel? SelectedGdtResult { get; set; }
+    public string GdtReviewComment { get; set; } = string.Empty;
+    public string NotVerifiedGdtTitle => "Not Verified GD&T Controls";
     public double? MatchPercentage => ComparisonSummary.MatchPercentage;
     public string MatchPercentageText => MatchPercentage is double percentage ? $"{percentage.ToString("0.##", CultureInfo.InvariantCulture)}% Matched" : "N/A (no dimensions)";
     public string MatchRatio => TotalDimensions == 0 ? "0/0 Matched" : $"{MatchedDimensions}/{TotalDimensions} Matched";
@@ -82,6 +89,8 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
     public ICommand ResolveMissingDimensionCommand { get; }
     public ICommand AddExtraDimensionCommentCommand { get; }
     public ICommand FlagExtraDimensionCommand { get; }
+    public ICommand AddGdtCommentCommand { get; }
+    public ICommand FlagGdtEngineeringReviewCommand { get; }
     public string MatchingStatus { get; private set; } = "No matching session selected.";
     public string MissingDimensionComment { get; set; } = string.Empty;
     public string ExtraDimensionComment { get; set; } = string.Empty;
@@ -160,6 +169,20 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
         }
         finally { IsBusy = false; Notify(nameof(IsBusy)); RaiseCommands(); }
     }
+    private async Task AddGdtCommentAsync()
+    {
+        if (SelectedSessionId is not Guid sessionId || SelectedGdtResult is null) return;
+        try { IsBusy = true; Notify(nameof(IsBusy)); await _matching!.UpdateGdtReviewAsync(sessionId, SelectedGdtResult.Result.GdtResultId, GdtReviewComment, SelectedGdtResult.RequiresEngineeringReview); await RefreshMatchesAsync(sessionId); GdtReviewComment = string.Empty; Notify(nameof(GdtReviewComment)); MatchingStatus = "GD&T review comment saved."; Notify(nameof(MatchingStatus)); }
+        catch (Exception exception) { _logger?.Log(exception, "GD&T review comment", $"Unable to save gdtResultId={SelectedGdtResult.Result.GdtResultId}."); MatchingStatus = exception is UnauthorizedAccessException ? "Access denied." : $"Unable to save GD&T review: {exception.Message}"; Notify(nameof(MatchingStatus)); }
+        finally { IsBusy = false; Notify(nameof(IsBusy)); RaiseCommands(); }
+    }
+    private async Task FlagGdtEngineeringReviewAsync(object? value)
+    {
+        if (SelectedSessionId is not Guid sessionId || SelectedGdtResult is null || !bool.TryParse(value?.ToString(), out var required)) return;
+        try { IsBusy = true; Notify(nameof(IsBusy)); await _matching!.UpdateGdtReviewAsync(sessionId, SelectedGdtResult.Result.GdtResultId, SelectedGdtResult.Comment, required); await RefreshMatchesAsync(sessionId); MatchingStatus = required ? "GD&T engineering review requested." : "GD&T engineering review cleared."; Notify(nameof(MatchingStatus)); }
+        catch (Exception exception) { _logger?.Log(exception, "GD&T engineering review", $"Unable to update gdtResultId={SelectedGdtResult.Result.GdtResultId}."); MatchingStatus = exception is UnauthorizedAccessException ? "Access denied." : $"Unable to update GD&T disposition: {exception.Message}"; Notify(nameof(MatchingStatus)); }
+        finally { IsBusy = false; Notify(nameof(IsBusy)); RaiseCommands(); }
+    }
     private async Task FlagSelectedExtraDimensionAsync(object? value)
     {
         if (SelectedSessionId is not Guid sessionId || SelectedExtraDimension is null || !bool.TryParse(value?.ToString(), out var requiresUpdate)) return;
@@ -225,7 +248,7 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
                     authorizedRows.AddRange(await _matching!.GetExtraResultsAsync(sessionId, cancellationToken));
                 matches = authorizedRows;
             }
-            if (canViewExtra)
+            if (canViewExtra && matches.Any(match => match.Status is DimensionMatchStatus.ExtraDimension or DimensionMatchStatus.MissingDimension))
             {
                 try
                 {
@@ -241,7 +264,19 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
                     Notify(nameof(MatchingStatus));
                 }
             }
-            _allMatchResults = matches.Select(match => new DimensionMatchItemViewModel(match)).ToArray(); ApplyResultView();
+            IReadOnlyList<GdtResult> gdtResults = Array.Empty<GdtResult>();
+            try
+            {
+                gdtResults = await _matching!.GetGdtResultsAsync(sessionId, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or NotSupportedException or IOException or UnauthorizedAccessException)
+            {
+                _logger?.Log(exception, "Load GD&T verification results", $"Unable to load GD&T results for verificationSessionId={sessionId}; dimension rows remain available.");
+                MatchingStatus = "GD&T results unavailable; dimension results remain available.";
+                Notify(nameof(MatchingStatus));
+            }
+            NotVerifiedGdtResults = gdtResults.Where(result => result.Status == VerificationStatus.NotVerified).Select(result => new GdtResultItemViewModel(result)).ToArray();
+            _allMatchResults = matches.Select(match => new DimensionMatchItemViewModel(match)).ToArray(); ApplyResultView(); Notify(nameof(NotVerifiedGdtResults)); Notify(nameof(NotVerifiedGdtControls));
         }
         catch (UnauthorizedAccessException) { ClearResults("Access denied."); }
         catch (Exception exception) { _logger?.Log(exception, "Load dimension matching results", $"Unable to load verificationSessionId={sessionId}."); ClearResults("Unable to load matching results."); }
@@ -306,7 +341,7 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
     }
     private void UpdateStatusSummaries()
     {
-        ComparisonSummary = DrawVerify.Core.Models.ComparisonSummary.From(_allMatchResults.Select(item => item.Match));
+        ComparisonSummary = DrawVerify.Core.Models.ComparisonSummary.From(_allMatchResults.Select(item => item.Match), NotVerifiedGdtResults.Select(item => item.Result));
         StatusSummaries = Enum.GetValues<DimensionType>().Select(type =>
         {
             var matches = _allMatchResults.Where(item => item.Match.DimensionType == type).Select(item => item.Match);
@@ -323,6 +358,7 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
         Notify(nameof(UnmatchedDimensions));
         Notify(nameof(MissingDimensions));
         Notify(nameof(ExtraDimensions));
+        Notify(nameof(NotVerifiedGdtControls));
         Notify(nameof(MatchPercentage));
         Notify(nameof(MatchPercentageText));
         Notify(nameof(MatchRatio));
@@ -340,7 +376,7 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
         DimensionMatchStatus.Matched => 2,
         _ => 3
     };
-    private void RaiseCommands() { ((RelayCommand)SelectPairCommand).Raise(); ((RelayCommand)MatchDimensionsCommand).Raise(); ((RelayCommand)RefreshMatchesCommand).Raise(); ((RelayCommand)UpdateToleranceCommand).Raise(); ((RelayCommand)AddMissingDimensionCommentCommand).Raise(); ((RelayCommand)ResolveMissingDimensionCommand).Raise(); ((RelayCommand)AddExtraDimensionCommentCommand).Raise(); ((RelayCommand)FlagExtraDimensionCommand).Raise(); }
+    private void RaiseCommands() { ((RelayCommand)SelectPairCommand).Raise(); ((RelayCommand)MatchDimensionsCommand).Raise(); ((RelayCommand)RefreshMatchesCommand).Raise(); ((RelayCommand)UpdateToleranceCommand).Raise(); ((RelayCommand)AddMissingDimensionCommentCommand).Raise(); ((RelayCommand)ResolveMissingDimensionCommand).Raise(); ((RelayCommand)AddExtraDimensionCommentCommand).Raise(); ((RelayCommand)FlagExtraDimensionCommand).Raise(); ((RelayCommand)AddGdtCommentCommand).Raise(); ((RelayCommand)FlagGdtEngineeringReviewCommand).Raise(); }
     private void Notify([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     public void Dispose() { StepPreview.Dispose(); GC.SuppressFinalize(this); }
     private void ClearResults(string message) { _allMatchResults = Array.Empty<DimensionMatchItemViewModel>(); MatchResults = Array.Empty<DimensionMatchItemViewModel>(); UpdateStatusSummaries(); MatchingStatus = message; Notify(nameof(MatchResults)); Notify(nameof(UnmatchedResults)); Notify(nameof(MatchingStatus)); }
