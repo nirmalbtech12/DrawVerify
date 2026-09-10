@@ -12,7 +12,7 @@
         <Grid Grid.Row="2">
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
             <TextBlock Text="{Binding Status}" Margin="0,0,0,8" />
-            <TextBox Grid.Row="1" Text="{Binding ReportContent}" IsReadOnly="True" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap" />
+            <TextBox Grid.Row="1" Text="{Binding ReportContent, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap" />
         </Grid>
     </Grid>
 </UserControl>
