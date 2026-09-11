@@ -363,6 +363,50 @@ public sealed class VerificationViewModel : TaskScreenViewModel, IDisposable
         catch (Exception exception) { MatchingStatus = exception is UnauthorizedAccessException ? "Access denied." : exception.Message; MatchResults = Array.Empty<DimensionMatchItemViewModel>(); Notify(nameof(MatchingStatus)); Notify(nameof(MatchResults)); }
         finally { IsBusy = false; Notify(nameof(IsBusy)); RaiseCommands(); }
     }
+    public async Task<bool> SelectPairAsync(Guid stepDocumentId, Guid dxfDocumentId, CancellationToken cancellationToken = default)
+    {
+        if (stepDocumentId == Guid.Empty || dxfDocumentId == Guid.Empty)
+        {
+            MatchingStatus = "Both a valid STEP and DXF document are required.";
+            Notify(nameof(MatchingStatus));
+            return false;
+        }
+        StepDocumentId = stepDocumentId.ToString();
+        DxfDocumentId = dxfDocumentId.ToString();
+        try
+        {
+            IsBusy = true; Notify(nameof(IsBusy));
+            var session = await _matching!.GetOrCreateSessionAsync(stepDocumentId, dxfDocumentId, cancellationToken).ConfigureAwait(true);
+            SelectedSessionId = session.VerificationSessionId;
+            MatchingStatus = $"Selected session {session.VerificationSessionId}.";
+            await RefreshMatchesAsync(session.VerificationSessionId, cancellationToken).ConfigureAwait(true);
+            Notify(nameof(SelectedSessionId));
+            return true;
+        }
+        catch (Exception exception)
+        {
+            _logger?.Log(exception, "Verification session selection", $"Unable to select stepDocumentId={stepDocumentId}; dxfDocumentId={dxfDocumentId}.");
+            MatchingStatus = exception is UnauthorizedAccessException ? "Access denied." : exception.Message;
+            Notify(nameof(MatchingStatus));
+            return false;
+        }
+        finally { IsBusy = false; Notify(nameof(IsBusy)); RaiseCommands(); }
+    }
+    public void ResetWorkflowState()
+    {
+        SelectedSessionId = null;
+        _stepDocumentId = string.Empty;
+        _dxfDocumentId = string.Empty;
+        _allMatchResults = Array.Empty<DimensionMatchItemViewModel>();
+        MatchResults = Array.Empty<DimensionMatchItemViewModel>();
+        _selectedUnmatchedDimension = null;
+        _selectedExtraDimension = null;
+        ClearResults("No matching session selected.");
+        MatchingStatus = "No matching session selected.";
+        Notify(nameof(StepDocumentId)); Notify(nameof(DxfDocumentId)); Notify(nameof(SelectedSessionId));
+        Notify(nameof(SelectedUnmatchedDimension)); Notify(nameof(SelectedExtraDimension)); Notify(nameof(MatchingStatus));
+        RaiseCommands();
+    }
     private async Task MatchSelectedDimensionsAsync() { if (SelectedSessionId is Guid id) { IsBusy = true; Notify(nameof(IsBusy)); RaiseCommands(); try { await MatchDimensionsAsync(id); } finally { IsBusy = false; Notify(nameof(IsBusy)); RaiseCommands(); } } }
     private async Task RefreshSelectedMatchesAsync() { if (SelectedSessionId is Guid id) { IsBusy = true; Notify(nameof(IsBusy)); try { await RefreshMatchesAsync(id); } finally { IsBusy = false; Notify(nameof(IsBusy)); } } }
     private async Task UpdateToleranceAsync() { if (SelectedSessionId is not Guid id || !double.TryParse(ToleranceThresholdInput, NumberStyles.Float, CultureInfo.InvariantCulture, out var tolerance) || !double.IsFinite(tolerance) || tolerance < 0) { MatchingStatus = "Enter a non-negative tolerance in millimetres."; Notify(nameof(MatchingStatus)); return; } IsBusy = true; Notify(nameof(IsBusy)); try { var session = await _matching!.UpdateToleranceAndRecompareAsync(id, tolerance); SetEffectiveTolerance(session.ToleranceThresholdMm ?? tolerance, updateInput: true); await RefreshMatchesAsync(id); MatchingStatus = $"Tolerance comparison completed using ±{FormatTolerance(tolerance)} mm."; Notify(nameof(MatchingStatus)); } catch (Exception exception) { if (exception is not UnauthorizedAccessException) _logger?.Log(exception, "Tolerance re-comparison", $"Unable to recompare verificationSessionId={id}."); ClearResults(exception is UnauthorizedAccessException ? "Access denied." : exception.Message); } finally { IsBusy = false; RaiseCommands(); } }

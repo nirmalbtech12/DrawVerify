@@ -22,7 +22,7 @@ public sealed class RoleMenuTests
             var session = new TestSession(role);
             var menus = new RoleMenuBuilder(session, new RoleAuthorization()).Build(_ => { }, () => Task.CompletedTask, _ => { }).ToArray();
             var expected = new[] { "_File", "_Verification", "_Workflow", "_Help" }
-                .Concat(uploadVisible ? ["_Upload"] : [])
+                .Concat(uploadVisible ? ["_Upload & Verify"] : [])
                 .Concat(adminVisible ? ["_Admin"] : [])
                 .OrderBy(x => x);
             Assert.Equal(expected, menus.Select(x => x.Header?.ToString()).OrderBy(x => x));
@@ -38,7 +38,7 @@ public sealed class RoleMenuTests
         Sta.Run(() =>
         {
             var menus = new RoleMenuBuilder(new TestSession(SystemRoles.Viewer), new RoleAuthorization()).Build(_ => throw new Xunit.Sdk.XunitException("unexpected navigation"), () => Task.CompletedTask, _ => { });
-            Assert.DoesNotContain(menus, menu => menu.Header?.ToString() == "_Upload");
+            Assert.DoesNotContain(menus, menu => menu.Header?.ToString() == "_Upload & Verify");
         });
     }
 

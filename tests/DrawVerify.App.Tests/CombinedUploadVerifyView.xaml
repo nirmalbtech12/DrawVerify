@@ -1,0 +1,13 @@
+<!--
+  Approved T03 UI contract fixture.
+  The executable assertions live in CombinedUploadVerifyViewModelTests.cs;
+  this fixture keeps the approved test-design path present for the four-step
+  labels and accessible state-indicator contract.
+-->
+<CombinedUploadVerifyViewContract
+    Step1="Step 1: Upload 3D Model"
+    Step2="Step 2: Upload 2D Drawing"
+    Step3="Step 3: Verify"
+    Step4="Step 4: Comparison Results"
+    VerifyAction="Verify"
+    StateIndicators="StepStatus,DxfStatus,ProcessingStatus" />

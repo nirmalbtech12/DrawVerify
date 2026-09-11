@@ -13,7 +13,7 @@ public sealed class ScreenAccessGuard(ISessionAuthenticationService session, Rol
         var user = session.CurrentUser;
         return target switch
         {
-            ScreenRegistry.StepUpload or ScreenRegistry.DxfUpload => authorization.IsAllowed(user, RolePermission.Upload),
+            ScreenRegistry.StepUpload or ScreenRegistry.DxfUpload or ScreenRegistry.UploadVerify => authorization.IsAllowed(user, RolePermission.Upload),
             ScreenRegistry.Verification => authorization.IsAllowed(user, RolePermission.ReviewVerification) || authorization.IsAllowed(user, RolePermission.StartVerification) || authorization.IsAllowed(user, RolePermission.ReadApprovedDocuments),
             ScreenRegistry.Workflow => HasRole(user, SystemRoles.Maker) || HasRole(user, SystemRoles.Checker) || HasRole(user, SystemRoles.Approver),
             ScreenRegistry.UserAdministration => authorization.IsAllowed(user, RolePermission.ManageUsersAndRoles),

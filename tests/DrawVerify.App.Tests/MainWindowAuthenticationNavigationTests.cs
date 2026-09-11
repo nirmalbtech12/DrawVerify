@@ -115,7 +115,7 @@ public sealed class MainWindowAuthenticationNavigationTests
             var window = new MainWindow();
             typeof(MainWindow).GetMethod("ShowAuthenticatedContent", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null);
             var shell = Assert.IsType<ShellView>(Content(window).Content);
-            var upload = Assert.Single(Menu(shell).Items.Cast<MenuItem>(), x => x.Header?.ToString() == "_Upload");
+            var upload = Assert.Single(Menu(shell).Items.Cast<MenuItem>(), x => x.Header?.ToString() == "_Upload & Verify");
             var drawing = Assert.Single(upload.Items.Cast<MenuItem>(), x => x.Header?.ToString() == "Upload _Drawing (DXF)");
             Assert.True(drawing.IsEnabled);
             window.Close(); Dispatcher.CurrentDispatcher.InvokeShutdown();
@@ -152,7 +152,7 @@ public sealed class MainWindowAuthenticationNavigationTests
                 var window = new MainWindow();
                 typeof(MainWindow).GetMethod("ShowAuthenticatedContent", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null);
                 var shell = Assert.IsType<ShellView>(Content(window).Content);
-                var upload = Menu(shell).Items.Cast<MenuItem>().SingleOrDefault(x => x.Header?.ToString() == "_Upload");
+                var upload = Menu(shell).Items.Cast<MenuItem>().SingleOrDefault(x => x.Header?.ToString() == "_Upload & Verify");
                 Assert.Equal(expected, upload is not null && upload.IsEnabled);
                 window.Close(); Dispatcher.CurrentDispatcher.InvokeShutdown();
             }
