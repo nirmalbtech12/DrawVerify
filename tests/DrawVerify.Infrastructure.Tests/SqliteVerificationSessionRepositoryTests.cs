@@ -9,6 +9,18 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteVerificationSessionRepositoryTests
 {
+    [Fact(DisplayName = "T14 persisted sessions retain exact pair versions and truthful status")]
+    public void Repository_contract_persists_pair_versions_and_status()
+    {
+        var source = FindSourceFile("src", "DrawVerify.Infrastructure", "Persistence", "SqliteVerificationSessionRepository.cs");
+        var text = File.ReadAllText(source);
+        Assert.Contains("StepDocumentVersionId", text);
+        Assert.Contains("DxfDocumentVersionId", text);
+        Assert.Contains("Status", text);
+        Assert.Contains("ReplaceResultsAsync", text);
+        Assert.Contains("GetAsync", text);
+    }
+
     [Theory(DisplayName = "TD-INFRA-001 rejects malformed persisted GD&T enum and JSON values")]
     [InlineData("ControlType", "99", null)]
     [InlineData("Status", "99", null)]
@@ -514,5 +526,17 @@ public sealed class SqliteVerificationSessionRepositoryTests
         var dxfVersion = new DocumentVersion { VersionId = dxfVersionId, DocumentId = dxfId, VersionNumber = 1, StoredRelativePath = "fixture.dxf", FileSizeBytes = 1 };
         await documents.CreateWithVersionAsync(new Document { DocumentId = stepId, OriginalFileName = "fixture.step", FileSizeBytes = 1, DocumentType = DrawVerify.Core.Enums.DocumentType.StepModel, GeometryStatus = DrawVerify.Core.Enums.GeometryStatus.Processed, CurrentVersion = 1, Version = stepVersion, Versions = new[] { stepVersion } }, stepVersion);
         await documents.CreateWithVersionAsync(new Document { DocumentId = dxfId, OriginalFileName = "fixture.dxf", FileSizeBytes = 1, DocumentType = DrawVerify.Core.Enums.DocumentType.DxfDrawing, VerificationStatus = VerificationStatus.DimensionsExtracted, CurrentVersion = 1, Version = dxfVersion, Versions = new[] { dxfVersion } }, dxfVersion);
+    }
+
+    private static string FindSourceFile(params string[] parts)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(new[] { directory.FullName }.Concat(parts).ToArray());
+            if (File.Exists(candidate)) return candidate;
+            directory = directory.Parent;
+        }
+        throw new FileNotFoundException($"Source file not found: {Path.Combine(parts)}");
     }
 }

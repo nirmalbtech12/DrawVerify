@@ -16,6 +16,20 @@ using Xunit;
 /// </summary>
 public class VerificationServiceTests
 {
+    [Fact(DisplayName = "T26 approved regression suites remain present")]
+    public void Approved_regression_test_projects_and_fixtures_are_present()
+    {
+        var root = FindRepositoryRoot();
+        foreach (var relative in new[]
+        {
+            "tests/DrawVerify.App.Tests/CombinedUploadVerifyViewModelTests.cs",
+            "tests/DrawVerify.Application.Tests/CombinedUploadVerifyServiceTests.cs",
+            "tests/DrawVerify.Infrastructure.Tests/SqliteVerificationSessionRepositoryTests.cs",
+            "tests/DrawVerify.Infrastructure.Tests/StepUploadPersistenceAndStorageTests.cs",
+            "tests/DrawVerify.Infrastructure.Tests/DxfUploadPersistenceAndStorageTests.cs"
+        }) Assert.True(File.Exists(Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar))), relative);
+    }
+
     [Fact(DisplayName = "TD-APP-002 preserves Cannot Validate status through review persistence")]
     public async Task Cannot_validate_review_evidence_is_saved_without_status_mutation()
     {
@@ -149,5 +163,16 @@ public class VerificationServiceTests
         public Task<VerificationSession> GetOrCreateAsync(Guid stepDocumentId, Guid dxfDocumentId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task ReplaceGdtResultsAsync(Guid sessionId, IReadOnlyCollection<GdtResult> results, string userId, CancellationToken cancellationToken = default) { Saved = results.ToArray(); return Task.CompletedTask; }
         public Task ReplaceResultsAsync(VerificationSession session, IReadOnlyCollection<DimensionMatch> matches, DocumentAuditAction auditAction, string userId, string detailsJson, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "DrawVerify.sln"))) return directory.FullName;
+            directory = directory.Parent;
+        }
+        throw new DirectoryNotFoundException("Repository root not found.");
     }
 }

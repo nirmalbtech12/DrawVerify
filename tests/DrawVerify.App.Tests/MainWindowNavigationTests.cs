@@ -11,6 +11,18 @@ namespace DrawVerify.App.Tests;
 
 public sealed class MainWindowNavigationTests
 {
+    [Fact(DisplayName = "T01 Maker menu renames only the combined upload entry")]
+    public void Upload_verify_menu_target_is_registered()
+    {
+        Assert.Equal("Upload & Verify", ScreenRegistry.Title(ScreenRegistry.UploadVerify));
+        var menu = Assert.Single(ScreenRegistry.Menus, item => item.Header == "_Upload & Verify");
+        Assert.Equal(ScreenRegistry.UploadVerify, menu.Target);
+        Assert.NotNull(menu.Children);
+        Assert.Contains(menu.Children!, item => item.Target == ScreenRegistry.StepUpload);
+        Assert.Contains(menu.Children!, item => item.Target == ScreenRegistry.DxfUpload);
+        Assert.Contains(ScreenRegistry.Menus, item => item.Header == "_Verification");
+    }
+
     [Fact(DisplayName = "WPF-001 authenticated shell keeps menu, content, title, and status regions")]
     public void ShellRegionsRemainMountedWhenScreensChange()
     {

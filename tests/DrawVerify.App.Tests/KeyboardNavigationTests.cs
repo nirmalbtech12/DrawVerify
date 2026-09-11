@@ -5,11 +5,11 @@ namespace DrawVerify.App.Tests;
 
 public sealed class KeyboardNavigationTests
 {
-    [Fact(DisplayName = "WPF-002 native menu headers declare File and Upload access keys")]
+    [Fact(DisplayName = "WPF-002 native menu headers declare File and Upload & Verify access keys")]
     public void MenuAccessKeysAreDeclared()
     {
         Assert.Contains("_File", ScreenRegistry.Menus.Select(x => x.Header));
-        Assert.Contains("_Upload", ScreenRegistry.Menus.Select(x => x.Header));
+        Assert.Contains("_Upload & Verify", ScreenRegistry.Menus.Select(x => x.Header));
         Assert.Contains("_Dashboard / Home", ScreenRegistry.Menus[0].Children!.Select(x => x.Header));
     }
 

@@ -89,6 +89,15 @@ public static class CompositionRoot
             logger,
             Authorization);
     }
+    public static MeasurementExtractionService CreateMeasurementExtractionService()
+    {
+        var database = DatabasePath();
+        var logger = new CentralizedLogger();
+        var worker = new OcctWorkerGeometryService(Path.Combine(AppContext.BaseDirectory, DimensionMatchingConfiguration.WorkerPath), DimensionMatchingConfiguration.MaximumStepFileSizeBytes, DimensionMatchingConfiguration.TimeoutSeconds, logger);
+        return new MeasurementExtractionService(new SqliteDocumentRepository(database, logger), new SqliteAuditRepository(database), worker);
+    }
+    public static CombinedUploadVerifyViewModel CreateCombinedUploadVerifyViewModel() =>
+        new(CreateStepUploadViewModel(), CreateDxfUploadViewModel(), CreateMeasurementExtractionService(), CreateDxfDimensionExtractionService(), new VerificationViewModel(Session, Authorization, CreateDimensionMatchingService(), new CentralizedLogger(), DimensionMatchingConfiguration), new CentralizedLogger());
     public static DocumentDetailViewModel CreateDocumentDetailViewModel(DrawVerify.Core.Models.Document document) =>
         new(document, CreateDxfDimensionExtractionService());
     public static DimensionMatchingService CreateDimensionMatchingService()

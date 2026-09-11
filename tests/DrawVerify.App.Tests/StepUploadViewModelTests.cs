@@ -5,6 +5,19 @@ namespace DrawVerify.App.Tests;
 
 public sealed class StepUploadViewModelTests
 {
+    [Fact(DisplayName = "T04 STEP selection is single-file and extension constrained")]
+    public void Step_picker_contract_accepts_only_step_variants()
+    {
+        var view = FindSourceFile("src", "DrawVerify.App", "Views", "StepUploadView.xaml");
+        var codeBehind = FindSourceFile("src", "DrawVerify.App", "Views", "StepUploadView.xaml.cs");
+        var xaml = File.ReadAllText(view);
+        var source = File.ReadAllText(codeBehind);
+        Assert.Contains("Filter=\"STEP files (*.step;*.stp)|*.step;*.stp\"", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("new OpenFileDialog", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Multiselect = true", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Select STEP file", xaml, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact(DisplayName = "TD-KAN21-WPF-001 exposes supported-format guidance and rejection message binding")]
     public void Step_upload_view_contains_guidance_and_message_binding()
     {
