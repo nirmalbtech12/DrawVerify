@@ -1,5 +1,5 @@
 namespace DrawVerify.App.ViewModels;
 
-public sealed class WorkflowViewModel
+public sealed class WorkflowViewModel : TaskScreenViewModel
 {
 }

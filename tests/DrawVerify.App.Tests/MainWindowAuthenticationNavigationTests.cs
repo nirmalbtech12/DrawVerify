@@ -22,10 +22,11 @@ public sealed class MainWindowAuthenticationNavigationTests
                 CompositionRoot.SessionAuthentication.SignIn(new AuthenticatedUser("ADMIN", new[] { "Admin" }));
                 var window = new MainWindow();
                 typeof(MainWindow).GetMethod("ShowUserAdministration", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null);
-                var view = Assert.IsType<UserAdministrationView>(Content(window).Content);
+                var shell = Assert.IsType<ShellView>(Content(window).Content);
+                var view = Assert.IsType<UserAdministrationView>(ShellContent(shell).Content);
                 var vm = Assert.IsType<UserAdministrationViewModel>(view.DataContext);
                 vm.CancelCommand.Execute(null);
-                Assert.IsType<StackPanel>(Content(window).Content);
+                Assert.IsType<DashboardView>(ShellContent(shell).Content);
                 window.Close();
                 Dispatcher.CurrentDispatcher.InvokeShutdown();
             }
@@ -46,27 +47,28 @@ public sealed class MainWindowAuthenticationNavigationTests
                 CompositionRoot.SessionAuthentication.SignIn(new AuthenticatedUser("ADMIN", new[] { "Admin" }));
                 var window = new MainWindow();
                 typeof(MainWindow).GetMethod("ShowUserAdministration", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null);
-                var view = Assert.IsType<UserAdministrationView>(Content(window).Content);
+                var shell = Assert.IsType<ShellView>(Content(window).Content);
+                var view = Assert.IsType<UserAdministrationView>(ShellContent(shell).Content);
                 var vm = Assert.IsType<UserAdministrationViewModel>(view.DataContext);
                 vm.Username = "cancel.pending"; vm.DisplayName = "Cancel Pending";
                 window.DiscardConfirmation = () => System.Windows.MessageBoxResult.No;
                 vm.CancelCommand.Execute(null);
-                Assert.Same(view, Content(window).Content);
+                Assert.Same(view, ShellContent(shell).Content);
                 Assert.Equal("cancel.pending", vm.Username);
                 window.DiscardConfirmation = () => System.Windows.MessageBoxResult.Yes;
                 vm.CancelCommand.Execute(null);
-                Assert.IsType<StackPanel>(Content(window).Content);
+                Assert.IsType<DashboardView>(ShellContent(shell).Content);
                 typeof(MainWindow).GetMethod("ShowUserAdministration", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null);
-                view = Assert.IsType<UserAdministrationView>(Content(window).Content);
+                view = Assert.IsType<UserAdministrationView>(ShellContent(shell).Content);
                 vm = Assert.IsType<UserAdministrationViewModel>(view.DataContext);
                 vm.Username = "back.pending"; vm.DisplayName = "Back Pending";
                 window.DiscardConfirmation = () => System.Windows.MessageBoxResult.No;
                 vm.BackCommand.Execute(null);
-                Assert.Same(view, Content(window).Content);
+                Assert.Same(view, ShellContent(shell).Content);
                 Assert.Equal("back.pending", vm.Username);
                 window.DiscardConfirmation = () => System.Windows.MessageBoxResult.Yes;
                 vm.BackCommand.Execute(null);
-                Assert.IsType<StackPanel>(Content(window).Content);
+                Assert.IsType<DashboardView>(ShellContent(shell).Content);
                 window.Close();
                 Dispatcher.CurrentDispatcher.InvokeShutdown();
             }
@@ -112,8 +114,9 @@ public sealed class MainWindowAuthenticationNavigationTests
             CompositionRoot.SessionAuthentication.SignIn(new AuthenticatedUser("MAKER", new[] { "Maker" }));
             var window = new MainWindow();
             typeof(MainWindow).GetMethod("ShowAuthenticatedContent", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null);
-            var panel = Assert.IsType<StackPanel>(Content(window).Content);
-            var drawing = Assert.Single(panel.Children.OfType<Button>().Where(x => Equals(x.Content, "Upload Drawing")));
+            var shell = Assert.IsType<ShellView>(Content(window).Content);
+            var upload = Assert.Single(Menu(shell).Items.Cast<MenuItem>(), x => x.Header?.ToString() == "_Upload");
+            var drawing = Assert.Single(upload.Items.Cast<MenuItem>(), x => x.Header?.ToString() == "Upload _Drawing (DXF)");
             Assert.True(drawing.IsEnabled);
             window.Close(); Dispatcher.CurrentDispatcher.InvokeShutdown();
         } catch (Exception ex) { failure = ex; }}); thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
@@ -123,7 +126,7 @@ public sealed class MainWindowAuthenticationNavigationTests
     [Fact(DisplayName = "TD-APPUI-001 self-profile navigation displays roles for non-admin users")]
     public void Non_admin_can_reach_self_profile_without_admin_controls()
     {
-        Exception? failure=null; var thread=new Thread(()=>{try{CompositionRoot.SessionAuthentication.SignIn(new AuthenticatedUser("VIEWER",new[]{"Viewer"})); var window=new MainWindow(); typeof(MainWindow).GetMethod("ShowAuthenticatedContent",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(window,null); var panel=Assert.IsType<StackPanel>(Content(window).Content); var profile=panel.Children.OfType<Button>().Single(x=>Equals(x.Content,"My profile")); profile.RaiseEvent(new System.Windows.RoutedEventArgs(Button.ClickEvent)); var vm=Assert.IsType<UserAdministrationViewModel>(Assert.IsType<UserAdministrationView>(Content(window).Content).DataContext); Assert.Contains("Viewer",vm.AssignedRoles); Assert.False(vm.CanEditRoles); window.Close(); Dispatcher.CurrentDispatcher.InvokeShutdown();}catch(Exception ex){failure=ex;}}); thread.SetApartmentState(ApartmentState.STA);thread.Start();thread.Join();if(failure is not null)throw new Xunit.Sdk.XunitException("Self-profile navigation assertion failed.",failure);
+        Exception? failure=null; var thread=new Thread(()=>{try{CompositionRoot.SessionAuthentication.SignIn(new AuthenticatedUser("VIEWER",new[]{"Viewer"})); var window=new MainWindow(); typeof(MainWindow).GetMethod("ShowAuthenticatedContent",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(window,null); var shell=Assert.IsType<ShellView>(Content(window).Content); Assert.DoesNotContain(Menu(shell).Items.Cast<MenuItem>(), x=>x.Header?.ToString()=="_Admin"); Assert.IsType<DashboardView>(ShellContent(shell).Content); window.Close(); Dispatcher.CurrentDispatcher.InvokeShutdown();}catch(Exception ex){failure=ex;}}); thread.SetApartmentState(ApartmentState.STA);thread.Start();Assert.True(thread.Join(TimeSpan.FromSeconds(5)),"Self-profile shell assertion exceeded 5 seconds.");if(failure is not null)throw new Xunit.Sdk.XunitException("Self-profile navigation assertion failed.",failure);
     }
 
     [Theory(DisplayName = "TD-APPUI-002 review navigation state follows shared authorization")]
@@ -131,7 +134,7 @@ public sealed class MainWindowAuthenticationNavigationTests
     [InlineData("Viewer", false)]
     public void Review_navigation_reflects_role_permission(string role, bool expected)
     {
-        Exception? failure=null; var thread=new Thread(()=>{try{CompositionRoot.SessionAuthentication.SignIn(new AuthenticatedUser("USER",new[]{role})); var window=new MainWindow(); typeof(MainWindow).GetMethod("ShowAuthenticatedContent",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(window,null); var panel=Assert.IsType<StackPanel>(Content(window).Content); var review=panel.Children.OfType<Button>().Single(x=>Equals(x.Content,"Review verification")); Assert.Equal(expected,review.IsEnabled); window.Close(); Dispatcher.CurrentDispatcher.InvokeShutdown();}catch(Exception ex){failure=ex;}}); thread.SetApartmentState(ApartmentState.STA);thread.Start();thread.Join();if(failure is not null)throw new Xunit.Sdk.XunitException("Review navigation assertion failed.",failure);
+        Exception? failure=null; var thread=new Thread(()=>{try{CompositionRoot.SessionAuthentication.SignIn(new AuthenticatedUser("USER",new[]{role})); var window=new MainWindow(); typeof(MainWindow).GetMethod("ShowAuthenticatedContent",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(window,null); var shell=Assert.IsType<ShellView>(Content(window).Content); var verification=Assert.Single(Menu(shell).Items.Cast<MenuItem>(), x=>x.Header?.ToString()=="_Verification"); var all=verification.Items.Cast<MenuItem>().SingleOrDefault(x=>x.Header?.ToString()=="_All Verifications"); Assert.Equal(expected,all is not null && all.IsEnabled); window.Close(); Dispatcher.CurrentDispatcher.InvokeShutdown();}catch(Exception ex){failure=ex;}}); thread.SetApartmentState(ApartmentState.STA);thread.Start();Assert.True(thread.Join(TimeSpan.FromSeconds(5)),"Review shell assertion exceeded 5 seconds.");if(failure is not null)throw new Xunit.Sdk.XunitException("Review navigation assertion failed.",failure);
     }
 
     [Theory(DisplayName = "TD-APPUI-002 upload navigation exposes Maker authorization state")]
@@ -147,9 +150,10 @@ public sealed class MainWindowAuthenticationNavigationTests
             {
                 CompositionRoot.SessionAuthentication.SignIn(new AuthenticatedUser("USER", new[] { role }));
                 var window = new MainWindow();
-                typeof(MainWindow).GetMethod("ShowUpload", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null);
-                var view = Assert.IsType<StepUploadView>(Content(window).Content);
-                Assert.Equal(expected, Assert.IsType<StepUploadViewModel>(view.DataContext).IsAuthorized);
+                typeof(MainWindow).GetMethod("ShowAuthenticatedContent", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null);
+                var shell = Assert.IsType<ShellView>(Content(window).Content);
+                var upload = Menu(shell).Items.Cast<MenuItem>().SingleOrDefault(x => x.Header?.ToString() == "_Upload");
+                Assert.Equal(expected, upload is not null && upload.IsEnabled);
                 window.Close(); Dispatcher.CurrentDispatcher.InvokeShutdown();
             }
             catch (Exception ex) { failure = ex; }
@@ -159,4 +163,6 @@ public sealed class MainWindowAuthenticationNavigationTests
     }
 
     private static ContentControl Content(MainWindow window) => (ContentControl)typeof(MainWindow).GetField("MainContent", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+    private static Menu Menu(ShellView shell) => Assert.IsType<Menu>(shell.FindName("ApplicationMenu"));
+    private static ContentControl ShellContent(ShellView shell) => Assert.IsType<ContentControl>(shell.FindName("ContentHost"));
 }

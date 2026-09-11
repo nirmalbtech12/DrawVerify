@@ -7,7 +7,7 @@ using DrawVerify.Application.Services;
 
 namespace DrawVerify.App.ViewModels;
 
-public sealed class DxfUploadViewModel : INotifyPropertyChanged
+public sealed class DxfUploadViewModel : TaskScreenViewModel
 {
     public const string PickerFilter = "DXF files (*.dxf)|*.dxf";
     private readonly DxfDocumentService _service;
@@ -24,7 +24,6 @@ public sealed class DxfUploadViewModel : INotifyPropertyChanged
         CancelCommand = new RelayCommand(_ => _cancellation?.Cancel(), _ => IsBusy);
     }
 
-    public event PropertyChangedEventHandler? PropertyChanged;
     public event Action? SelectRequested;
     public event Action<DrawVerify.Core.Models.Document>? DocumentUploaded;
 
@@ -50,6 +49,7 @@ public sealed class DxfUploadViewModel : INotifyPropertyChanged
         _content?.Dispose();
         _content = content ?? throw new ArgumentNullException(nameof(content));
         FileName = originalFileName;
+        MarkDirty();
         Message = string.Empty;
         Progress = 0;
         OnChanged(nameof(Message));
@@ -122,7 +122,7 @@ public sealed class DxfUploadViewModel : INotifyPropertyChanged
         }
     }
 
-    private void OnChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    private void OnChanged([CallerMemberName] string? name = null) => RaisePropertyChanged(name);
 
     private sealed class RelayCommand(Action<object?> execute, Predicate<object?>? canExecute = null) : ICommand
     {
