@@ -1,0 +1,7 @@
+<UserControl x:Class="DrawVerify.App.Views.ShellView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <DockPanel Background="{DynamicResource ShellBackground}">
+    <Menu x:Name="ApplicationMenu" DockPanel.Dock="Top" KeyboardNavigation.IsTabStop="True" />
+    <Border DockPanel.Dock="Bottom" Background="{DynamicResource StatusBackground}" Padding="12,6"><TextBlock x:Name="StatusText" Text="Ready" /></Border>
+    <Grid Margin="24"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions><Grid Grid.Row="0" Margin="0,0,0,16"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition/></Grid.ColumnDefinitions><Button x:Name="BackButton" Grid.Column="0" Content="Back" Click="BackClick" VerticalAlignment="Top"/><StackPanel Grid.Column="1" Margin="12,0,0,0"><TextBlock x:Name="ScreenTitle" Text="Dashboard" FontSize="26" FontWeight="SemiBold"/><TextBlock x:Name="Breadcrumb" Text="Dashboard" Foreground="Gray" Margin="0,4,0,0"/></StackPanel></Grid><ContentControl x:Name="ContentHost" Grid.Row="1" /></Grid>
+  </DockPanel>
+</UserControl>

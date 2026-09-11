@@ -109,6 +109,7 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
     public ICommand FlagGdtEngineeringReviewCommand { get; }
     public ICommand SetGdtDispositionCommand { get; }
     public string MatchingStatus { get; private set; } = "No matching session selected.";
+    public string EmptyStateText => MatchResults.Count == 0 ? "No items found" : string.Empty;
     public string MissingDimensionComment { get; set; } = string.Empty;
     public string ExtraDimensionComment { get; set; } = string.Empty;
     public string GdtDisposition { get; set; } = string.Empty;

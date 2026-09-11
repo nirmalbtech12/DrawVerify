@@ -1,97 +1,73 @@
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using DrawVerify.App.Navigation;
 using DrawVerify.App.Services;
 using DrawVerify.App.ViewModels;
 using DrawVerify.App.Views;
 using DrawVerify.Infrastructure.Logging;
-using DrawVerify.Core.Authorization;
 
 namespace DrawVerify.App;
 
 public partial class MainWindow : Window
 {
+    private ShellView? _shell;
+    private NavigationService? _navigation;
+    private readonly NavigationHistory _history = new();
+    public Func<MessageBoxResult> DiscardConfirmation { get; set; } = () => MessageBox.Show("Discard unsaved changes?", "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Warning);
     public MainWindow()
     {
-        CompositionRoot.Initialize();
-        InitializeComponent();
-        Loaded += async (_, _) => await ApplySystemRetentionAsync();
-        ShowLogin();
+        CompositionRoot.Initialize(); InitializeComponent(); Loaded += async (_, _) => await ApplySystemRetentionAsync(); ShowLogin();
+        InputBindings.Add(new KeyBinding(new RelayCommand(_ => GoBack()), Key.Left, ModifierKeys.Alt));
     }
-
-    private static async Task ApplySystemRetentionAsync()
+    private static async Task ApplySystemRetentionAsync() { try { await CompositionRoot.ApplySystemRetentionAsync(); } catch (Exception ex) { new CentralizedLogger().Log(ex, "System audit retention", "Unable to apply the configured audit retention policy."); } }
+    private void ShowLogin()
     {
-        try { await CompositionRoot.ApplySystemRetentionAsync(); }
-        catch (Exception) { System.Windows.MessageBox.Show("Unable to apply the configured audit retention policy.", "Retention failed"); }
+        _navigation = null; _history.Clear(); _shell = null;
+        var view = new LoginView { DataContext = new LoginViewModel(CompositionRoot.CreateAuthenticationService()) }; ((LoginViewModel)view.DataContext).LoginSucceeded += ShowAuthenticatedContent; MainContent.Content = view;
     }
-
     private void ShowAuthenticatedContent()
     {
         if (!CompositionRoot.SessionAuthentication.IsAuthenticated) { ShowLogin(); return; }
-        var panel=new System.Windows.Controls.StackPanel { Margin=new Thickness(24) };
-        panel.Children.Add(new System.Windows.Controls.TextBlock { Text=$"Signed in as {CompositionRoot.SessionAuthentication.CurrentUser!.Username}", FontSize=20 });
-        var upload=new System.Windows.Controls.Button { Content="Upload model", Margin=new Thickness(0,16,0,8), IsEnabled=CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.Upload) }; upload.Click += (_,_)=>ShowUpload(); panel.Children.Add(upload);
-        if (CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.Upload))
-        {
-            var drawing = new System.Windows.Controls.Button { Content = "Upload Drawing", Margin = new Thickness(0, 0, 0, 8) };
-            drawing.Click += (_, _) => ShowDxfUpload();
-            panel.Children.Add(drawing);
-        }
-        var review=new System.Windows.Controls.Button { Content="Review verification", Margin=new Thickness(0,0,0,8) }; review.Click += (_,_)=>ShowVerificationReview(); review.IsEnabled=CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ReviewVerification); panel.Children.Add(review);
-        if (CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.MatchDimensionsToGeometry)) { var matching = new System.Windows.Controls.Button { Content = "Match dimensions to geometry", Margin = new Thickness(0, 0, 0, 8) }; matching.Click += (_, _) => ShowVerificationMatching(); panel.Children.Add(matching); }
-        var profile=new System.Windows.Controls.Button { Content="My profile", Margin=new Thickness(0,0,0,8) }; profile.Click += (_,_)=>ShowProfile(); panel.Children.Add(profile);
-        if(CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ManageUsersAndRoles)) { var users=new System.Windows.Controls.Button { Content="Create user", Margin=new Thickness(0,0,0,8) }; users.Click += (_,_)=>ShowUserAdministration(); panel.Children.Add(users); }
-        if(CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ViewAuditLog)) { var audit=new System.Windows.Controls.Button { Content="Audit log", Margin=new Thickness(0,0,0,8) }; audit.Click += (_,_)=>ShowAuditLog(); panel.Children.Add(audit); }
-        if (CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ViewDimensionMatchResults)) { var report = new System.Windows.Controls.Button { Content = "Verification report", Margin = new Thickness(0, 0, 0, 8) }; report.Click += (_, _) => ShowReport(); panel.Children.Add(report); }
-        var logout=new System.Windows.Controls.Button { Content="Logout" }; logout.Click += async (_,_)=>{ try { await CompositionRoot.CreateAuthenticationService().LogoutAsync(); ShowLogin(); } catch(Exception ex) { new CentralizedLogger().Log(ex,"WPF logout","Unable to complete logout."); System.Windows.MessageBox.Show("Unable to complete logout.","Logout failed"); } }; panel.Children.Add(logout); MainContent.Content=panel;
+        var requestedTarget = _navigation?.CurrentTarget;
+        _history.Clear();
+        _shell = new ShellView { DataContext = new ShellViewModel(CompositionRoot.SessionAuthentication) };
+        _shell.BackRequested += GoBack;
+        _navigation = new NavigationService(new ScreenAccessGuard(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization), _history, (content, target) => _shell.SetScreen(content, target), Denied);
+        _shell.ApplicationMenu.Items.Clear(); foreach (var item in new RoleMenuBuilder(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization).Build(Navigate, LogoutAsync, Denied)) _shell.ApplicationMenu.Items.Add(item);
+        MainContent.Content = _shell;
+        var guard = new ScreenAccessGuard(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization);
+        if (requestedTarget is not null && guard.CanAccess(requestedTarget)) Navigate(requestedTarget); else Navigate(ScreenRegistry.Dashboard);
     }
-
-    private void ShowLogin() { var view=new LoginView { DataContext=new LoginViewModel(CompositionRoot.CreateAuthenticationService()) }; ((LoginViewModel)view.DataContext).LoginSucceeded += ShowAuthenticatedContent; MainContent.Content=view; }
-    private void ShowUserAdministration() { if(!CompositionRoot.SessionAuthentication.IsAuthenticated || !CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ManageUsersAndRoles)){ShowLogin();return;} var view = new UserAdministrationView { DataContext=new UserAdministrationViewModel(CompositionRoot.CreateUserAdministrationService()) }; var model = (UserAdministrationViewModel)view.DataContext; model.AuthorizationStateChanged += ShowAuthenticatedContent; model.CancelRequested += () => CancelUserCreation(model); model.BackRequested += () => CancelUserCreation(model); model.RoleCancelRequested += () => NavigateFromRoleEditor(model); model.RoleBackRequested += () => NavigateFromRoleEditor(model); model.RoleConfirmation = message => MessageBox.Show(message, "Confirm role changes", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes; MainContent.Content=view; }
-    private void ShowProfile() { if (!CompositionRoot.SessionAuthentication.IsAuthenticated) { ShowLogin(); return; } var view = new UserAdministrationView { DataContext = new UserAdministrationViewModel(CompositionRoot.CreateUserAdministrationService()) }; var model = (UserAdministrationViewModel)view.DataContext; model.AuthorizationStateChanged += ShowAuthenticatedContent; model.RoleCancelRequested += () => NavigateFromRoleEditor(model); model.RoleBackRequested += () => NavigateFromRoleEditor(model); model.RoleConfirmation = message => MessageBox.Show(message, "Confirm role changes", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes; MainContent.Content = view; }
-    private void ShowAuditLog() { if (!CompositionRoot.SessionAuthentication.IsAuthenticated || !CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ViewAuditLog)) { ShowLogin(); return; } MainContent.Content = new AuditLogView { DataContext = new AuditLogViewModel(CompositionRoot.CreateAuditLogService()) }; }
-    private void ShowReport() { if (!CompositionRoot.SessionAuthentication.IsAuthenticated || !CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.ViewDimensionMatchResults)) { ShowLogin(); return; } MainContent.Content = new ReportView { DataContext = new ReportViewModel(CompositionRoot.CreateReportService(), new CentralizedLogger()) }; }
-
-    private void ShowUpload()
+    private void Navigate(string target) => _navigation?.Navigate(target, () => CreateScreen(target));
+    private UIElement CreateScreen(string target)
     {
-        if (!CompositionRoot.SessionAuthentication.IsAuthenticated) { ShowLogin(); return; }
-        var view=new StepUploadView { DataContext=CompositionRoot.CreateStepUploadViewModel() };
-        var model=(StepUploadViewModel)view.DataContext;
-        view.AttachFilePicker(model);
-        model.DocumentUploaded += document => Dispatcher.Invoke(() => ShowProtected(() => new DocumentDetailView { DataContext = CompositionRoot.CreateDocumentDetailViewModel(document) }));
-        MainContent.Content=view;
+        if (target == ScreenRegistry.Dashboard) { var view = new DashboardView { DataContext = new DashboardViewModel(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization) }; view.QuickLinkRequested += Navigate; return view; }
+        if (target == ScreenRegistry.StepUpload) { var view = new StepUploadView { DataContext = CompositionRoot.CreateStepUploadViewModel() }; view.AttachFilePicker((StepUploadViewModel)view.DataContext); view.BackRequested += GoBack; return view; }
+        if (target == ScreenRegistry.DxfUpload) { var view = new DxfUploadView { DataContext = CompositionRoot.CreateDxfUploadViewModel() }; view.AttachFilePicker((DxfUploadViewModel)view.DataContext); view.BackRequested += GoBack; return view; }
+        if (target == ScreenRegistry.Verification) { var view = new VerificationView { DataContext = new VerificationViewModel(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization, CompositionRoot.CreateDimensionMatchingService(), new CentralizedLogger(), CompositionRoot.ConfiguredDimensionMatching) }; view.BackRequested += GoBack; return view; }
+        if (target == ScreenRegistry.Workflow) { var view = new WorkflowView { DataContext = new WorkflowViewModel() }; view.BackRequested += GoBack; return view; }
+        if (target == ScreenRegistry.UserAdministration) return CreateAdministrationView();
+        if (target == ScreenRegistry.AuditLog) return new AuditLogView { DataContext = new AuditLogViewModel(CompositionRoot.CreateAuditLogService()) };
+        if (target == ScreenRegistry.Report) return new ReportView { DataContext = new ReportViewModel(CompositionRoot.CreateReportService(), new CentralizedLogger()) };
+        if (target == ScreenRegistry.Help) return new Border { Child = new TextBlock { Text = "Help\n\nUse the menu to navigate to the screens allowed for your role.", TextWrapping = TextWrapping.Wrap, FontSize = 16 } };
+        throw new InvalidOperationException($"No screen is registered for navigation target '{target}'.");
     }
-    private void ShowDxfUpload()
+    private UserControl CreateAdministrationView()
     {
-        if (!CompositionRoot.SessionAuthentication.IsAuthenticated) { ShowLogin(); return; }
-        if (!CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.Upload)) { ShowAuthenticatedContent(); return; }
-        var view = new DxfUploadView { DataContext = CompositionRoot.CreateDxfUploadViewModel() };
-        var model = (DxfUploadViewModel)view.DataContext;
-        view.AttachFilePicker(model);
-        model.DocumentUploaded += document => Dispatcher.Invoke(() => ShowProtected(() => new DocumentDetailView { DataContext = CompositionRoot.CreateDocumentDetailViewModel(document) }));
-        MainContent.Content = view;
+        var view = new UserAdministrationView { DataContext = new UserAdministrationViewModel(CompositionRoot.CreateUserAdministrationService()) }; var model = (UserAdministrationViewModel)view.DataContext;
+        model.AuthorizationStateChanged += RefreshAuthenticatedShell; model.CancelRequested += () => { if (!model.IsCreationDirty || DiscardConfirmation() == MessageBoxResult.Yes) { model.DiscardCreation(); Navigate(ScreenRegistry.Dashboard); } }; model.BackRequested += () => { if (!model.IsCreationDirty || DiscardConfirmation() == MessageBoxResult.Yes) { model.DiscardCreation(); Navigate(ScreenRegistry.Dashboard); } }; model.RoleCancelRequested += () => Navigate(ScreenRegistry.Dashboard); model.RoleBackRequested += () => Navigate(ScreenRegistry.Dashboard); model.RoleConfirmation = message => MessageBox.Show(message, "Confirm role changes", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes; return view;
     }
-    private void ShowVerificationReview()
+    private void RefreshAuthenticatedShell() => ShowAuthenticatedContent();
+    private void ShowUserAdministration() { if (!CompositionRoot.SessionAuthentication.IsAuthenticated) { ShowLogin(); return; } if (_shell is null) ShowAuthenticatedContent(); Navigate(ScreenRegistry.UserAdministration); }
+    private void ShowUpload() { if (!CompositionRoot.SessionAuthentication.IsAuthenticated) { ShowLogin(); return; } Navigate(ScreenRegistry.StepUpload); }
+    private void ShowDxfUpload() { if (!CompositionRoot.SessionAuthentication.IsAuthenticated) { ShowLogin(); return; } Navigate(ScreenRegistry.DxfUpload); }
+    private async Task LogoutAsync()
     {
-        var model = new VerificationViewModel(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization, CompositionRoot.CreateDimensionMatchingService(), new CentralizedLogger(), CompositionRoot.ConfiguredDimensionMatching);
-        if (!model.TryEnterReview(out var message)) { System.Windows.MessageBox.Show(message, "Access denied"); return; }
-        MainContent.Content = new VerificationView { DataContext = model };
+        try { var result = await CompositionRoot.CreateAuthenticationService().LogoutAsync(); if (!result.Succeeded) { Denied(result.Message); return; } _history.Clear(); ShowLogin(); }
+        catch (Exception ex) { new CentralizedLogger().Log(ex, "WPF logout", "Unable to complete logout."); MessageBox.Show("Unable to complete logout.", "Logout failed", MessageBoxButton.OK, MessageBoxImage.Error); }
     }
-    private void ShowVerificationMatching()
-    {
-        if (!CompositionRoot.SessionAuthentication.IsAuthenticated || !CompositionRoot.RoleAuthorization.IsAllowed(CompositionRoot.SessionAuthentication.CurrentUser, RolePermission.MatchDimensionsToGeometry)) { ShowLogin(); return; }
-        MainContent.Content = new VerificationView { DataContext = new VerificationViewModel(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization, CompositionRoot.CreateDimensionMatchingService(), new CentralizedLogger(), CompositionRoot.ConfiguredDimensionMatching) };
-    }
-    private void ShowProtected(Func<UIElement> contentFactory) { if(!CompositionRoot.SessionAuthentication.IsAuthenticated){ShowLogin();return;} MainContent.Content=contentFactory(); }
-    public Func<MessageBoxResult> DiscardConfirmation { get; set; } = () => MessageBox.Show("Discard unsaved changes?", "Discard user creation", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-    private void CancelUserCreation(UserAdministrationViewModel model)
-    {
-        if (model.IsCreationDirty && DiscardConfirmation() != MessageBoxResult.Yes) return;
-        model.DiscardCreation();
-        ShowAuthenticatedContent();
-    }
-    private void NavigateFromRoleEditor(UserAdministrationViewModel model)
-    {
-        if (model.IsRoleDirty && MessageBox.Show("Discard unsaved role changes?", "Discard role changes", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
-        model.DiscardRoles();
-        ShowAuthenticatedContent();
-    }
+    private void GoBack() { if (_navigation is not null) _navigation.GoBack(CreateScreen); }
+    private void Denied(string message) => MessageBox.Show(message, "Access denied", MessageBoxButton.OK, MessageBoxImage.Warning);
+    private sealed class RelayCommand(Action<object?> execute) : ICommand { public event EventHandler? CanExecuteChanged; public bool CanExecute(object? p) => true; public void Execute(object? p) => execute(p); }
 }

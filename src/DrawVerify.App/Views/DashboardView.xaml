@@ -1,6 +1,5 @@
 <UserControl x:Class="DrawVerify.App.Views.DashboardView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <Grid>
-    </Grid>
+    <ScrollViewer><StackPanel><TextBlock Text="Welcome to DrawVerify" FontSize="20"/><TextBlock Text="Choose an allowed task from the menu or quick links below." Margin="0,8,0,16"/><ItemsControl ItemsSource="{Binding QuickLinks}"><ItemsControl.ItemTemplate><DataTemplate><Button Content="{Binding Label}" Tag="{Binding Target}" Click="QuickLinkClick" HorizontalAlignment="Left" MinWidth="220"/></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></StackPanel></ScrollViewer>
 </UserControl>
