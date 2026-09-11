@@ -59,7 +59,8 @@ public sealed class CombinedUploadVerifyServiceTests
     public void Reset_cancels_processing_and_clears_success_state()
     {
         var source = Read("src", "DrawVerify.App", "ViewModels", "CombinedUploadVerifyViewModel.cs");
-        Assert.Contains("_processingCancellation?.Cancel()", source);
+        Assert.Contains("_processingCancellation", source);
+        Assert.Contains("CancelAndDispose()", source);
         Assert.Contains("ProcessingStatus = \"Upload both files to begin processing.\"", source);
     }
 

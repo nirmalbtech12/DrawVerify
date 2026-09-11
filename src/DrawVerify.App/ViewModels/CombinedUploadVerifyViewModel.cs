@@ -14,9 +14,9 @@ public sealed class CombinedUploadVerifyViewModel : TaskScreenViewModel, IDispos
     private readonly MeasurementExtractionService _stepExtraction;
     private readonly DxfDimensionExtractionService _dxfExtraction;
     private readonly ICentralizedLogger? _logger;
-    private CancellationTokenSource? _processingCancellation;
-    private CancellationTokenSource? _stepProcessingCancellation;
-    private CancellationTokenSource? _dxfProcessingCancellation;
+    private ProcessingOperation? _processingCancellation;
+    private ProcessingOperation? _stepProcessingCancellation;
+    private ProcessingOperation? _dxfProcessingCancellation;
     private long _operationVersion;
     private Document? _stepDocument;
     private Document? _dxfDocument;
@@ -70,10 +70,10 @@ public sealed class CombinedUploadVerifyViewModel : TaskScreenViewModel, IDispos
     {
         InvalidateProcessing();
         var operationVersion = _operationVersion;
-        _stepProcessingCancellation = new CancellationTokenSource();
-        _processingCancellation = _stepProcessingCancellation;
-        var operationCancellation = _stepProcessingCancellation!;
-        var cancellationToken = operationCancellation.Token;
+        var operation = new ProcessingOperation();
+        _stepProcessingCancellation = operation;
+        _processingCancellation = operation;
+        var cancellationToken = operation.Token;
         _stepDocument = document;
         StepStatus = "STEP uploaded; processing geometry…";
         ErrorMessage = string.Empty;
@@ -91,14 +91,14 @@ public sealed class CombinedUploadVerifyViewModel : TaskScreenViewModel, IDispos
         catch (Exception exception) when (operationVersion == _operationVersion) { _logger?.Log(exception, "Combined STEP processing", $"Unable to process documentId={document.DocumentId}."); StepStatus = "STEP processing failed."; ErrorMessage = $"STEP processing failed: {exception.Message}"; }
         finally
         {
-            if (ReferenceEquals(_stepProcessingCancellation, operationCancellation))
+            if (ReferenceEquals(_stepProcessingCancellation, operation))
             {
                 _stepProcessingCancellation = null;
-                if (ReferenceEquals(_processingCancellation, operationCancellation)) _processingCancellation = null;
+                if (ReferenceEquals(_processingCancellation, operation)) _processingCancellation = null;
                 _isProcessing = false;
                 NotifyAll();
             }
-            operationCancellation.Dispose();
+            operation.Dispose();
         }
     }
 
@@ -106,10 +106,10 @@ public sealed class CombinedUploadVerifyViewModel : TaskScreenViewModel, IDispos
     {
         InvalidateProcessing();
         var operationVersion = _operationVersion;
-        _dxfProcessingCancellation = new CancellationTokenSource();
-        _processingCancellation = _dxfProcessingCancellation;
-        var operationCancellation = _dxfProcessingCancellation!;
-        var cancellationToken = operationCancellation.Token;
+        var operation = new ProcessingOperation();
+        _dxfProcessingCancellation = operation;
+        _processingCancellation = operation;
+        var cancellationToken = operation.Token;
         _dxfDocument = document;
         DxfStatus = "DXF uploaded; extracting dimensions…";
         ErrorMessage = string.Empty;
@@ -129,14 +129,14 @@ public sealed class CombinedUploadVerifyViewModel : TaskScreenViewModel, IDispos
         catch (Exception exception) when (operationVersion == _operationVersion) { _logger?.Log(exception, "Combined DXF extraction", $"Unable to extract documentId={document.DocumentId}."); DxfStatus = "DXF extraction failed."; ErrorMessage = $"DXF extraction failed: {exception.Message}"; }
         finally
         {
-            if (ReferenceEquals(_dxfProcessingCancellation, operationCancellation))
+            if (ReferenceEquals(_dxfProcessingCancellation, operation))
             {
                 _dxfProcessingCancellation = null;
-                if (ReferenceEquals(_processingCancellation, operationCancellation)) _processingCancellation = null;
+                if (ReferenceEquals(_processingCancellation, operation)) _processingCancellation = null;
                 _isProcessing = false;
                 NotifyAll();
             }
-            operationCancellation.Dispose();
+            operation.Dispose();
         }
     }
 
@@ -164,14 +164,38 @@ public sealed class CombinedUploadVerifyViewModel : TaskScreenViewModel, IDispos
     private void InvalidateProcessing()
     {
         _operationVersion++;
-        _stepProcessingCancellation?.Cancel();
-        _dxfProcessingCancellation?.Cancel();
-        _processingCancellation?.Cancel();
+        var supersededStep = _stepProcessingCancellation;
+        var supersededDxf = _dxfProcessingCancellation;
+        var supersededShared = _processingCancellation;
+        _stepProcessingCancellation = null;
+        _dxfProcessingCancellation = null;
+        _processingCancellation = null;
+        supersededStep?.CancelAndDispose();
+        if (!ReferenceEquals(supersededDxf, supersededStep)) supersededDxf?.CancelAndDispose();
+        if (!ReferenceEquals(supersededShared, supersededStep) && !ReferenceEquals(supersededShared, supersededDxf)) supersededShared?.CancelAndDispose();
         _processingCancellation = null;
         _isProcessing = false;
     }
     private void NotifyAll() { foreach (var name in new[] { nameof(StepDocument), nameof(DxfDocument), nameof(StepDocumentId), nameof(DxfDocumentId), nameof(ExtractedDxfDimensionCount), nameof(StepStatus), nameof(DxfStatus), nameof(ProcessingStatus), nameof(ErrorMessage), nameof(IsBusy), nameof(CanVerify) }) Notify(name); StateChanged?.Invoke(); ((RelayCommand)VerifyCommand).Raise(); ((RelayCommand)NewWorkflowCommand).Raise(); }
     private void Notify([CallerMemberName] string? name = null) => RaisePropertyChanged(name);
     public void Dispose() { InvalidateProcessing(); StepUpload.DocumentUploaded -= OnStepUploaded; DxfUpload.DocumentUploaded -= OnDxfUploaded; Verification.ResetWorkflowState(); Verification.Dispose(); GC.SuppressFinalize(this); }
+    private sealed class ProcessingOperation : IDisposable
+    {
+        private readonly CancellationTokenSource _source = new();
+        private int _disposed;
+
+        public CancellationToken Token => _source.Token;
+
+        public void CancelAndDispose()
+        {
+            _source.Cancel();
+            Dispose();
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0) _source.Dispose();
+        }
+    }
     private sealed class RelayCommand(Action<object?> execute, Predicate<object?>? canExecute = null) : ICommand { public event EventHandler? CanExecuteChanged; public bool CanExecute(object? parameter) => canExecute?.Invoke(parameter) ?? true; public void Execute(object? parameter) => execute(parameter); public void Raise() => CanExecuteChanged?.Invoke(this, EventArgs.Empty); }
 }
