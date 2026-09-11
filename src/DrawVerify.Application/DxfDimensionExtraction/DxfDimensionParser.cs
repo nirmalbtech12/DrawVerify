@@ -34,7 +34,11 @@ public sealed class DxfDimensionParser : IDxfDimensionParser
         var sawEntitiesSection = false;
         var hasStructuralCorruption = false;
 
-        using var reader = new StreamReader(content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true), detectEncodingFromByteOrderMarks: true, bufferSize: 4096, leaveOpen: true);
+        // DXF files commonly use the code page declared by $DWGCODEPAGE rather
+        // than UTF-8. The structural records and numeric values we consume are
+        // ASCII-compatible, so replacement decoding preserves parseability of
+        // legacy code-page text without rejecting an otherwise valid drawing.
+        using var reader = new StreamReader(content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false), detectEncodingFromByteOrderMarks: true, bufferSize: 4096, leaveOpen: true);
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();

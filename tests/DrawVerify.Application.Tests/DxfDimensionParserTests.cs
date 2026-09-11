@@ -8,6 +8,19 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class DxfDimensionParserTests
 {
+    [Fact(DisplayName = "TD-DXF-001 accepts legacy DXF bytes outside UTF-8")]
+    public async Task Legacy_code_page_bytes_do_not_abort_structural_parsing()
+    {
+        var bytes = Encoding.ASCII.GetBytes("0\nSECTION\n2\nENTITIES\n0\nTEXT\n1\n")
+            .Concat(new byte[] { 0xC2 })
+            .Concat(Encoding.ASCII.GetBytes("\n0\nENDSEC\n0\nEOF\n"))
+            .ToArray();
+
+        var result = await new DxfDimensionParser().ParseAsync(new MemoryStream(bytes), Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.True(result.Succeeded);
+    }
+
     [Fact(DisplayName = "TD-002 extracts DXF dimension location metadata")]
     public async Task Dimension_location_group_codes_are_preserved()
     {

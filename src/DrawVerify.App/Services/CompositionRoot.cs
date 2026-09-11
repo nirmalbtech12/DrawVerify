@@ -93,7 +93,7 @@ public static class CompositionRoot
     {
         var database = DatabasePath();
         var logger = new CentralizedLogger();
-        var worker = new OcctWorkerGeometryService(Path.Combine(AppContext.BaseDirectory, DimensionMatchingConfiguration.WorkerPath), DimensionMatchingConfiguration.MaximumStepFileSizeBytes, DimensionMatchingConfiguration.TimeoutSeconds, logger);
+        var worker = new OcctWorkerGeometryService(Path.Combine(AppContext.BaseDirectory, DimensionMatchingConfiguration.WorkerPath), DimensionMatchingConfiguration.MaximumStepFileSizeBytes, DimensionMatchingConfiguration.TimeoutSeconds, logger, Path.Combine(AppContext.BaseDirectory, StepUploadConfiguration.StorageFolder));
         return new MeasurementExtractionService(new SqliteDocumentRepository(database, logger), new SqliteAuditRepository(database), worker);
     }
     public static CombinedUploadVerifyViewModel CreateCombinedUploadVerifyViewModel() =>
@@ -108,7 +108,7 @@ public static class CompositionRoot
         var documents = new SqliteDocumentRepository(database, logger);
         var sessions = new SqliteVerificationSessionRepository(database);
         var dxfFiles = new DxfDocumentFileStore(AppContext.BaseDirectory, DxfUploadConfiguration);
-        var worker = new OcctWorkerGeometryService(workerPath, DimensionMatchingConfiguration.MaximumStepFileSizeBytes, DimensionMatchingConfiguration.TimeoutSeconds, logger);
+        var worker = new OcctWorkerGeometryService(workerPath, DimensionMatchingConfiguration.MaximumStepFileSizeBytes, DimensionMatchingConfiguration.TimeoutSeconds, logger, Path.Combine(AppContext.BaseDirectory, StepUploadConfiguration.StorageFolder));
         var gdtVerification = new VerificationService(CreateVerificationEngine(), sessions);
         return new DimensionMatchingService(documents, sessions, worker, Session, DimensionMatchingConfiguration, Authorization, logger, gdtVerification, dxfFiles, new DxfGdtParser(), worker);
     }

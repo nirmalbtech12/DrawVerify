@@ -13,19 +13,22 @@ public sealed class OcctWorkerGeometryService : ManagedGeometryService, IMatchab
     private readonly long _maximumFileSizeBytes;
     private readonly TimeSpan _timeout;
     private readonly ICentralizedLogger? _logger;
+    private readonly string _fileRoot;
 
-    public OcctWorkerGeometryService(string workerPath, long maximumFileSizeBytes = 52428800, int timeoutSeconds = 60, ICentralizedLogger? logger = null)
+    public OcctWorkerGeometryService(string workerPath, long maximumFileSizeBytes = 52428800, int timeoutSeconds = 60, ICentralizedLogger? logger = null, string? fileRoot = null)
     {
         if (maximumFileSizeBytes <= 0 || timeoutSeconds <= 0) throw new ArgumentOutOfRangeException(nameof(timeoutSeconds));
         _workerPath = workerPath;
         _maximumFileSizeBytes = maximumFileSizeBytes;
         _timeout = TimeSpan.FromSeconds(timeoutSeconds);
         _logger = logger;
+        _fileRoot = Path.GetFullPath(fileRoot ?? Directory.GetCurrentDirectory());
     }
 
     public GdtAnnotationExtractionResult ExtractAnnotations(string filePath, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(filePath)) throw new ArgumentException("A STEP file path is required.", nameof(filePath));
+        filePath = ResolveFilePath(filePath);
         if (!File.Exists(filePath)) return GdtAnnotationExtractionResult.Failure("FileNotFound", "GD&T extraction failed: stored STEP file was not found.");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(_timeout);
@@ -63,59 +66,61 @@ public sealed class OcctWorkerGeometryService : ManagedGeometryService, IMatchab
     public MatchableGeometryExtractionResult ExtractMatchableGeometry(MatchableGeometryExtractionRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        var filePath = ResolveFilePath(request.FilePath);
         if (cancellationToken.IsCancellationRequested) return MatchableGeometryExtractionResult.Failure("Timeout", "Matching failed: operation timeout occurred before the worker was launched.");
-        if (!File.Exists(request.FilePath)) return MatchableGeometryExtractionResult.Failure("FileNotFound", "Matching failed: stored STEP file was not found.");
-        if (new FileInfo(request.FilePath).Length > _maximumFileSizeBytes) return MatchableGeometryExtractionResult.Failure("FileTooLarge", "Matching failed: STEP file exceeds the configured maximum size.");
+        if (!File.Exists(filePath)) return MatchableGeometryExtractionResult.Failure("FileNotFound", "Matching failed: stored STEP file was not found.");
+        if (new FileInfo(filePath).Length > _maximumFileSizeBytes) return MatchableGeometryExtractionResult.Failure("FileTooLarge", "Matching failed: STEP file exceeds the configured maximum size.");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(_timeout);
         using var process = new Process { StartInfo = new ProcessStartInfo(_workerPath) { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true } };
         try
         {
             if (!process.Start()) return MatchableGeometryExtractionResult.Failure("WorkerStart", "Matching failed: worker could not be started.");
-            if (timeout.IsCancellationRequested) return TimeoutResult(process, request.FilePath);
-            process.StandardInput.Write(JsonSerializer.Serialize(new { ProtocolVersion = 1, Operation = "MatchableGeometry", FilePath = request.FilePath })); process.StandardInput.Close();
-            try { process.WaitForExitAsync(timeout.Token).GetAwaiter().GetResult(); } catch (OperationCanceledException) { return TimeoutResult(process, request.FilePath); }
-            if (timeout.IsCancellationRequested) return TimeoutResult(process, request.FilePath);
-            var diagnosticsAfterExit = ReadDiagnostics(process); var output = process.StandardOutput.ReadToEnd(); if (string.IsNullOrWhiteSpace(output)) { LogDiagnostics("Matchable geometry worker", request.FilePath, diagnosticsAfterExit); return MatchableGeometryExtractionResult.Failure("WorkerProtocol", $"Matching failed: worker returned no result.{FormatDiagnostics(diagnosticsAfterExit)}"); }
+            if (timeout.IsCancellationRequested) return TimeoutResult(process, filePath);
+            process.StandardInput.Write(JsonSerializer.Serialize(new { ProtocolVersion = 1, Operation = "MatchableGeometry", FilePath = filePath })); process.StandardInput.Close();
+            try { process.WaitForExitAsync(timeout.Token).GetAwaiter().GetResult(); } catch (OperationCanceledException) { return TimeoutResult(process, filePath); }
+            if (timeout.IsCancellationRequested) return TimeoutResult(process, filePath);
+            var diagnosticsAfterExit = ReadDiagnostics(process); var output = process.StandardOutput.ReadToEnd(); if (string.IsNullOrWhiteSpace(output)) { LogDiagnostics("Matchable geometry worker", filePath, diagnosticsAfterExit); return MatchableGeometryExtractionResult.Failure("WorkerProtocol", $"Matching failed: worker returned no result.{FormatDiagnostics(diagnosticsAfterExit)}"); }
             using var json = JsonDocument.Parse(output); var root = json.RootElement;
-            if (!root.TryGetProperty("ProtocolVersion", out var version) || version.GetInt32() != 1 || process.ExitCode != 0) { LogDiagnostics("Matchable geometry worker", request.FilePath, diagnosticsAfterExit); return MatchableGeometryExtractionResult.Failure("WorkerProtocol", $"Matching failed: unsupported or failed worker response.{FormatDiagnostics(diagnosticsAfterExit)}"); }
+            if (!root.TryGetProperty("ProtocolVersion", out var version) || version.GetInt32() != 1 || process.ExitCode != 0) { LogDiagnostics("Matchable geometry worker", filePath, diagnosticsAfterExit); return MatchableGeometryExtractionResult.Failure("WorkerProtocol", $"Matching failed: unsupported or failed worker response.{FormatDiagnostics(diagnosticsAfterExit)}"); }
             var result = root.TryGetProperty("Result", out var resultElement) ? resultElement.Deserialize<MatchableGeometryExtractionResult>() : null;
             return result ?? MatchableGeometryExtractionResult.Failure("WorkerProtocol", "Matching failed: worker returned an invalid result.");
         }
-        catch (OperationCanceledException) { return TimeoutResult(process, request.FilePath); }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException or IOException) { _logger?.Log(ex, "Matchable geometry worker", $"Worker operation failed for file '{request.FilePath}'."); return MatchableGeometryExtractionResult.Failure("Worker", $"Matching failed: {ex.Message}"); }
+        catch (OperationCanceledException) { return TimeoutResult(process, filePath); }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or IOException) { _logger?.Log(ex, "Matchable geometry worker", $"Worker operation failed for file '{filePath}'."); return MatchableGeometryExtractionResult.Failure("Worker", $"Matching failed: {ex.Message}"); }
     }
 
     public MeasurementExtractionResult ExtractMeasurements(MeasurementExtractionRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (!File.Exists(request.FilePath)) return MeasurementExtractionResult.Failure("FileNotFound", "Measurement extraction failed: stored STEP file was not found.");
-        if (new FileInfo(request.FilePath).Length > _maximumFileSizeBytes) return MeasurementExtractionResult.Failure("FileTooLarge", "Measurement extraction failed: STEP file exceeds the configured maximum size.");
+        var filePath = ResolveFilePath(request.FilePath);
+        if (!File.Exists(filePath)) return MeasurementExtractionResult.Failure("FileNotFound", "Measurement extraction failed: stored STEP file was not found.");
+        if (new FileInfo(filePath).Length > _maximumFileSizeBytes) return MeasurementExtractionResult.Failure("FileTooLarge", "Measurement extraction failed: STEP file exceeds the configured maximum size.");
         using var process = new Process { StartInfo = new ProcessStartInfo(_workerPath) { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true } };
         try
         {
             if (!process.Start()) return MeasurementExtractionResult.Failure("WorkerStart", "Measurement extraction failed: worker could not be started.");
-            process.StandardInput.Write(JsonSerializer.Serialize(new { ProtocolVersion = 1, FilePath = request.FilePath }));
+            process.StandardInput.Write(JsonSerializer.Serialize(new { ProtocolVersion = 1, FilePath = filePath }));
             process.StandardInput.Close();
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(_timeout);
             try { process.WaitForExitAsync(timeout.Token).GetAwaiter().GetResult(); }
             catch (OperationCanceledException)
             {
-                var cleanupError = Terminate(process, "Measurement worker", request.FilePath);
+                var cleanupError = Terminate(process, "Measurement worker", filePath);
                 var timeoutDiagnostics = ReadDiagnostics(process);
                 return MeasurementExtractionResult.Failure("Timeout", $"Measurement extraction failed: operation exceeded the configured timeout.{cleanupError}{FormatDiagnostics(timeoutDiagnostics)}");
             }
             var diagnostics = ReadDiagnostics(process);
             var output = process.StandardOutput.ReadToEnd();
-            if (string.IsNullOrWhiteSpace(output)) { LogDiagnostics("Measurement worker", request.FilePath, diagnostics); return MeasurementExtractionResult.Failure("WorkerProtocol", $"Measurement extraction failed: worker returned no result.{FormatDiagnostics(diagnostics)}"); }
+            if (string.IsNullOrWhiteSpace(output)) { LogDiagnostics("Measurement worker", filePath, diagnostics); return MeasurementExtractionResult.Failure("WorkerProtocol", $"Measurement extraction failed: worker returned no result.{FormatDiagnostics(diagnostics)}"); }
             using var json = JsonDocument.Parse(output);
             var root = json.RootElement;
             if (!root.TryGetProperty("ProtocolVersion", out var version) || version.GetInt32() != 1)
                 return MeasurementExtractionResult.Failure("WorkerProtocol", "Measurement extraction failed: unsupported worker protocol version.");
             if (process.ExitCode != 0)
             {
-                LogDiagnostics("Measurement worker", request.FilePath, diagnostics);
+                LogDiagnostics("Measurement worker", filePath, diagnostics);
                 return MeasurementExtractionResult.Failure("WorkerExit", $"Measurement extraction failed: worker exited with code {process.ExitCode}. {SafeDiagnostics(diagnostics)}");
             }
             var result = root.TryGetProperty("Result", out var resultElement) ? resultElement.Deserialize<MeasurementExtractionResult>() : null;
@@ -125,8 +130,9 @@ public sealed class OcctWorkerGeometryService : ManagedGeometryService, IMatchab
             return result;
         }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException or IOException)
-        { _logger?.Log(ex, "Measurement worker", $"Worker operation failed for file '{request.FilePath}'."); return MeasurementExtractionResult.Failure("Worker", $"Measurement extraction failed: {ex.Message}"); }
+        { _logger?.Log(ex, "Measurement worker", $"Worker operation failed for file '{filePath}'."); return MeasurementExtractionResult.Failure("Worker", $"Measurement extraction failed: {ex.Message}"); }
     }
+    private string ResolveFilePath(string filePath) => Path.IsPathFullyQualified(filePath) ? filePath : Path.GetFullPath(Path.Combine(_fileRoot, filePath.Replace('/', Path.DirectorySeparatorChar)));
     private string Terminate(Process process, string operation, string filePath)
     {
         try { if (!process.HasExited) process.Kill(true); process.WaitForExit(); return string.Empty; }

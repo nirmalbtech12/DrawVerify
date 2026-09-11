@@ -116,11 +116,25 @@ public sealed class MainWindowAuthenticationNavigationTests
             typeof(MainWindow).GetMethod("ShowAuthenticatedContent", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null);
             var shell = Assert.IsType<ShellView>(Content(window).Content);
             var upload = Assert.Single(Menu(shell).Items.Cast<MenuItem>(), x => x.Header?.ToString() == "_Upload & Verify");
+            var combined = Assert.Single(upload.Items.Cast<MenuItem>(), x => x.Header?.ToString() == "_Combined Upload & Verify");
+            Assert.True(combined.IsEnabled);
             var drawing = Assert.Single(upload.Items.Cast<MenuItem>(), x => x.Header?.ToString() == "Upload _Drawing (DXF)");
             Assert.True(drawing.IsEnabled);
             window.Close(); Dispatcher.CurrentDispatcher.InvokeShutdown();
         } catch (Exception ex) { failure = ex; }}); thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
         if (failure is not null) throw new Xunit.Sdk.XunitException("DXF Maker navigation assertion failed.", failure);
+    }
+
+    [Fact(DisplayName = "TD-APPUI combined upload workflow can be constructed for Maker")]
+    public void Maker_can_construct_combined_upload_workflow()
+    {
+        Exception? failure = null; var thread = new Thread(() => { try
+        {
+            CompositionRoot.SessionAuthentication.SignIn(new AuthenticatedUser("MAKER", new[] { "Maker" }));
+            var view = new CombinedUploadVerifyView { DataContext = CompositionRoot.CreateCombinedUploadVerifyViewModel() };
+            Assert.NotNull(view);
+        } catch (Exception ex) { failure = ex; }}); thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
+        if (failure is not null) throw new Xunit.Sdk.XunitException("Combined upload workflow construction failed.", failure);
     }
 
     [Fact(DisplayName = "TD-APPUI-001 self-profile navigation displays roles for non-admin users")]
