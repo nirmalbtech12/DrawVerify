@@ -43,10 +43,10 @@ public partial class MainWindow : Window
     private UIElement CreateScreen(string target)
     {
         if (target == ScreenRegistry.Dashboard) { var view = new DashboardView { DataContext = new DashboardViewModel(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization) }; view.QuickLinkRequested += Navigate; return view; }
-        if (target == ScreenRegistry.StepUpload) { var view = new StepUploadView { DataContext = CompositionRoot.CreateStepUploadViewModel() }; view.AttachFilePicker((StepUploadViewModel)view.DataContext); view.BackRequested += GoBack; return view; }
-        if (target == ScreenRegistry.DxfUpload) { var view = new DxfUploadView { DataContext = CompositionRoot.CreateDxfUploadViewModel() }; view.AttachFilePicker((DxfUploadViewModel)view.DataContext); view.BackRequested += GoBack; return view; }
-        if (target == ScreenRegistry.Verification) { var view = new VerificationView { DataContext = new VerificationViewModel(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization, CompositionRoot.CreateDimensionMatchingService(), new CentralizedLogger(), CompositionRoot.ConfiguredDimensionMatching) }; view.BackRequested += GoBack; return view; }
-        if (target == ScreenRegistry.Workflow) { var view = new WorkflowView { DataContext = new WorkflowViewModel() }; view.BackRequested += GoBack; return view; }
+        if (target == ScreenRegistry.StepUpload) { var view = new StepUploadView { DataContext = CompositionRoot.CreateStepUploadViewModel() }; view.AttachFilePicker((StepUploadViewModel)view.DataContext); view.BackRequested += () => HandleTaskBack((TaskScreenViewModel)view.DataContext); return view; }
+        if (target == ScreenRegistry.DxfUpload) { var view = new DxfUploadView { DataContext = CompositionRoot.CreateDxfUploadViewModel() }; view.AttachFilePicker((DxfUploadViewModel)view.DataContext); view.BackRequested += () => HandleTaskBack((TaskScreenViewModel)view.DataContext); return view; }
+        if (target == ScreenRegistry.Verification) { var view = new VerificationView { DataContext = new VerificationViewModel(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization, CompositionRoot.CreateDimensionMatchingService(), new CentralizedLogger(), CompositionRoot.ConfiguredDimensionMatching) }; view.BackRequested += () => HandleTaskBack((TaskScreenViewModel)view.DataContext); return view; }
+        if (target == ScreenRegistry.Workflow) { var view = new WorkflowView { DataContext = new WorkflowViewModel() }; view.BackRequested += () => HandleTaskBack((TaskScreenViewModel)view.DataContext); return view; }
         if (target == ScreenRegistry.UserAdministration) return CreateAdministrationView();
         if (target == ScreenRegistry.AuditLog) return new AuditLogView { DataContext = new AuditLogViewModel(CompositionRoot.CreateAuditLogService()) };
         if (target == ScreenRegistry.Report) return new ReportView { DataContext = new ReportViewModel(CompositionRoot.CreateReportService(), new CentralizedLogger()) };
@@ -59,6 +59,11 @@ public partial class MainWindow : Window
         model.AuthorizationStateChanged += RefreshAuthenticatedShell; model.CancelRequested += () => { if (!model.IsCreationDirty || DiscardConfirmation() == MessageBoxResult.Yes) { model.DiscardCreation(); Navigate(ScreenRegistry.Dashboard); } }; model.BackRequested += () => { if (!model.IsCreationDirty || DiscardConfirmation() == MessageBoxResult.Yes) { model.DiscardCreation(); Navigate(ScreenRegistry.Dashboard); } }; model.RoleCancelRequested += () => Navigate(ScreenRegistry.Dashboard); model.RoleBackRequested += () => Navigate(ScreenRegistry.Dashboard); model.RoleConfirmation = message => MessageBox.Show(message, "Confirm role changes", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes; return view;
     }
     private void RefreshAuthenticatedShell() => ShowAuthenticatedContent();
+    private void HandleTaskBack(TaskScreenViewModel model)
+    {
+        if (model.IsDirty && DiscardConfirmation() != MessageBoxResult.Yes) return;
+        GoBack();
+    }
     private void ShowUserAdministration() { if (!CompositionRoot.SessionAuthentication.IsAuthenticated) { ShowLogin(); return; } if (_shell is null) ShowAuthenticatedContent(); Navigate(ScreenRegistry.UserAdministration); }
     private void ShowUpload() { if (!CompositionRoot.SessionAuthentication.IsAuthenticated) { ShowLogin(); return; } Navigate(ScreenRegistry.StepUpload); }
     private void ShowDxfUpload() { if (!CompositionRoot.SessionAuthentication.IsAuthenticated) { ShowLogin(); return; } Navigate(ScreenRegistry.DxfUpload); }

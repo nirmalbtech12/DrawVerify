@@ -12,7 +12,7 @@ using DrawVerify.Core.Interfaces;
 
 namespace DrawVerify.App.ViewModels;
 
-public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
+public sealed class VerificationViewModel : TaskScreenViewModel, IDisposable
 {
     private readonly ISessionAuthenticationService _session;
     private readonly RoleAuthorization _authorization;
@@ -36,7 +36,6 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
         FlagGdtEngineeringReviewCommand = new RelayCommand(async value => await FlagGdtEngineeringReviewAsync(value), _ => CanModifyGdtReview && SelectedSessionId is not null && SelectedGdtResult is not null && !IsBusy);
         SetGdtDispositionCommand = new RelayCommand(async value => await SetGdtDispositionAsync(value), _ => CanModifyGdtReview && SelectedSessionId is not null && SelectedGdtResult is not null && !IsBusy);
     }
-    public event PropertyChangedEventHandler? PropertyChanged;
     public bool CanReview => _authorization.IsAllowed(_session.CurrentUser, RolePermission.ReviewVerification);
     public bool CanModifyGdtReview => _authorization.IsAllowed(_session.CurrentUser, RolePermission.ModifyGdtCannotValidate);
     public bool CanEnterReview => CanReview;
@@ -50,8 +49,10 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
     public bool CanCommentExtraDimensions => _matching is not null && _authorization.IsAllowed(_session.CurrentUser, RolePermission.CommentOnExtraDimensions);
     public bool CanFlagExtraDimensions => _matching is not null && _authorization.IsAllowed(_session.CurrentUser, RolePermission.FlagExtraDimensions);
     public string ToleranceThresholdInput { get; set; } = "0.1";
-    public string StepDocumentId { get; set; } = string.Empty;
-    public string DxfDocumentId { get; set; } = string.Empty;
+    public string StepDocumentId { get => _stepDocumentId; set { if (_stepDocumentId == value) return; _stepDocumentId = value; MarkDirty(); Notify(); } }
+    public string DxfDocumentId { get => _dxfDocumentId; set { if (_dxfDocumentId == value) return; _dxfDocumentId = value; MarkDirty(); Notify(); } }
+    private string _stepDocumentId = string.Empty;
+    private string _dxfDocumentId = string.Empty;
     public Guid? SelectedSessionId { get; private set; }
     public bool IsBusy { get; private set; }
     public string StatusFilter { get; set; } = "All";
@@ -438,7 +439,7 @@ public sealed class VerificationViewModel : INotifyPropertyChanged, IDisposable
         _ => 3
     };
     private void RaiseCommands() { ((RelayCommand)SelectPairCommand).Raise(); ((RelayCommand)MatchDimensionsCommand).Raise(); ((RelayCommand)RefreshMatchesCommand).Raise(); ((RelayCommand)UpdateToleranceCommand).Raise(); ((RelayCommand)AddMissingDimensionCommentCommand).Raise(); ((RelayCommand)ResolveMissingDimensionCommand).Raise(); ((RelayCommand)AddExtraDimensionCommentCommand).Raise(); ((RelayCommand)FlagExtraDimensionCommand).Raise(); ((RelayCommand)AddGdtCommentCommand).Raise(); ((RelayCommand)FlagGdtEngineeringReviewCommand).Raise(); ((RelayCommand)SetGdtDispositionCommand).Raise(); }
-    private void Notify([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    private void Notify([CallerMemberName] string? name = null) => RaisePropertyChanged(name);
     public void Dispose() { StepPreview.Dispose(); GC.SuppressFinalize(this); }
     private void ClearResults(string message)
     {
