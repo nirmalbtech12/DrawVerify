@@ -20,6 +20,19 @@ public sealed class VerificationViewModel : TaskScreenViewModel, IDisposable
     private readonly ICentralizedLogger? _logger;
     private readonly double _configuredToleranceThresholdMm;
     private double? _effectiveToleranceThresholdMm;
+    private bool _trackUserChanges;
+    private string _toleranceThresholdInput = "0.1";
+    private string _statusFilter = "All";
+    private bool _sortDescending;
+    private string _sortMode = "Default";
+    private string _layerFilter = string.Empty;
+    private string _viewFilter = string.Empty;
+    private string _blockFilter = string.Empty;
+    private string _searchText = string.Empty;
+    private string _gdtReviewComment = string.Empty;
+    private string _missingDimensionComment = string.Empty;
+    private string _extraDimensionComment = string.Empty;
+    private string _gdtDisposition = string.Empty;
     public VerificationViewModel(ISessionAuthenticationService session, RoleAuthorization authorization, DimensionMatchingService? matching = null, ICentralizedLogger? logger = null, DimensionMatchingConfiguration? configuration = null)
     {
         _session = session; _authorization = authorization; _matching = matching; _logger = logger; StepPreview = new StepPreviewViewModel(logger); _configuredToleranceThresholdMm = configuration?.ToleranceThresholdMm ?? 0.1; ToleranceThresholdInput = FormatTolerance(_configuredToleranceThresholdMm);
@@ -35,6 +48,7 @@ public sealed class VerificationViewModel : TaskScreenViewModel, IDisposable
         AddGdtCommentCommand = new RelayCommand(async _ => await AddGdtCommentAsync(), _ => CanModifyGdtReview && SelectedSessionId is not null && SelectedGdtResult is not null && !IsBusy);
         FlagGdtEngineeringReviewCommand = new RelayCommand(async value => await FlagGdtEngineeringReviewAsync(value), _ => CanModifyGdtReview && SelectedSessionId is not null && SelectedGdtResult is not null && !IsBusy);
         SetGdtDispositionCommand = new RelayCommand(async value => await SetGdtDispositionAsync(value), _ => CanModifyGdtReview && SelectedSessionId is not null && SelectedGdtResult is not null && !IsBusy);
+        _trackUserChanges = true;
     }
     public bool CanReview => _authorization.IsAllowed(_session.CurrentUser, RolePermission.ReviewVerification);
     public bool CanModifyGdtReview => _authorization.IsAllowed(_session.CurrentUser, RolePermission.ModifyGdtCannotValidate);
@@ -48,21 +62,21 @@ public sealed class VerificationViewModel : TaskScreenViewModel, IDisposable
     public bool CanResolveMissingDimensions => _matching is not null && _authorization.IsAllowed(_session.CurrentUser, RolePermission.ResolveUnmatched);
     public bool CanCommentExtraDimensions => _matching is not null && _authorization.IsAllowed(_session.CurrentUser, RolePermission.CommentOnExtraDimensions);
     public bool CanFlagExtraDimensions => _matching is not null && _authorization.IsAllowed(_session.CurrentUser, RolePermission.FlagExtraDimensions);
-    public string ToleranceThresholdInput { get; set; } = "0.1";
+    public string ToleranceThresholdInput { get => _toleranceThresholdInput; set => SetUserString(ref _toleranceThresholdInput, value); }
     public string StepDocumentId { get => _stepDocumentId; set { if (_stepDocumentId == value) return; _stepDocumentId = value; MarkDirty(); Notify(); } }
     public string DxfDocumentId { get => _dxfDocumentId; set { if (_dxfDocumentId == value) return; _dxfDocumentId = value; MarkDirty(); Notify(); } }
     private string _stepDocumentId = string.Empty;
     private string _dxfDocumentId = string.Empty;
     public Guid? SelectedSessionId { get; private set; }
     public bool IsBusy { get; private set; }
-    public string StatusFilter { get; set; } = "All";
-    public bool SortDescending { get; set; }
-    public string SortMode { get; set; } = "Default";
+    public string StatusFilter { get => _statusFilter; set => SetUserString(ref _statusFilter, value); }
+    public bool SortDescending { get => _sortDescending; set { if (_sortDescending == value) return; _sortDescending = value; MarkUserChange(); Notify(); } }
+    public string SortMode { get => _sortMode; set => SetUserString(ref _sortMode, value); }
     public IReadOnlyList<string> SortModes { get; } = new[] { "Default", "Status", "Delta magnitude", "Layer", "View", "X", "Y" };
-    public string LayerFilter { get; set; } = string.Empty;
-    public string ViewFilter { get; set; } = string.Empty;
-    public string BlockFilter { get; set; } = string.Empty;
-    public string SearchText { get; set; } = string.Empty;
+    public string LayerFilter { get => _layerFilter; set => SetUserString(ref _layerFilter, value); }
+    public string ViewFilter { get => _viewFilter; set => SetUserString(ref _viewFilter, value); }
+    public string BlockFilter { get => _blockFilter; set => SetUserString(ref _blockFilter, value); }
+    public string SearchText { get => _searchText; set => SetUserString(ref _searchText, value); }
     public string UnmatchedDimensionsTitle => "Unmatched Dimensions";
     public IReadOnlyList<string> StatusFilters { get; } = new[] { "All", "Matched", "Mismatched", "Unmatched", "Manual review", "Cannot Validate", "Extra Dimension" };
     public IReadOnlyList<DimensionStatusSummary> StatusSummaries { get; private set; } = Array.Empty<DimensionStatusSummary>();
@@ -90,7 +104,7 @@ public sealed class VerificationViewModel : TaskScreenViewModel, IDisposable
             RaiseCommands();
         }
     }
-    public string GdtReviewComment { get; set; } = string.Empty;
+    public string GdtReviewComment { get => _gdtReviewComment; set => SetUserString(ref _gdtReviewComment, value); }
     public string NotVerifiedGdtTitle => "GD&T Validation Results";
     public double? MatchPercentage => ComparisonSummary.MatchPercentage;
     public string MatchPercentageText => MatchPercentage is double percentage ? $"{percentage.ToString("0.##", CultureInfo.InvariantCulture)}% Matched" : "N/A (no dimensions)";
@@ -111,9 +125,9 @@ public sealed class VerificationViewModel : TaskScreenViewModel, IDisposable
     public ICommand SetGdtDispositionCommand { get; }
     public string MatchingStatus { get; private set; } = "No matching session selected.";
     public string EmptyStateText => MatchResults.Count == 0 ? "No items found" : string.Empty;
-    public string MissingDimensionComment { get; set; } = string.Empty;
-    public string ExtraDimensionComment { get; set; } = string.Empty;
-    public string GdtDisposition { get; set; } = string.Empty;
+    public string MissingDimensionComment { get => _missingDimensionComment; set => SetUserString(ref _missingDimensionComment, value); }
+    public string ExtraDimensionComment { get => _extraDimensionComment; set => SetUserString(ref _extraDimensionComment, value); }
+    public string GdtDisposition { get => _gdtDisposition; set => SetUserString(ref _gdtDisposition, value); }
     public string ToleranceSummary => $"Tolerance: ±{FormatTolerance(_effectiveToleranceThresholdMm ?? _configuredToleranceThresholdMm)} mm (configured/session; explicit dimension tolerances override)";
     public IReadOnlyList<DimensionMatchItemViewModel> MatchResults { get; private set; } = Array.Empty<DimensionMatchItemViewModel>();
     public IReadOnlyList<DimensionMatchItemViewModel> UnmatchedResults => _allMatchResults.Where(item => item.IsUnmatched).ToArray();
@@ -439,6 +453,17 @@ public sealed class VerificationViewModel : TaskScreenViewModel, IDisposable
         _ => 3
     };
     private void RaiseCommands() { ((RelayCommand)SelectPairCommand).Raise(); ((RelayCommand)MatchDimensionsCommand).Raise(); ((RelayCommand)RefreshMatchesCommand).Raise(); ((RelayCommand)UpdateToleranceCommand).Raise(); ((RelayCommand)AddMissingDimensionCommentCommand).Raise(); ((RelayCommand)ResolveMissingDimensionCommand).Raise(); ((RelayCommand)AddExtraDimensionCommentCommand).Raise(); ((RelayCommand)FlagExtraDimensionCommand).Raise(); ((RelayCommand)AddGdtCommentCommand).Raise(); ((RelayCommand)FlagGdtEngineeringReviewCommand).Raise(); ((RelayCommand)SetGdtDispositionCommand).Raise(); }
+    private void SetUserString(ref string field, string value, [CallerMemberName] string? name = null)
+    {
+        if (field == value) return;
+        field = value;
+        MarkUserChange();
+        Notify(name);
+    }
+    private void MarkUserChange()
+    {
+        if (_trackUserChanges) MarkDirty();
+    }
     private void Notify([CallerMemberName] string? name = null) => RaisePropertyChanged(name);
     public void Dispose() { StepPreview.Dispose(); GC.SuppressFinalize(this); }
     private void ClearResults(string message)
