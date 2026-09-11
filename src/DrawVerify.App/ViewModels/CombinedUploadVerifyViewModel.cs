@@ -72,7 +72,8 @@ public sealed class CombinedUploadVerifyViewModel : TaskScreenViewModel, IDispos
         var operationVersion = _operationVersion;
         _stepProcessingCancellation = new CancellationTokenSource();
         _processingCancellation = _stepProcessingCancellation;
-        var cancellationToken = _stepProcessingCancellation.Token;
+        var operationCancellation = _stepProcessingCancellation!;
+        var cancellationToken = operationCancellation.Token;
         _stepDocument = document;
         StepStatus = "STEP uploaded; processing geometry…";
         ErrorMessage = string.Empty;
@@ -88,7 +89,17 @@ public sealed class CombinedUploadVerifyViewModel : TaskScreenViewModel, IDispos
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
         catch (Exception exception) when (operationVersion == _operationVersion) { _logger?.Log(exception, "Combined STEP processing", $"Unable to process documentId={document.DocumentId}."); StepStatus = "STEP processing failed."; ErrorMessage = $"STEP processing failed: {exception.Message}"; }
-        finally { if (ReferenceEquals(_stepProcessingCancellation, _processingCancellation)) _processingCancellation = null; _stepProcessingCancellation?.Dispose(); _stepProcessingCancellation = null; _isProcessing = false; if (operationVersion == _operationVersion) NotifyAll(); }
+        finally
+        {
+            if (ReferenceEquals(_stepProcessingCancellation, operationCancellation))
+            {
+                _stepProcessingCancellation = null;
+                if (ReferenceEquals(_processingCancellation, operationCancellation)) _processingCancellation = null;
+                _isProcessing = false;
+                NotifyAll();
+            }
+            operationCancellation.Dispose();
+        }
     }
 
     private async void OnDxfUploaded(Document document)
@@ -97,7 +108,8 @@ public sealed class CombinedUploadVerifyViewModel : TaskScreenViewModel, IDispos
         var operationVersion = _operationVersion;
         _dxfProcessingCancellation = new CancellationTokenSource();
         _processingCancellation = _dxfProcessingCancellation;
-        var cancellationToken = _dxfProcessingCancellation.Token;
+        var operationCancellation = _dxfProcessingCancellation!;
+        var cancellationToken = operationCancellation.Token;
         _dxfDocument = document;
         DxfStatus = "DXF uploaded; extracting dimensions…";
         ErrorMessage = string.Empty;
@@ -115,7 +127,17 @@ public sealed class CombinedUploadVerifyViewModel : TaskScreenViewModel, IDispos
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
         catch (Exception exception) when (operationVersion == _operationVersion) { _logger?.Log(exception, "Combined DXF extraction", $"Unable to extract documentId={document.DocumentId}."); DxfStatus = "DXF extraction failed."; ErrorMessage = $"DXF extraction failed: {exception.Message}"; }
-        finally { if (ReferenceEquals(_dxfProcessingCancellation, _processingCancellation)) _processingCancellation = null; _dxfProcessingCancellation?.Dispose(); _dxfProcessingCancellation = null; _isProcessing = false; if (operationVersion == _operationVersion) NotifyAll(); }
+        finally
+        {
+            if (ReferenceEquals(_dxfProcessingCancellation, operationCancellation))
+            {
+                _dxfProcessingCancellation = null;
+                if (ReferenceEquals(_processingCancellation, operationCancellation)) _processingCancellation = null;
+                _isProcessing = false;
+                NotifyAll();
+            }
+            operationCancellation.Dispose();
+        }
     }
 
     private async Task VerifyAsync()
@@ -145,9 +167,8 @@ public sealed class CombinedUploadVerifyViewModel : TaskScreenViewModel, IDispos
         _stepProcessingCancellation?.Cancel();
         _dxfProcessingCancellation?.Cancel();
         _processingCancellation?.Cancel();
-        _stepProcessingCancellation?.Dispose(); _stepProcessingCancellation = null;
-        _dxfProcessingCancellation?.Dispose(); _dxfProcessingCancellation = null;
         _processingCancellation = null;
+        _isProcessing = false;
     }
     private void NotifyAll() { foreach (var name in new[] { nameof(StepDocument), nameof(DxfDocument), nameof(StepDocumentId), nameof(DxfDocumentId), nameof(ExtractedDxfDimensionCount), nameof(StepStatus), nameof(DxfStatus), nameof(ProcessingStatus), nameof(ErrorMessage), nameof(IsBusy), nameof(CanVerify) }) Notify(name); StateChanged?.Invoke(); ((RelayCommand)VerifyCommand).Raise(); ((RelayCommand)NewWorkflowCommand).Raise(); }
     private void Notify([CallerMemberName] string? name = null) => RaisePropertyChanged(name);

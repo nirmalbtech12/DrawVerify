@@ -2,6 +2,7 @@ using System.Reflection;
 using DrawVerify.App.Navigation;
 using DrawVerify.App.ViewModels;
 using DrawVerify.Core.Authorization;
+using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
 using Xunit;
 
@@ -51,6 +52,21 @@ public sealed class CombinedUploadVerifyViewModelTests
         Assert.Contains("_stepDocument = null", source);
         Assert.Contains("_dxfDocument = null", source);
         Assert.Contains("_dxfDimensionCount = 0", source);
+    }
+
+    [Fact(DisplayName = "T06 verification reset clears selected pair and result state")]
+    public void Verification_reset_clears_embedded_session_state()
+    {
+        var session = new ResetSession();
+        using var verification = new VerificationViewModel(session, new RoleAuthorization());
+        verification.StepDocumentId = Guid.NewGuid().ToString();
+        verification.DxfDocumentId = Guid.NewGuid().ToString();
+        verification.ResetWorkflowState();
+        Assert.Null(verification.SelectedSessionId);
+        Assert.Equal(string.Empty, verification.StepDocumentId);
+        Assert.Equal(string.Empty, verification.DxfDocumentId);
+        Assert.Empty(verification.MatchResults);
+        Assert.Equal("No matching session selected.", verification.MatchingStatus);
     }
 
     [Fact(DisplayName = "T07 new workflow resets local state")]
@@ -143,5 +159,13 @@ public sealed class CombinedUploadVerifyViewModelTests
             directory = directory.Parent;
         }
         throw new FileNotFoundException($"Source file not found: {Path.Combine(parts)}");
+    }
+
+    private sealed class ResetSession : ISessionAuthenticationService
+    {
+        public AuthenticatedUser? CurrentUser { get; } = new("maker", [SystemRoles.Maker]);
+        public bool IsAuthenticated => true;
+        public void SignIn(AuthenticatedUser user) { }
+        public void SignOut() { }
     }
 }
