@@ -15,6 +15,10 @@ public sealed class Kan125DrawingProvenanceTests
         Assert.Equal(DrawingSource.Uploaded, uploaded.DrawingSource);
         Assert.Equal(DrawingSource.Generated, generatedVersion.DrawingSource);
         Assert.NotEqual(DrawingSource.Unknown, uploaded.DrawingSource);
+
+        var clone = uploaded with { OriginalFileName = "edited.dxf" };
+        Assert.Equal(uploaded.DrawingSource, clone.DrawingSource);
+        Assert.Equal(generatedVersion.DrawingSource, clone.Version!.DrawingSource);
     }
 
     [Fact(DisplayName = "TD-10 grants generation only to Maker")]
@@ -24,5 +28,13 @@ public sealed class Kan125DrawingProvenanceTests
         Assert.True(policy.IsAllowed(new AuthenticatedUser("maker", [SystemRoles.Maker]), RolePermission.GenerateDxfDrawing));
         Assert.False(policy.IsAllowed(new AuthenticatedUser("checker", [SystemRoles.Checker]), RolePermission.GenerateDxfDrawing));
         Assert.False(policy.IsAllowed(null, RolePermission.GenerateDxfDrawing));
+    }
+
+    [Fact(DisplayName = "TD-10 does not grant generation to inactive or unknown identities")]
+    public void Unknown_and_inactive_like_users_do_not_receive_generation_permission()
+    {
+        var policy = new RoleAuthorization();
+        Assert.False(policy.IsAllowed(new AuthenticatedUser("anonymous", Array.Empty<string>()), RolePermission.GenerateDxfDrawing));
+        Assert.False(policy.IsAllowed(new AuthenticatedUser("checker", new[] { "NotARealRole" }), RolePermission.GenerateDxfDrawing));
     }
 }

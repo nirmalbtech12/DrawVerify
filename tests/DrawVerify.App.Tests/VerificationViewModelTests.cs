@@ -284,10 +284,10 @@ public sealed class VerificationViewModelTests
 
     [Theory]
     [InlineData("Maker", true)]
-    [InlineData("Checker", true)]
+    [InlineData("Checker", false)]
     [InlineData("Approver", false)]
     [InlineData("Viewer", false)]
-    public void Matching_permission_is_limited_to_maker_and_checker(string role, bool expected)
+    public void Matching_permission_is_limited_to_maker(string role, bool expected)
     {
         var session = new SessionAuthenticationService(); session.SignIn(new AuthenticatedUser("USER", new[] { role }));
         var vm = new VerificationViewModel(session, new RoleAuthorization(), null);

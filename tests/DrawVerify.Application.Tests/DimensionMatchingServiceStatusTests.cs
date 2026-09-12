@@ -29,10 +29,10 @@ public sealed class DimensionMatchingServiceStatusTests
     {
         var step = Document(CoreDocumentType.StepModel, CoreGeometryStatus.Processed, VerificationStatus.Unknown);
         var dxf = Document(CoreDocumentType.DxfDrawing, CoreGeometryStatus.NotExtracted, VerificationStatus.DimensionsExtracted);
-        var session = new VerificationSession { VerificationSessionId = Guid.NewGuid(), StepDocumentId = step.DocumentId, DxfDocumentId = dxf.DocumentId };
+        var session = new VerificationSession { VerificationSessionId = Guid.NewGuid(), StepDocumentId = step.DocumentId, DxfDocumentId = dxf.DocumentId, StepDocumentVersionId = step.Version!.VersionId, DxfDocumentVersionId = dxf.Version!.VersionId };
         var dimensions = new[] { new CoreDimensionData(dxf.DocumentId, dxf.Version!.VersionId, 1, DimensionType.Linear, 10) };
         var sessions = new Sessions(session); var geometry = new Geometry(new GeometryFeatureData { Reference = "Edge:1", GeometryType = "Line", Length = 9.85 });
-        var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser("checker", new[] { "Checker" }));
+        var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser("maker", new[] { "Maker" }) { UserId = "maker" });
         var service = new DimensionMatchingService(new Documents(step, dxf, dimensions), sessions, geometry, auth, new DimensionMatchingConfiguration());
 
         await service.MatchDimensionsToGeometryAsync(session.VerificationSessionId);

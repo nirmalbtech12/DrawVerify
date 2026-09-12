@@ -60,6 +60,28 @@ public sealed class Kan125DxfGenerationServiceTests
         Assert.True(result.IsValid);
     }
 
+    [Fact(DisplayName = "TD-04 emits every supported entity and dimension record")]
+    public void Writer_preserves_entity_and_dimension_cardinality()
+    {
+        var drawing = new ProjectionDrawing(ProjectionDrawingView.Front,
+            new[]
+            {
+                new ProjectionDrawingEntity(ProjectionDrawingEntityType.Line, new[] { 0d, 0d, 1d, 1d }),
+                new ProjectionDrawingEntity(ProjectionDrawingEntityType.Arc, new[] { 0d, 0d, 2d, 0d, Math.PI }),
+                new ProjectionDrawingEntity(ProjectionDrawingEntityType.Circle, new[] { 2d, 2d, 3d }),
+                new ProjectionDrawingEntity(ProjectionDrawingEntityType.Polyline, new[] { 0d, 0d, 1d, 1d, 2d, 0d })
+            },
+            new[] { new ProjectionDrawingDimension("Diameter", 6d, 2d, 2d) }, 0.001d, Array.Empty<string>());
+
+        var text = Encoding.ASCII.GetString(DxfFileWriter.Write(new[] { drawing }));
+        Assert.Equal(1, Count(text, "\nLINE\n"));
+        Assert.Equal(1, Count(text, "\nARC\n"));
+        Assert.Equal(1, Count(text, "\nCIRCLE\n"));
+        Assert.Equal(1, Count(text, "\nLWPOLYLINE\n"));
+        Assert.Equal(1, Count(text, "\nDIMENSION\n"));
+        Assert.Contains("\n1\n6\n", text);
+    }
+
     private static string Read(params string[] parts)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -71,5 +93,8 @@ public sealed class Kan125DxfGenerationServiceTests
         }
         throw new FileNotFoundException(string.Join(Path.DirectorySeparatorChar, parts));
     }
+
+    private static int Count(string value, string token)
+        => value.Split(token, StringSplitOptions.None).Length - 1;
 
 }

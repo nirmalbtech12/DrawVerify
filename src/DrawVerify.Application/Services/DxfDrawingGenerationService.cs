@@ -29,11 +29,20 @@ public sealed class DxfDrawingGenerationService : IDxfDrawingGenerationService
 
     public async Task<DxfDrawingGenerationResult> GenerateAsync(Guid stepDocumentId, CancellationToken cancellationToken = default, IProgress<DxfDrawingGenerationProgress>? progress = null)
     {
-        await RefreshAuthorizationAsync(cancellationToken).ConfigureAwait(false);
-        if (!CanGenerate) return Failure("Only an authenticated Maker can generate a 2D drawing.");
-        var step = await _documents.GetAsync(stepDocumentId, cancellationToken).ConfigureAwait(false);
-        var version = step is null ? null : _documents.GetCurrentVersion(stepDocumentId) ?? step.Version;
-        if (step is null || version is null || step.DocumentType != DrawVerify.Core.Enums.DocumentType.StepModel || step.GeometryStatus != DrawVerify.Core.Enums.GeometryStatus.Processed) return Failure("A successfully processed STEP model is required before generating a 2D drawing.");
+        try { await RefreshAuthorizationAsync(cancellationToken).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { ReportCancelled(progress, "2D drawing generation was cancelled."); throw; }
+        catch (Exception exception) { ReportFailed(progress, $"2D drawing generation failed: {exception.Message}"); _logger?.Log(exception, "DXF drawing generation authorization", $"stepDocumentId={stepDocumentId}"); throw; }
+        if (!CanGenerate) return Failure("Only an authenticated Maker can generate a 2D drawing.", progress: progress);
+        Document? step;
+        DocumentVersion? version;
+        try
+        {
+            step = await _documents.GetAsync(stepDocumentId, cancellationToken).ConfigureAwait(false);
+            version = step is null ? null : _documents.GetCurrentVersion(stepDocumentId) ?? step.Version;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { ReportCancelled(progress, "2D drawing generation was cancelled."); throw; }
+        catch (Exception exception) { ReportFailed(progress, $"2D drawing generation failed: {exception.Message}"); _logger?.Log(exception, "DXF drawing generation document lookup", $"stepDocumentId={stepDocumentId}"); return Failure($"2D drawing generation failed: {exception.Message}", progress: progress); }
+        if (step is null || version is null || step.DocumentType != DrawVerify.Core.Enums.DocumentType.StepModel || step.GeometryStatus != DrawVerify.Core.Enums.GeometryStatus.Processed) return Failure("A successfully processed STEP model is required before generating a 2D drawing.", progress: progress);
         var tempPath = Path.Combine(Path.GetTempPath(), $"drawverify-{Guid.NewGuid():N}.step");
         DxfUploadStagingFile? staging = null;
         string? finalPath = null;
@@ -56,7 +65,7 @@ public sealed class DxfDrawingGenerationService : IDxfDrawingGenerationService
             if (_extraction is null) throw new InvalidOperationException("The canonical DXF extraction service is not configured; generated output cannot become verification-ready.");
             await using var content = new MemoryStream(bytes, writable: false);
             var validation = await DxfFileValidator.ValidateAsync(content, bytes.Length, 30, cancellationToken).ConfigureAwait(false);
-            if (!validation.IsValid) return Failure($"Generated DXF validation failed: {validation.Reason}", diagnostics);
+            if (!validation.IsValid) return Failure($"Generated DXF validation failed: {validation.Reason}", diagnostics, progress);
             content.Position = 0;
             var preflight = await _extraction.ParseAsync(content, Guid.Empty, Guid.Empty, cancellationToken).ConfigureAwait(false);
             if (!preflight.Succeeded || preflight.Dimensions.Count == 0)
@@ -82,8 +91,8 @@ public sealed class DxfDrawingGenerationService : IDxfDrawingGenerationService
             progress?.Report(new("complete", 100, message));
             return new(true, message, document, diagnostics, documentVersion.VersionId) { ExtractedDimensionCount = (await _documents.GetDimensionsAsync(documentId, cancellationToken).ConfigureAwait(false)).Count };
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { await TryRollbackAsync(generatedDocumentId); if (finalPath is not null) await TryDeleteAsync(finalPath); return Failure("2D drawing generation was cancelled.", diagnostics); }
-        catch (Exception exception) { await TryRollbackAsync(generatedDocumentId); if (finalPath is not null) await TryDeleteAsync(finalPath); _logger?.Log(exception, "DXF drawing generation", $"stepDocumentId={stepDocumentId}; stepVersionId={version.VersionId}; diagnostics={JsonSerializer.Serialize(diagnostics)}"); try { await WriteAuditAsync(stepDocumentId, DocumentAuditAction.DxfGenerationFailed, new { error = exception.Message, diagnostics }, CancellationToken.None); } catch { } return Failure($"2D drawing generation failed: {exception.Message}", diagnostics); }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { await TryRollbackAsync(generatedDocumentId); if (finalPath is not null) await TryDeleteAsync(finalPath); ReportCancelled(progress, "2D drawing generation was cancelled."); return Failure("2D drawing generation was cancelled.", diagnostics, progress, reportTerminal: false); }
+        catch (Exception exception) { await TryRollbackAsync(generatedDocumentId); if (finalPath is not null) await TryDeleteAsync(finalPath); _logger?.Log(exception, "DXF drawing generation", $"stepDocumentId={stepDocumentId}; stepVersionId={version?.VersionId}; diagnostics={JsonSerializer.Serialize(diagnostics)}"); try { await WriteAuditAsync(stepDocumentId, DocumentAuditAction.DxfGenerationFailed, new { error = exception.Message, diagnostics }, CancellationToken.None); } catch { } ReportFailed(progress, $"2D drawing generation failed: {exception.Message}"); return Failure($"2D drawing generation failed: {exception.Message}", diagnostics, progress, reportTerminal: false); }
         finally { if (staging is not null) await staging.DisposeAsync().ConfigureAwait(false); try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { } }
     }
     public async Task<Stream> DownloadAsync(Guid documentId, Guid versionId, CancellationToken cancellationToken = default)
@@ -114,5 +123,11 @@ public sealed class DxfDrawingGenerationService : IDxfDrawingGenerationService
         try { await _transactionalDocuments.DeleteDocumentAsync(id, CancellationToken.None).ConfigureAwait(false); }
         catch (Exception rollback) { _logger?.Log(rollback, "DXF generation rollback", $"documentId={id}"); }
     }
-    private static DxfDrawingGenerationResult Failure(string message, IReadOnlyList<string>? diagnostics = null) => new(false, message, Diagnostics: (diagnostics ?? Array.Empty<string>()).Append(message).ToArray());
+    private static DxfDrawingGenerationResult Failure(string message, IReadOnlyList<string>? diagnostics = null, IProgress<DxfDrawingGenerationProgress>? progress = null, bool reportTerminal = true)
+    {
+        if (reportTerminal) ReportFailed(progress, message);
+        return new(false, message, Diagnostics: (diagnostics ?? Array.Empty<string>()).Append(message).ToArray());
+    }
+    private static void ReportFailed(IProgress<DxfDrawingGenerationProgress>? progress, string message) => progress?.Report(new("failed", 100, message));
+    private static void ReportCancelled(IProgress<DxfDrawingGenerationProgress>? progress, string message) => progress?.Report(new("cancelled", 100, message));
 }

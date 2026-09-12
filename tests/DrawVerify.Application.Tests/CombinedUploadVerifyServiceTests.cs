@@ -42,7 +42,7 @@ public sealed class CombinedUploadVerifyServiceTests
     public void Verification_receives_both_selected_ids()
     {
         var source = Read("src", "DrawVerify.App", "ViewModels", "CombinedUploadVerifyViewModel.cs");
-        Assert.Contains("SelectPairAsync(StepDocumentId!.Value, DxfDocumentId!.Value)", source);
+        Assert.Contains("SelectPairAsync(StepDocumentId!.Value, DxfDocumentId!.Value, StepDocumentVersionId!.Value, DxfDocumentVersionId!.Value)", source);
         Assert.Contains("GetOrCreateSessionAsync(stepDocumentId, dxfDocumentId", Read("src", "DrawVerify.App", "ViewModels", "VerificationViewModel.cs"));
     }
 

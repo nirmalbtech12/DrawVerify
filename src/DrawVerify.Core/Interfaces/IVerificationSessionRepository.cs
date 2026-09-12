@@ -4,6 +4,13 @@ namespace DrawVerify.Core.Interfaces;
 public interface IVerificationSessionRepository
 {
     Task<VerificationSession> GetOrCreateAsync(Guid stepDocumentId, Guid dxfDocumentId, CancellationToken cancellationToken = default);
+    async Task<VerificationSession> GetOrCreateAsync(Guid stepDocumentId, Guid dxfDocumentId, Guid stepDocumentVersionId, Guid dxfDocumentVersionId, CancellationToken cancellationToken = default)
+    {
+        if (stepDocumentVersionId == Guid.Empty || dxfDocumentVersionId == Guid.Empty)
+            throw new ArgumentException("Explicit STEP and DXF version IDs are required.");
+        var session = await GetOrCreateAsync(stepDocumentId, dxfDocumentId, cancellationToken).ConfigureAwait(false);
+        return session with { StepDocumentVersionId = stepDocumentVersionId, DxfDocumentVersionId = dxfDocumentVersionId };
+    }
     Task<VerificationSession?> GetAsync(Guid sessionId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<DimensionMatch>> GetMatchesAsync(Guid sessionId, DimensionMatchStatus? status = null, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<GdtResult>> GetGdtResultsAsync(Guid sessionId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<GdtResult>>(Array.Empty<GdtResult>());

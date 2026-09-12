@@ -167,7 +167,7 @@ public sealed class CombinedUploadVerifyViewModel : TaskScreenViewModel, IDispos
         try
         {
             _isProcessing = true; ProcessingStatus = "Verification in progress…"; NotifyAll();
-            if (!await Verification.SelectPairAsync(StepDocumentId!.Value, DxfDocumentId!.Value)) throw new InvalidOperationException(Verification.MatchingStatus);
+            if (!await Verification.SelectPairAsync(StepDocumentId!.Value, DxfDocumentId!.Value, StepDocumentVersionId!.Value, DxfDocumentVersionId!.Value)) throw new InvalidOperationException(Verification.MatchingStatus);
             if (Verification.SelectedSessionId is not Guid sessionId || !await Verification.MatchDimensionsAsync(sessionId)) throw new InvalidOperationException(Verification.MatchingStatus);
             ProcessingStatus = "Verification completed.";
         }
