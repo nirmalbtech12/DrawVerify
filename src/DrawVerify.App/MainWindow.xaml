@@ -4,6 +4,7 @@
         Title="DrawVerify"
         Height="800"
         Width="1200"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource ShellBackground}">
     <ContentControl x:Name="MainContent" />
 </Window>

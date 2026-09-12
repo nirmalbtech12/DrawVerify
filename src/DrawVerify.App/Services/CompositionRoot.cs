@@ -11,6 +11,9 @@ using DrawVerify.Infrastructure.Logging;
 using DrawVerify.App.ViewModels;
 using DrawVerify.OcctService;
 using DrawVerify.Application.Verification;
+using System.Windows;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace DrawVerify.App.Services;
 
@@ -28,7 +31,33 @@ public static class CompositionRoot
     private static readonly DimensionMatchingConfiguration DimensionMatchingConfiguration = LoadDimensionMatchingConfiguration();
     private static readonly SessionAuthenticationService Session = new();
     private static readonly RoleAuthorization Authorization = new();
-    public static void Initialize() { }
+    public static void Initialize()
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "appsettings.json")));
+        if (!document.RootElement.TryGetProperty("Branding", out var branding)) return;
+        ApplyBrush("ShellBackground", branding, "Background");
+        ApplyBrush("BrandGreen", branding, "PrimaryColor");
+        ApplyBrush("BrandWhite", branding, "TextColor");
+        ApplyImage("BrandLogoSource", branding, "LogoPath");
+        ApplyImage("BrandIconSource", branding, "IconPath");
+    }
+    private static void ApplyImage(string resourceKey, JsonElement branding, string settingName)
+    {
+        if (System.Windows.Application.Current is null) return;
+        if (!branding.TryGetProperty(settingName, out var value) || string.IsNullOrWhiteSpace(value.GetString())) return;
+        var configuredPath = value.GetString()!;
+        var path = Path.IsPathFullyQualified(configuredPath) ? configuredPath : Path.Combine(AppContext.BaseDirectory, configuredPath);
+        if (!File.Exists(path)) return;
+        try { var image = new BitmapImage(new Uri(path, UriKind.Absolute)); image.Freeze(); System.Windows.Application.Current.Resources[resourceKey] = image; }
+        catch (Exception exception) { new CentralizedLogger().Log(exception, "Branding asset load", $"Unable to load configured {settingName}='{path}'. The built-in branding fallback will be used."); }
+    }
+    private static void ApplyBrush(string resourceKey, JsonElement branding, string settingName)
+    {
+        if (System.Windows.Application.Current is null) return;
+        if (!branding.TryGetProperty(settingName, out var value) || string.IsNullOrWhiteSpace(value.GetString())) return;
+        var color = (Color)ColorConverter.ConvertFromString(value.GetString()!)!;
+        System.Windows.Application.Current.Resources[resourceKey] = new SolidColorBrush(color);
+    }
     public static ISessionAuthenticationService SessionAuthentication => Session;
     public static RoleAuthorization RoleAuthorization => Authorization;
     public static DimensionMatchingConfiguration ConfiguredDimensionMatching => DimensionMatchingConfiguration;
@@ -110,7 +139,7 @@ public static class CompositionRoot
         var dxfFiles = new DxfDocumentFileStore(AppContext.BaseDirectory, DxfUploadConfiguration);
         var worker = new OcctWorkerGeometryService(workerPath, DimensionMatchingConfiguration.MaximumStepFileSizeBytes, DimensionMatchingConfiguration.TimeoutSeconds, logger, Path.Combine(AppContext.BaseDirectory, StepUploadConfiguration.StorageFolder));
         var gdtVerification = new VerificationService(CreateVerificationEngine(), sessions);
-        return new DimensionMatchingService(documents, sessions, worker, Session, DimensionMatchingConfiguration, Authorization, logger, gdtVerification, dxfFiles, new DxfGdtParser(), worker);
+        return new DimensionMatchingService(documents, sessions, worker, Session, DimensionMatchingConfiguration, Authorization, logger, gdtVerification, dxfFiles, new DxfGdtParser(), worker, Path.Combine(AppContext.BaseDirectory, StepUploadConfiguration.StorageFolder));
     }
     public static ReportService CreateReportService()
     {

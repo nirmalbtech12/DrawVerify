@@ -135,7 +135,7 @@ public sealed class GdtValidator
         if (string.IsNullOrWhiteSpace(a.SourceDocument)) throw new ArgumentException("A GD&T source document is required.", nameof(a));
         return new()
     {
-        GdtResultId = StableId(a.Identifier), VerificationSessionId = sessionId, Identifier = a.Identifier.Trim(), ControlType = a.ControlType, Symbol = a.Symbol,
+        GdtResultId = StableId(a, sessionId), VerificationSessionId = sessionId, Identifier = a.Identifier.Trim(), ControlType = a.ControlType, Symbol = a.Symbol,
         ToleranceValue = a.ToleranceValue, Modifiers = a.Modifiers, DatumReferences = a.DatumReferences ?? Array.Empty<string>(), SourceDocument = a.SourceDocument,
         SourceDocumentVersion = a.SourceDocumentVersion, SourceLocation = a.SourceLocation, RawText = a.RawText, EntityHandle = a.EntityHandle, Layer = a.Layer, BlockName = a.BlockName, ViewName = a.ViewName,
         Diagnostics = a.Diagnostics ?? Array.Empty<string>(), RuleVersion = RuleVersion, ControlledFeature = a.ControlledFeature, NominalBasicLocation = a.NominalBasicLocation,
@@ -171,7 +171,14 @@ public sealed class GdtValidator
     }
     private enum CriterionOutcome { NotSpecified, Passed, Failed, NotVerified }
     private static GdtControlType ParseType(string? value) => Enum.TryParse<GdtControlType>(value, true, out var type) && DefaultControls.Contains(type) ? type : throw new InvalidDataException($"Unsupported GD&T control type '{value}'.");
-    private static Guid StableId(string id) => new(System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(id)).AsSpan(0, 16));
+    private static Guid StableId(GdtAnnotationData annotation, Guid sessionId)
+    {
+        // Result IDs are primary keys across all verification sessions. Include the
+        // session and source identity so identical annotation identifiers in two
+        // drawings cannot collide in SQLite while remaining stable on re-verification.
+        var identity = string.Join("\u001F", sessionId.ToString("N"), annotation.SourceDocument.Trim(), annotation.SourceDocumentVersion?.Trim() ?? string.Empty, annotation.EntityHandle?.Trim() ?? string.Empty, annotation.SourceLocation?.Trim() ?? string.Empty, annotation.Identifier.Trim());
+        return new(System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(identity)).AsSpan(0, 16));
+    }
 }
 
 file static class GdtResultCopy

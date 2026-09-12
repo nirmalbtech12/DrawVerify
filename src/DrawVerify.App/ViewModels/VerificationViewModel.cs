@@ -321,7 +321,10 @@ public sealed class VerificationViewModel : TaskScreenViewModel, IDisposable
                     authorizedRows.AddRange(await _matching!.GetExtraResultsAsync(sessionId, cancellationToken));
                 matches = authorizedRows;
             }
-            if (canViewExtra && matches.Any(match => match.Status is DimensionMatchStatus.ExtraDimension or DimensionMatchStatus.MissingDimension))
+            // Load the complete STEP model independently of result status. A fully
+            // matched drawing still needs a usable 3D view; feature highlighting
+            // is an optional navigation action on top of the loaded model.
+            if (canViewExtra)
             {
                 try
                 {

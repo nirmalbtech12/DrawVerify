@@ -310,6 +310,15 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
         version.GeometryStatus = status;
         version.GeometryError = error;
         _measurementVersions[versionId] = version;
+
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE Document SET GeometryStatus=$status WHERE DocumentId=(SELECT DocumentId FROM DocumentVersion WHERE VersionId=$versionId)";
+        command.Parameters.AddWithValue("$status", status);
+        command.Parameters.AddWithValue("$versionId", versionId.ToString());
+        if (command.ExecuteNonQuery() != 1)
+            throw new InvalidOperationException($"The document version '{versionId}' was not found while persisting measurement status.");
     }
 
     public async Task CreateWithVersionAndAuditAsync(Document document, DocumentVersion version, AuditEntry auditEntry, CancellationToken cancellationToken = default)

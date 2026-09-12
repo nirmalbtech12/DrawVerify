@@ -172,7 +172,7 @@ public sealed class DxfDimensionParser : IDxfDimensionParser
                 _ => throw new NotSupportedException($"DIMENSION type {baseType} is not supported.")
             };
 
-            var nominal = FirstDouble(values, 42);
+            var nominal = ReadNominal(values, baseType);
             if (nominal is null)
                 throw new InvalidDataException("DIMENSION entity has no readable nominal measurement.");
 
@@ -252,6 +252,20 @@ public sealed class DxfDimensionParser : IDxfDimensionParser
 
     private static string? FirstString(Dictionary<int, List<string>> values, int code) =>
         values.TryGetValue(code, out var list) && list.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) is { } value ? value : null;
+
+    private static double? ReadNominal(Dictionary<int, List<string>> values, int baseType)
+    {
+        var actual = FirstDouble(values, 42);
+        if (actual is not null) return actual;
+        if (baseType is not (0 or 1)) return null;
+        var firstX = FirstDouble(values, 13);
+        var firstY = FirstDouble(values, 23);
+        var secondX = FirstDouble(values, 14);
+        var secondY = FirstDouble(values, 24);
+        if (firstX is null || firstY is null || secondX is null || secondY is null) return null;
+        var distance = Math.Sqrt(Math.Pow(secondX.Value - firstX.Value, 2) + Math.Pow(secondY.Value - firstY.Value, 2));
+        return double.IsFinite(distance) ? distance : null;
+    }
 
     private static int? FirstInt(Dictionary<int, List<string>> values, int code) =>
         values.TryGetValue(code, out var list) && list.Select(value => int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : (int?)null).FirstOrDefault() is { } value ? value : null;

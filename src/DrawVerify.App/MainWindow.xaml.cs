@@ -17,7 +17,9 @@ public partial class MainWindow : Window
     public Func<MessageBoxResult> DiscardConfirmation { get; set; } = () => MessageBox.Show("Discard unsaved changes?", "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Warning);
     public MainWindow()
     {
-        CompositionRoot.Initialize(); InitializeComponent(); Loaded += async (_, _) => await ApplySystemRetentionAsync(); ShowLogin();
+        CompositionRoot.Initialize(); InitializeComponent();
+        if (System.Windows.Application.Current.Resources["BrandIconSource"] is System.Windows.Media.ImageSource icon) Icon = icon;
+        Loaded += async (_, _) => await ApplySystemRetentionAsync(); ShowLogin();
         InputBindings.Add(new KeyBinding(new RelayCommand(_ => GoBack()), Key.Left, ModifierKeys.Alt));
     }
     private static async Task ApplySystemRetentionAsync() { try { await CompositionRoot.ApplySystemRetentionAsync(); } catch (Exception ex) { new CentralizedLogger().Log(ex, "System audit retention", "Unable to apply the configured audit retention policy."); } }
@@ -42,7 +44,7 @@ public partial class MainWindow : Window
     private void Navigate(string target) => _navigation?.Navigate(target, () => CreateScreen(target));
     private UIElement CreateScreen(string target)
     {
-        if (target == ScreenRegistry.Dashboard) { var view = new DashboardView { DataContext = new DashboardViewModel(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization) }; view.QuickLinkRequested += Navigate; return view; }
+        if (target == ScreenRegistry.Dashboard) return new DashboardView { DataContext = new DashboardViewModel(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization) };
         if (target == ScreenRegistry.UploadVerify) { var view = new CombinedUploadVerifyView { DataContext = CompositionRoot.CreateCombinedUploadVerifyViewModel() }; view.AttachFilePickers((CombinedUploadVerifyViewModel)view.DataContext); view.BackRequested += () => HandleTaskBack((TaskScreenViewModel)view.DataContext); return view; }
         if (target == ScreenRegistry.StepUpload) { var view = new StepUploadView { DataContext = CompositionRoot.CreateStepUploadViewModel() }; view.AttachFilePicker((StepUploadViewModel)view.DataContext); view.BackRequested += () => HandleTaskBack((TaskScreenViewModel)view.DataContext); return view; }
         if (target == ScreenRegistry.DxfUpload) { var view = new DxfUploadView { DataContext = CompositionRoot.CreateDxfUploadViewModel() }; view.AttachFilePicker((DxfUploadViewModel)view.DataContext); view.BackRequested += () => HandleTaskBack((TaskScreenViewModel)view.DataContext); return view; }

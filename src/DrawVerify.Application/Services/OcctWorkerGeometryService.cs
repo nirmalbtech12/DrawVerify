@@ -53,7 +53,14 @@ public sealed class OcctWorkerGeometryService : ManagedGeometryService, IMatchab
             var output = process.StandardOutput.ReadToEnd();
             if (string.IsNullOrWhiteSpace(output)) return GdtAnnotationExtractionResult.Failure("WorkerProtocol", $"GD&T extraction failed: worker returned no result.{FormatDiagnostics(diagnostics)}");
             var response = JsonSerializer.Deserialize<GdtAnnotationWorkerResponse>(output);
-            if (response is null || response.ProtocolVersion != 1 || process.ExitCode != 0) return GdtAnnotationExtractionResult.Failure("WorkerProtocol", $"GD&T extraction failed: unsupported or failed worker response.{FormatDiagnostics(diagnostics)}");
+            // The worker uses exit code 2 for a valid capability limitation
+            // (for example, STEP PMI syntax/modifiers that OCCT cannot expose).
+            // That result must reach the verification layer as CannotValidate,
+            // rather than being converted into a worker-protocol failure.
+            if (response is null || response.ProtocolVersion != 1 || process.ExitCode is not (0 or 2))
+                return GdtAnnotationExtractionResult.Failure("WorkerProtocol", $"GD&T extraction failed: unsupported or failed worker response.{FormatDiagnostics(diagnostics)}");
+            if (response.Result is null || response.Result.Annotations is null || response.Result.Diagnostics is null)
+                return GdtAnnotationExtractionResult.Failure("WorkerProtocol", "GD&T extraction failed: worker returned an invalid annotation result.");
             return response.Result;
         }
         catch (Exception exception) when (exception is JsonException or InvalidOperationException or IOException)
@@ -73,14 +80,26 @@ public sealed class OcctWorkerGeometryService : ManagedGeometryService, IMatchab
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(_timeout);
         using var process = new Process { StartInfo = new ProcessStartInfo(_workerPath) { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true } };
+        Task<string>? outputTask = null;
+        Task<string>? diagnosticsTask = null;
         try
         {
             if (!process.Start()) return MatchableGeometryExtractionResult.Failure("WorkerStart", "Matching failed: worker could not be started.");
             if (timeout.IsCancellationRequested) return TimeoutResult(process, filePath);
             process.StandardInput.Write(JsonSerializer.Serialize(new { ProtocolVersion = 1, Operation = "MatchableGeometry", FilePath = filePath })); process.StandardInput.Close();
-            try { process.WaitForExitAsync(timeout.Token).GetAwaiter().GetResult(); } catch (OperationCanceledException) { return TimeoutResult(process, filePath); }
+            // Drain both redirected streams while the worker runs. Waiting for exit
+            // before reading can deadlock when the geometry response fills a pipe.
+            outputTask = process.StandardOutput.ReadToEndAsync();
+            diagnosticsTask = process.StandardError.ReadToEndAsync();
+            try { process.WaitForExitAsync(timeout.Token).GetAwaiter().GetResult(); }
+            catch (OperationCanceledException)
+            {
+                var cleanupError = Terminate(process, "Matchable geometry worker", filePath);
+                var diagnostics = diagnosticsTask.GetAwaiter().GetResult();
+                return MatchableGeometryExtractionResult.Failure("Timeout", $"Matching failed: operation exceeded the configured timeout.{cleanupError}{FormatDiagnostics(diagnostics)}");
+            }
             if (timeout.IsCancellationRequested) return TimeoutResult(process, filePath);
-            var diagnosticsAfterExit = ReadDiagnostics(process); var output = process.StandardOutput.ReadToEnd(); if (string.IsNullOrWhiteSpace(output)) { LogDiagnostics("Matchable geometry worker", filePath, diagnosticsAfterExit); return MatchableGeometryExtractionResult.Failure("WorkerProtocol", $"Matching failed: worker returned no result.{FormatDiagnostics(diagnosticsAfterExit)}"); }
+            var diagnosticsAfterExit = diagnosticsTask.GetAwaiter().GetResult(); var output = outputTask.GetAwaiter().GetResult(); if (string.IsNullOrWhiteSpace(output)) { LogDiagnostics("Matchable geometry worker", filePath, diagnosticsAfterExit); return MatchableGeometryExtractionResult.Failure("WorkerProtocol", $"Matching failed: worker returned no result.{FormatDiagnostics(diagnosticsAfterExit)}"); }
             using var json = JsonDocument.Parse(output); var root = json.RootElement;
             if (!root.TryGetProperty("ProtocolVersion", out var version) || version.GetInt32() != 1 || process.ExitCode != 0) { LogDiagnostics("Matchable geometry worker", filePath, diagnosticsAfterExit); return MatchableGeometryExtractionResult.Failure("WorkerProtocol", $"Matching failed: unsupported or failed worker response.{FormatDiagnostics(diagnosticsAfterExit)}"); }
             var result = root.TryGetProperty("Result", out var resultElement) ? resultElement.Deserialize<MatchableGeometryExtractionResult>() : null;

@@ -27,6 +27,16 @@ public class GdtValidatorTests
         Assert.Equal(GdtResult.CurrentRuleVersion, result.RuleVersion);
     }
 
+    [Fact(DisplayName = "TD-APP-001 scopes GD&T result IDs to the verification session")]
+    public void Identical_annotations_in_different_sessions_have_unique_result_ids()
+    {
+        var annotation = Annotation(GdtControlType.Position, "⌖");
+        var first = new GdtValidator().Validate(annotation, Guid.NewGuid());
+        var second = new GdtValidator().Validate(annotation, Guid.NewGuid());
+
+        Assert.NotEqual(first.GdtResultId, second.GdtResultId);
+    }
+
     [Fact(DisplayName = "TD-APP-001 flags unsupported and unknown controls without coercion")]
     public void Unsupported_control_is_not_verified()
     {

@@ -8,6 +8,15 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class DxfDimensionParserTests
 {
+    [Fact(DisplayName = "TD-DXF-002 derives linear measurement when optional group 42 is omitted")]
+    public async Task Linear_dimension_uses_definition_points_without_actual_measurement()
+    {
+        var result = await new DxfDimensionParser().ParseAsync(
+            AsStream("0\nSECTION\n2\nENTITIES\n0\nDIMENSION\n70\n32\n1\n<>\n13\n50\n23\n50\n14\n170\n24\n50\n0\nENDSEC\n0\nEOF\n"), Guid.NewGuid(), Guid.NewGuid());
+
+        var dimension = Assert.Single(result.Dimensions);
+        Assert.Equal(120, dimension.NominalValue);
+    }
     [Fact(DisplayName = "TD-DXF-001 accepts legacy DXF bytes outside UTF-8")]
     public async Task Legacy_code_page_bytes_do_not_abort_structural_parsing()
     {

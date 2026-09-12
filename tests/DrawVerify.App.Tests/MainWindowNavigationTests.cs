@@ -19,8 +19,8 @@ public sealed class MainWindowNavigationTests
         Assert.Equal(ScreenRegistry.UploadVerify, menu.Target);
         Assert.NotNull(menu.Children);
         Assert.Contains(menu.Children!, item => item.Target == ScreenRegistry.UploadVerify);
-        Assert.Contains(menu.Children!, item => item.Target == ScreenRegistry.StepUpload);
-        Assert.Contains(menu.Children!, item => item.Target == ScreenRegistry.DxfUpload);
+        Assert.DoesNotContain(menu.Children!, item => item.Target == ScreenRegistry.StepUpload);
+        Assert.DoesNotContain(menu.Children!, item => item.Target == ScreenRegistry.DxfUpload);
         Assert.Contains(ScreenRegistry.Menus, item => item.Header == "_Verification");
     }
 

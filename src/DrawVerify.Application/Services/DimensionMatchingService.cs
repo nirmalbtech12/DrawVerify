@@ -25,9 +25,10 @@ public sealed class DimensionMatchingService
     private readonly IDxfUploadFileStore? _dxfFiles;
     private readonly IDxfGdtParser? _dxfGdtParser;
     private readonly IGdtAnnotationService? _stepGdtService;
+    private readonly string? _stepFileRoot;
     private readonly Dictionary<(Guid SessionId, Guid MatchId), DimensionReview> _extraReviews = new();
-    public DimensionMatchingService(IDocumentRepository documents, IVerificationSessionRepository sessions, IMatchableGeometryService geometry, ISessionAuthenticationService authentication, DimensionMatchingConfiguration configuration, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null, VerificationService? gdtVerification = null, IDxfUploadFileStore? dxfFiles = null, IDxfGdtParser? dxfGdtParser = null, IGdtAnnotationService? stepGdtService = null)
-    { _documents = documents; _sessions = sessions; _geometry = geometry; _authentication = authentication; _configuration = configuration; _configuration.Validate(); _authorization = authorization ?? new RoleAuthorization(); _logger = logger; _gdtVerification = gdtVerification; _dxfFiles = dxfFiles; _dxfGdtParser = dxfGdtParser; _stepGdtService = stepGdtService; }
+    public DimensionMatchingService(IDocumentRepository documents, IVerificationSessionRepository sessions, IMatchableGeometryService geometry, ISessionAuthenticationService authentication, DimensionMatchingConfiguration configuration, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null, VerificationService? gdtVerification = null, IDxfUploadFileStore? dxfFiles = null, IDxfGdtParser? dxfGdtParser = null, IGdtAnnotationService? stepGdtService = null, string? stepFileRoot = null)
+    { _documents = documents; _sessions = sessions; _geometry = geometry; _authentication = authentication; _configuration = configuration; _configuration.Validate(); _authorization = authorization ?? new RoleAuthorization(); _logger = logger; _gdtVerification = gdtVerification; _dxfFiles = dxfFiles; _dxfGdtParser = dxfGdtParser; _stepGdtService = stepGdtService; _stepFileRoot = string.IsNullOrWhiteSpace(stepFileRoot) ? null : Path.GetFullPath(stepFileRoot); }
 
     public async Task<VerificationSession> MatchDimensionsToGeometryAsync(Guid sessionId, CancellationToken cancellationToken = default, double? toleranceOverrideMm = null)
     {
@@ -104,8 +105,20 @@ public sealed class DimensionMatchingService
         // Diagnostics returned alongside a successful document extraction are document-level
         // diagnostics. Keep them out of annotation diagnostics so one malformed entity cannot
         // invalidate unrelated controls. Entity-specific diagnostics remain on the annotation.
+        if (dxfExtraction.Annotations is null)
+        {
+            throw new InvalidOperationException("DXF GD&T extraction returned an invalid annotation collection.");
+        }
         var dxfAnnotations = dxfExtraction.Annotations.ToArray();
         var step = _stepGdtService.ExtractAnnotations(stepVersion.StoredRelativePath, cancellationToken);
+        if (step is null)
+        {
+            throw new InvalidOperationException("STEP GD&T extraction returned no result.");
+        }
+        if (step.Annotations is null)
+        {
+            throw new InvalidOperationException("STEP GD&T extraction returned an invalid annotation collection.");
+        }
         var stepAnnotations = step.Annotations.ToArray();
         if (step.Succeeded) { }
         else if (step.ErrorCategory is not "CapabilityUnavailable")
@@ -171,7 +184,9 @@ public sealed class DimensionMatchingService
             ?? throw new InvalidOperationException("The STEP document was not found.");
         if (step.Version is null || string.IsNullOrWhiteSpace(step.Version.StoredRelativePath))
             throw new InvalidOperationException("The STEP document has no stored model version.");
-        return step.Version.StoredRelativePath;
+        return _stepFileRoot is null || Path.IsPathFullyQualified(step.Version.StoredRelativePath)
+            ? step.Version.StoredRelativePath
+            : Path.GetFullPath(Path.Combine(_stepFileRoot, step.Version.StoredRelativePath.Replace('/', Path.DirectorySeparatorChar)));
     }
     public Task AddExtraCommentAsync(Guid sessionId, Guid dimensionMatchId, string comment, CancellationToken cancellationToken = default)
     {

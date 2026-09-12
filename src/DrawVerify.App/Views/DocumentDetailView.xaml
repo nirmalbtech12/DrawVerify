@@ -17,12 +17,12 @@
         <Button Content="Extract Dimensions" Command="{Binding ExtractDimensionsCommand}" Margin="0,16,0,8"/>
         <Button Content="Refresh Dimensions" Command="{Binding LoadDimensionsCommand}" Margin="0,0,0,8"/>
         <TextBlock Text="{Binding Message}"/>
-        <TextBlock Text="{Binding ErrorMessage}" Foreground="DarkRed"/>
+        <TextBlock Text="{Binding ErrorMessage}" Foreground="{DynamicResource BrandError}"/>
         <TextBlock Text="{Binding DimensionResultsHeading}" FontWeight="Bold" Margin="0,16,0,8"/>
         <ItemsControl ItemsSource="{Binding Dimensions}">
             <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                    <Border BorderBrush="LightGray" BorderThickness="0,0,0,1" Padding="0,4">
+                    <Border BorderBrush="{DynamicResource BrandBorder}" BorderThickness="0,0,0,1" Padding="0,4">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="{Binding DimensionType, StringFormat=Type: {0}}" Width="130"/>
                             <TextBlock Text="{Binding NominalValue, StringFormat=Nominal: {0}}" Width="160"/>

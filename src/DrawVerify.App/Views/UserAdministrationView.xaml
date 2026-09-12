@@ -3,9 +3,9 @@
   <ScrollViewer><StackPanel Margin="24" Width="520">
     <TextBlock Text="User administration" FontSize="24"/>
     <StackPanel Visibility="{Binding CanEditRoles,Converter={StaticResource BooleanToVisibilityConverter}}">
-      <TextBlock Text="Create user" Margin="0,16,0,4"/><TextBox Text="{Binding Username,UpdateSourceTrigger=PropertyChanged}"/><TextBlock Text="{Binding UsernameError}" Foreground="Red" TextWrapping="Wrap"/>
-      <TextBlock Text="Display name" Margin="0,10,0,4"/><TextBox Text="{Binding DisplayName,UpdateSourceTrigger=PropertyChanged}"/><TextBlock Text="{Binding DisplayNameError}" Foreground="Red" TextWrapping="Wrap"/>
-      <TextBlock Text="Initial password" Margin="0,10,0,4"/><PasswordBox x:Name="InitialPasswordBox" PasswordChanged="PasswordChanged"/><TextBlock Text="{Binding InitialPasswordError}" Foreground="Red" TextWrapping="Wrap"/>
+      <TextBlock Text="Create user" Margin="0,16,0,4"/><TextBox Text="{Binding Username,UpdateSourceTrigger=PropertyChanged}"/><TextBlock Text="{Binding UsernameError}" Foreground="{DynamicResource BrandError}" TextWrapping="Wrap"/>
+      <TextBlock Text="Display name" Margin="0,10,0,4"/><TextBox Text="{Binding DisplayName,UpdateSourceTrigger=PropertyChanged}"/><TextBlock Text="{Binding DisplayNameError}" Foreground="{DynamicResource BrandError}" TextWrapping="Wrap"/>
+      <TextBlock Text="Initial password" Margin="0,10,0,4"/><PasswordBox x:Name="InitialPasswordBox" PasswordChanged="PasswordChanged"/><TextBlock Text="{Binding InitialPasswordError}" Foreground="{DynamicResource BrandError}" TextWrapping="Wrap"/>
       <StackPanel Orientation="Horizontal"><Button Content="Create" Command="{Binding CreateCommand}" Margin="0,12,8,8"/><Button Content="Create Another" Command="{Binding CreateAnotherCommand}" Margin="0,12,8,8"/><Button Content="Cancel" Command="{Binding CancelCommand}" Margin="0,12,8,8"/><Button Content="Back" Command="{Binding BackCommand}" Margin="0,12,0,8"/></StackPanel>
     </StackPanel>
     <TextBlock Text="Target user" FontWeight="Bold" Margin="0,12,0,4"/><ComboBox ItemsSource="{Binding Users}" SelectedItem="{Binding SelectedUser,Mode=OneWayToSource}" DisplayMemberPath="Username"/>

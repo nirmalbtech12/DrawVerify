@@ -7,6 +7,7 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>DrawVerify.App</RootNamespace>
     <AssemblyName>DrawVerify.App</AssemblyName>
+    <ApplicationIcon>..\..\branding\DrawVerify.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -21,6 +22,7 @@
   <ItemGroup>
     <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\config\gdt-subset.default.json" Link="config\gdt-subset.default.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\branding\**" Link="branding\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

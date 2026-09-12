@@ -106,8 +106,8 @@ public sealed class MainWindowAuthenticationNavigationTests
         Exception? failure=null; var thread=new Thread(()=>{try{CompositionRoot.SessionAuthentication.SignIn(new DrawVerify.Core.Models.AuthenticatedUser("ADMIN",new[]{"Admin"})); var window=new MainWindow(); typeof(MainWindow).GetMethod("ShowAuthenticatedContent",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(window,null); CompositionRoot.SessionAuthentication.SignOut(); typeof(MainWindow).GetMethod("ShowUpload",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(window,null); Assert.IsType<LoginView>(Content(window).Content); window.Close(); Dispatcher.CurrentDispatcher.InvokeShutdown();}catch(Exception ex){failure=ex;}}); thread.SetApartmentState(ApartmentState.STA);thread.Start();thread.Join();if(failure is not null)throw new Xunit.Sdk.XunitException("Post-logout protected navigation assertion failed.",failure);
     }
 
-    [Fact(DisplayName = "TD-KAN23-WPF-002 Maker-only Upload Drawing navigation is present")]
-    public void Maker_navigation_exposes_dxf_upload()
+    [Fact(DisplayName = "TD-KAN23-WPF-002 Maker navigation exposes only combined upload")]
+    public void Maker_navigation_exposes_only_combined_upload()
     {
         Exception? failure = null; var thread = new Thread(() => { try
         {
@@ -118,8 +118,8 @@ public sealed class MainWindowAuthenticationNavigationTests
             var upload = Assert.Single(Menu(shell).Items.Cast<MenuItem>(), x => x.Header?.ToString() == "_Upload & Verify");
             var combined = Assert.Single(upload.Items.Cast<MenuItem>(), x => x.Header?.ToString() == "_Combined Upload & Verify");
             Assert.True(combined.IsEnabled);
-            var drawing = Assert.Single(upload.Items.Cast<MenuItem>(), x => x.Header?.ToString() == "Upload _Drawing (DXF)");
-            Assert.True(drawing.IsEnabled);
+            Assert.DoesNotContain(upload.Items.Cast<MenuItem>(), x => x.Header?.ToString() == "Upload _Drawing (DXF)");
+            Assert.DoesNotContain(upload.Items.Cast<MenuItem>(), x => x.Header?.ToString() == "Upload _Model (STEP)");
             window.Close(); Dispatcher.CurrentDispatcher.InvokeShutdown();
         } catch (Exception ex) { failure = ex; }}); thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
         if (failure is not null) throw new Xunit.Sdk.XunitException("DXF Maker navigation assertion failed.", failure);

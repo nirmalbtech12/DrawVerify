@@ -18,7 +18,7 @@
             <TextBlock Text="{Binding EmptyStateText}" Margin="0,8,0,4" FontSize="18"/>
             <TextBlock Text="Verification session selection" FontWeight="Bold" />
             <WrapPanel Margin="0,6,0,4"><TextBox Width="260" Text="{Binding StepDocumentId, UpdateSourceTrigger=PropertyChanged}" ToolTip="STEP document ID"/><TextBox Width="260" Margin="6,0,0,0" Text="{Binding DxfDocumentId, UpdateSourceTrigger=PropertyChanged}" ToolTip="DXF document ID"/><Button Content="Select pair/session" Command="{Binding SelectPairCommand}" Margin="6,0,0,0"/><Button Content="Match dimensions" Command="{Binding MatchDimensionsCommand}" Margin="6,0,0,0"/><Button Content="Refresh" Command="{Binding RefreshMatchesCommand}" Margin="6,0,0,0"/><TextBox Width="70" Margin="6,0,0,0" Text="{Binding ToleranceThresholdInput, UpdateSourceTrigger=PropertyChanged}" ToolTip="Tolerance in mm"/><Button Content="Re-run tolerance" Command="{Binding UpdateToleranceCommand}" Margin="6,0,0,0"/></WrapPanel>
-            <TextBlock Text="{Binding UnmatchedDimensionsTitle}" FontWeight="Bold" Foreground="DarkRed" Margin="0,4,0,2"/>
+            <TextBlock Text="{Binding UnmatchedDimensionsTitle}" FontWeight="Bold" Foreground="{DynamicResource BrandError}" Margin="0,4,0,2"/>
             <GroupBox Header="Comparison Summary" Margin="0,0,0,6">
                 <StackPanel Margin="6">
                     <WrapPanel>
@@ -56,8 +56,8 @@
             </GroupBox>
             <GroupBox Header="{Binding ExtraDimensionsTitle}" Margin="0,0,0,6">
                 <StackPanel Margin="6"><TextBlock Text="{Binding ExtraDimensionsEmptyText}"/><DataGrid ItemsSource="{Binding ExtraDimensionResults}" SelectedItem="{Binding SelectedExtraDimension, Mode=TwoWay}" AutoGenerateColumns="False" IsReadOnly="True" MaxHeight="180">
-                    <DataGrid.Columns><DataGridTextColumn Header="STEP reference" Binding="{Binding GeometryReference}"/><DataGridTextColumn Header="Value" Binding="{Binding MeasuredValue}"/><DataGridTextColumn Header="Tolerance" Binding="{Binding Tolerance}"/><DataGridTextColumn Header="Geometry" Binding="{Binding Match.GeometryType}"/><DataGridTextColumn Header="Location" Binding="{Binding StepLocation}"/><DataGridTextColumn Header="Comment" Binding="{Binding Comment}"/><DataGridCheckBoxColumn Header="Design update" Binding="{Binding RequiresDesignUpdate}"/></DataGrid.Columns>
-                </DataGrid><StackPanel Orientation="Horizontal" Margin="0,4,0,0"><TextBox Width="260" Text="{Binding ExtraDimensionComment, UpdateSourceTrigger=PropertyChanged}"/><Button Content="Add comment" Command="{Binding AddExtraDimensionCommentCommand}" Margin="6,0,0,0"/><Button Content="Flag design update" Command="{Binding FlagExtraDimensionCommand}" CommandParameter="True" Margin="6,0,0,0"/><Button Content="Clear design flag" Command="{Binding FlagExtraDimensionCommand}" CommandParameter="False" Margin="6,0,0,0"/></StackPanel><TextBlock Text="{Binding MatchingStatus}" Margin="0,4,0,0"/></StackPanel>
+                    <DataGrid.Columns><DataGridTextColumn Header="STEP reference" Binding="{Binding GeometryReference}"/><DataGridTextColumn Header="Value" Binding="{Binding MeasuredValue}"/><DataGridTextColumn Header="Tolerance" Binding="{Binding Tolerance}"/><DataGridTextColumn Header="Geometry" Binding="{Binding Match.GeometryType}"/><DataGridTextColumn Header="Location" Binding="{Binding StepLocation}"/><DataGridTextColumn Header="Comment" Binding="{Binding Comment}"/><DataGridCheckBoxColumn Header="Design update" Binding="{Binding RequiresDesignUpdate, Mode=OneWay}"/></DataGrid.Columns>
+                    </DataGrid><StackPanel Orientation="Horizontal" Margin="0,4,0,0"><TextBox Width="260" Text="{Binding ExtraDimensionComment, UpdateSourceTrigger=PropertyChanged}"/><Button Content="Add comment" Command="{Binding AddExtraDimensionCommentCommand}" Margin="6,0,0,0"/><Button Content="Flag design update" Command="{Binding FlagExtraDimensionCommand}" CommandParameter="True" Margin="6,0,0,0"/><Button Content="Clear design flag" Command="{Binding FlagExtraDimensionCommand}" CommandParameter="False" Margin="6,0,0,0"/></StackPanel><TextBlock Text="{Binding MatchingStatus}" Margin="0,4,0,0"/></StackPanel>
             </GroupBox>
             <ContentControl Content="{Binding StepPreview}" ContentTemplate="{StaticResource StepPreviewTemplate}" Margin="0,0,0,6" />
             <GroupBox Header="Missing Dimension Location Summary" Margin="0,0,0,6">
@@ -90,7 +90,7 @@
             <GroupBox Header="Missing Dimension Details" Margin="0,0,0,6">
                 <Grid Margin="6">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                    <TextBlock Grid.Row="0" Text="{Binding MissingDimensionDetailsLabel}" FontWeight="Bold" Foreground="DarkRed"/>
+                    <TextBlock Grid.Row="0" Text="{Binding MissingDimensionDetailsLabel}" FontWeight="Bold" Foreground="{DynamicResource BrandError}"/>
                     <TextBlock Grid.Row="1" Text="{Binding SelectedUnmatchedDimension.NominalValue, StringFormat=Dimension value: {0}}"/>
                     <TextBlock Grid.Row="2" Text="{Binding SelectedUnmatchedDimension.Tolerance, StringFormat=Tolerance: {0}}"/>
                     <TextBlock Grid.Row="3" Text="{Binding SelectedUnmatchedDimension.Layer, StringFormat=Layer: {0}}"/>
