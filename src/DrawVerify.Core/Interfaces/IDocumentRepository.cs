@@ -31,4 +31,6 @@ public interface ITransactionalDocumentRepository
 {
     Task CreateWithVersionAndAuditAsync(Document document, DocumentVersion version, AuditEntry auditEntry, CancellationToken cancellationToken = default);
     Task AddVersionWithAuditAsync(Guid documentId, DocumentVersion version, AuditEntry auditEntry, CancellationToken cancellationToken = default);
+    Task DeleteDocumentAsync(Guid documentId, CancellationToken cancellationToken = default)
+        => Task.FromException(new NotSupportedException("Document rollback is not supported by this repository."));
 }

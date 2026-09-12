@@ -14,6 +14,7 @@ public sealed class DxfUploadViewModel : TaskScreenViewModel
     private CancellationTokenSource? _cancellation;
     private Stream? _content;
     private string? _fileName;
+    private Guid? _replacementDocumentId;
 
     public DxfUploadViewModel(DxfDocumentService service)
     {
@@ -26,6 +27,7 @@ public sealed class DxfUploadViewModel : TaskScreenViewModel
 
     public event Action? SelectRequested;
     public event Action<DrawVerify.Core.Models.Document>? DocumentUploaded;
+    public void SetReplacementTarget(Guid? documentId) => _replacementDocumentId = documentId;
 
     public string? FileName
     {
@@ -80,17 +82,26 @@ public sealed class DxfUploadViewModel : TaskScreenViewModel
                 CancellationToken = _cancellation.Token
             };
 
-            var result = await _service.PrepareDxfUploadAsync(request).ConfigureAwait(true);
-            if (result.IsDuplicate)
+            DxfUploadResult result;
+            if (_replacementDocumentId is Guid replacementDocumentId)
             {
-                if (DuplicateConfirmation(result.Message))
-                    result = await _service.UploadDxfAsync(request, result.Preparation!).ConfigureAwait(true);
-                else if (result.Document is not null)
-                    result = await _service.CancelDuplicateAsync(request, result.Document.DocumentId).ConfigureAwait(true);
+                result = await _service.ReplaceDxfAsync(replacementDocumentId, request).ConfigureAwait(true);
+                if (result.Kind == DxfUploadResultKind.Success) _replacementDocumentId = null;
             }
-            else if (result.Kind == DxfUploadResultKind.Success)
+            else
             {
-                result = await _service.UploadDxfAsync(request).ConfigureAwait(true);
+                result = await _service.PrepareDxfUploadAsync(request).ConfigureAwait(true);
+                if (result.IsDuplicate)
+                {
+                    if (DuplicateConfirmation(result.Message))
+                        result = await _service.UploadDxfAsync(request, result.Preparation!).ConfigureAwait(true);
+                    else if (result.Document is not null)
+                        result = await _service.CancelDuplicateAsync(request, result.Document.DocumentId).ConfigureAwait(true);
+                }
+                else if (result.Kind == DxfUploadResultKind.Success)
+                {
+                    result = await _service.UploadDxfAsync(request).ConfigureAwait(true);
+                }
             }
 
             Message = result.Message;

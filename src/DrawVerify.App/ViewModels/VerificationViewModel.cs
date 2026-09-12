@@ -55,7 +55,7 @@ public sealed class VerificationViewModel : TaskScreenViewModel, IDisposable
     public bool CanEnterReview => CanReview;
     public string DenialMessage => "The Checker or Approver role is required to review verification results.";
     public bool TryEnterReview(out string message) { if (CanReview) { message = string.Empty; return true; } message = DenialMessage; return false; }
-    public bool CanMatchDimensions => _matching is not null && _authorization.IsAllowed(_session.CurrentUser, RolePermission.MatchDimensionsToGeometry);
+    public bool CanMatchDimensions => _matching is not null && _authorization.IsAllowed(_session.CurrentUser, RolePermission.StartVerification);
     public bool CanViewDimensionMatches => _matching is not null && (_authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewDimensionMatchResults) || _authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewMissingDimensions) || _authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewExtraDimensions) || _authorization.IsAllowed(_session.CurrentUser, RolePermission.ViewGdtCannotValidate));
     public bool CanManageTolerance => _matching is not null && _authorization.IsAllowed(_session.CurrentUser, RolePermission.ManageToleranceComparison);
     public bool CanCommentMissingDimensions => _matching is not null && _authorization.IsAllowed(_session.CurrentUser, RolePermission.CommentOnMissingDimensions);
@@ -65,8 +65,12 @@ public sealed class VerificationViewModel : TaskScreenViewModel, IDisposable
     public string ToleranceThresholdInput { get => _toleranceThresholdInput; set => SetUserString(ref _toleranceThresholdInput, value); }
     public string StepDocumentId { get => _stepDocumentId; set { if (_stepDocumentId == value) return; _stepDocumentId = value; MarkDirty(); Notify(); } }
     public string DxfDocumentId { get => _dxfDocumentId; set { if (_dxfDocumentId == value) return; _dxfDocumentId = value; MarkDirty(); Notify(); } }
+    public string StepDocumentVersionId { get => _stepDocumentVersionId; set { if (_stepDocumentVersionId == value) return; _stepDocumentVersionId = value; MarkDirty(); Notify(); } }
+    public string DxfDocumentVersionId { get => _dxfDocumentVersionId; set { if (_dxfDocumentVersionId == value) return; _dxfDocumentVersionId = value; MarkDirty(); Notify(); } }
     private string _stepDocumentId = string.Empty;
     private string _dxfDocumentId = string.Empty;
+    private string _stepDocumentVersionId = string.Empty;
+    private string _dxfDocumentVersionId = string.Empty;
     public Guid? SelectedSessionId { get; private set; }
     public bool IsBusy { get; private set; }
     public string StatusFilter { get => _statusFilter; set => SetUserString(ref _statusFilter, value); }
@@ -361,12 +365,12 @@ public sealed class VerificationViewModel : TaskScreenViewModel, IDisposable
     }
     private async Task SelectPairAsync()
     {
-        if (!Guid.TryParse(StepDocumentId, out var stepId) || !Guid.TryParse(DxfDocumentId, out var dxfId)) { MatchingStatus = "Enter valid STEP and DXF document IDs."; Notify(nameof(MatchingStatus)); return; }
-        try { IsBusy = true; Notify(nameof(IsBusy)); var session = await _matching!.GetOrCreateSessionAsync(stepId, dxfId); SelectedSessionId = session.VerificationSessionId; MatchingStatus = $"Selected session {session.VerificationSessionId}"; await RefreshMatchesAsync(session.VerificationSessionId); Notify(nameof(SelectedSessionId)); }
+        if (!Guid.TryParse(StepDocumentId, out var stepId) || !Guid.TryParse(DxfDocumentId, out var dxfId) || !Guid.TryParse(StepDocumentVersionId, out var stepVersionId) || !Guid.TryParse(DxfDocumentVersionId, out var dxfVersionId)) { MatchingStatus = "Enter valid STEP, DXF, and selected version IDs."; Notify(nameof(MatchingStatus)); return; }
+        try { IsBusy = true; Notify(nameof(IsBusy)); var session = await _matching!.GetOrCreateSessionAsync(stepId, dxfId, stepVersionId, dxfVersionId); SelectedSessionId = session.VerificationSessionId; MatchingStatus = $"Selected session {session.VerificationSessionId}"; await RefreshMatchesAsync(session.VerificationSessionId); Notify(nameof(SelectedSessionId)); }
         catch (Exception exception) { MatchingStatus = exception is UnauthorizedAccessException ? "Access denied." : exception.Message; MatchResults = Array.Empty<DimensionMatchItemViewModel>(); Notify(nameof(MatchingStatus)); Notify(nameof(MatchResults)); }
         finally { IsBusy = false; Notify(nameof(IsBusy)); RaiseCommands(); }
     }
-    public async Task<bool> SelectPairAsync(Guid stepDocumentId, Guid dxfDocumentId, CancellationToken cancellationToken = default)
+    public async Task<bool> SelectPairAsync(Guid stepDocumentId, Guid dxfDocumentId, Guid stepDocumentVersionId, Guid dxfDocumentVersionId, CancellationToken cancellationToken = default)
     {
         if (stepDocumentId == Guid.Empty || dxfDocumentId == Guid.Empty)
         {
@@ -376,10 +380,12 @@ public sealed class VerificationViewModel : TaskScreenViewModel, IDisposable
         }
         StepDocumentId = stepDocumentId.ToString();
         DxfDocumentId = dxfDocumentId.ToString();
+        StepDocumentVersionId = stepDocumentVersionId.ToString();
+        DxfDocumentVersionId = dxfDocumentVersionId.ToString();
         try
         {
             IsBusy = true; Notify(nameof(IsBusy));
-            var session = await _matching!.GetOrCreateSessionAsync(stepDocumentId, dxfDocumentId, cancellationToken).ConfigureAwait(true);
+            var session = await _matching!.GetOrCreateSessionAsync(stepDocumentId, dxfDocumentId, stepDocumentVersionId, dxfDocumentVersionId, cancellationToken).ConfigureAwait(true);
             SelectedSessionId = session.VerificationSessionId;
             MatchingStatus = $"Selected session {session.VerificationSessionId}.";
             await RefreshMatchesAsync(session.VerificationSessionId, cancellationToken).ConfigureAwait(true);

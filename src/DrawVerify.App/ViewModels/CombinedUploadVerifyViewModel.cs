@@ -14,6 +14,7 @@ public sealed class CombinedUploadVerifyViewModel : TaskScreenViewModel, IDispos
     private readonly MeasurementExtractionService _stepExtraction;
     private readonly DxfDimensionExtractionService _dxfExtraction;
     private readonly ICentralizedLogger? _logger;
+    private readonly IDxfDrawingGenerationService? _generation;
     private ProcessingOperation? _processingCancellation;
     private ProcessingOperation? _stepProcessingCancellation;
     private ProcessingOperation? _dxfProcessingCancellation;
@@ -22,10 +23,12 @@ public sealed class CombinedUploadVerifyViewModel : TaskScreenViewModel, IDispos
     private Document? _dxfDocument;
     private int _dxfDimensionCount;
     private bool _isProcessing;
+    private Guid? _stepVersionId;
+    private Guid? _dxfVersionId;
 
     public CombinedUploadVerifyViewModel(StepUploadViewModel stepUpload, DxfUploadViewModel dxfUpload,
         MeasurementExtractionService stepExtraction, DxfDimensionExtractionService dxfExtraction,
-        VerificationViewModel verification, ICentralizedLogger? logger = null)
+        VerificationViewModel verification, ICentralizedLogger? logger = null, IDxfDrawingGenerationService? generation = null)
     {
         StepUpload = stepUpload ?? throw new ArgumentNullException(nameof(stepUpload));
         DxfUpload = dxfUpload ?? throw new ArgumentNullException(nameof(dxfUpload));
@@ -33,9 +36,12 @@ public sealed class CombinedUploadVerifyViewModel : TaskScreenViewModel, IDispos
         _dxfExtraction = dxfExtraction ?? throw new ArgumentNullException(nameof(dxfExtraction));
         Verification = verification ?? throw new ArgumentNullException(nameof(verification));
         _logger = logger;
+        _generation = generation;
         stepUpload.DocumentUploaded += OnStepUploaded;
         dxfUpload.DocumentUploaded += OnDxfUploaded;
         VerifyCommand = new RelayCommand(async _ => await VerifyAsync(), _ => CanVerify && !IsBusy);
+        GenerateDxfCommand = new RelayCommand(async _ => await GenerateDxfAsync(), _ => CanGenerateDxf && !IsBusy);
+        DownloadDxfCommand = new RelayCommand(async _ => await DownloadDxfAsync(), _ => CanDownloadDxf && !IsBusy);
         NewWorkflowCommand = new RelayCommand(_ => ResetWorkflow(), _ => !IsBusy);
     }
 
@@ -43,15 +49,22 @@ public sealed class CombinedUploadVerifyViewModel : TaskScreenViewModel, IDispos
     public DxfUploadViewModel DxfUpload { get; }
     public VerificationViewModel Verification { get; }
     public ICommand VerifyCommand { get; }
+    public ICommand GenerateDxfCommand { get; }
+    public ICommand DownloadDxfCommand { get; }
     public ICommand NewWorkflowCommand { get; }
     public string Step1Label => "Step 1: Upload 3D Model (STEP/STP)";
     public string Step2Label => "Step 2: Upload 2D Drawing (DXF)";
+    public string GenerateDxfLabel => "Generate 2D Drawing";
+    public string DownloadDxfLabel => "Download Generated DXF";
+    public string UploadDxfLabel => "Upload Existing DXF";
     public string Step3Label => "Step 3: Verify";
     public string Step4Label => "Step 4: Comparison Results";
     public Document? StepDocument => _stepDocument;
     public Document? DxfDocument => _dxfDocument;
     public Guid? StepDocumentId => _stepDocument?.DocumentId;
     public Guid? DxfDocumentId => _dxfDocument?.DocumentId;
+    public Guid? StepDocumentVersionId => _stepVersionId;
+    public Guid? DxfDocumentVersionId => _dxfVersionId;
     public int ExtractedDxfDimensionCount => _dxfDimensionCount;
     public string StepStatus { get; private set; } = "Waiting for a STEP model.";
     public string DxfStatus { get; private set; } = "Waiting for a DXF drawing.";
@@ -60,7 +73,12 @@ public sealed class CombinedUploadVerifyViewModel : TaskScreenViewModel, IDispos
     public bool IsBusy => _isProcessing || Verification.IsBusy || StepUpload.IsBusy || DxfUpload.IsBusy;
     public bool CanVerify => _stepDocument?.GeometryStatus == DrawVerify.Core.Enums.GeometryStatus.Processed &&
         _dxfDocument?.VerificationStatus == VerificationStatus.DimensionsExtracted && _dxfDimensionCount > 0 &&
-        StepDocumentId is not null && DxfDocumentId is not null && Verification.CanMatchDimensions;
+        StepDocumentId is not null && DxfDocumentId is not null && _stepVersionId == _stepDocument?.Version?.VersionId && _dxfVersionId == _dxfDocument?.Version?.VersionId && Verification.CanMatchDimensions;
+    public bool CanGenerateDxf => _generation?.CanGenerate == true && _stepDocument?.GeometryStatus == DrawVerify.Core.Enums.GeometryStatus.Processed && StepDocumentId is not null;
+    public bool CanDownloadDxf => _generation is not null && DxfDocumentId is not null && DxfDocumentVersionId is not null;
+    public Func<string, Stream, Task>? SaveDxfAsync { get; set; }
+    public double GenerationProgress { get; private set; }
+    public string GenerationStatus { get; private set; } = string.Empty;
 
     public event Action? StateChanged;
     public void AttachStepSelection(string name, Stream content) => StepUpload.Select(name, content);
@@ -75,6 +93,7 @@ public sealed class CombinedUploadVerifyViewModel : TaskScreenViewModel, IDispos
         _processingCancellation = operation;
         var cancellationToken = operation.Token;
         _stepDocument = document;
+        _stepVersionId = document.Version?.VersionId;
         StepStatus = "STEP uploaded; processing geometry…";
         ErrorMessage = string.Empty;
         NotifyAll();
@@ -111,6 +130,8 @@ public sealed class CombinedUploadVerifyViewModel : TaskScreenViewModel, IDispos
         _processingCancellation = operation;
         var cancellationToken = operation.Token;
         _dxfDocument = document;
+        _dxfVersionId = document.Version?.VersionId;
+        DxfUpload.SetReplacementTarget(null);
         DxfStatus = "DXF uploaded; extracting dimensions…";
         ErrorMessage = string.Empty;
         NotifyAll();
@@ -146,7 +167,7 @@ public sealed class CombinedUploadVerifyViewModel : TaskScreenViewModel, IDispos
         try
         {
             _isProcessing = true; ProcessingStatus = "Verification in progress…"; NotifyAll();
-            if (!await Verification.SelectPairAsync(StepDocumentId!.Value, DxfDocumentId!.Value)) throw new InvalidOperationException(Verification.MatchingStatus);
+            if (!await Verification.SelectPairAsync(StepDocumentId!.Value, DxfDocumentId!.Value, StepDocumentVersionId!.Value, DxfDocumentVersionId!.Value)) throw new InvalidOperationException(Verification.MatchingStatus);
             if (Verification.SelectedSessionId is not Guid sessionId || !await Verification.MatchDimensionsAsync(sessionId)) throw new InvalidOperationException(Verification.MatchingStatus);
             ProcessingStatus = "Verification completed.";
         }
@@ -154,11 +175,38 @@ public sealed class CombinedUploadVerifyViewModel : TaskScreenViewModel, IDispos
         finally { _isProcessing = false; NotifyAll(); }
     }
 
+    private async Task GenerateDxfAsync()
+    {
+        if (!CanGenerateDxf || _generation is null) return;
+        var operation = new ProcessingOperation(); _processingCancellation = operation; _isProcessing = true;
+        try
+        {
+            GenerationProgress = 0; GenerationStatus = "2D drawing generation started."; ErrorMessage = string.Empty; NotifyAll();
+            var result = await _generation.GenerateAsync(StepDocumentId!.Value, operation.Token, new Progress<DxfDrawingGenerationProgress>(value => { GenerationProgress = value.Percent; GenerationStatus = value.Message; NotifyAll(); }));
+            if (!result.Succeeded) { GenerationStatus = "2D drawing generation failed."; ErrorMessage = result.Message; }
+            else { _dxfDocument = result.Document; _dxfVersionId = result.VersionId; _dxfDimensionCount = result.ExtractedDimensionCount; DxfUpload.SetReplacementTarget(result.Document?.DocumentId); DxfStatus = result.Diagnostics.Count == 0 ? $"Generated DXF is ready for download or external editing ({result.ExtractedDimensionCount} dimension(s))." : $"Generated DXF is ready with warnings: {string.Join("; ", result.Diagnostics)}"; GenerationStatus = result.Message; }
+        }
+        catch (Exception exception) { _logger?.Log(exception, "Combined DXF generation", $"stepDocumentId={StepDocumentId}"); GenerationStatus = "2D drawing generation failed."; ErrorMessage = exception.Message; }
+        finally { if (ReferenceEquals(_processingCancellation, operation)) _processingCancellation = null; _isProcessing = false; operation.Dispose(); NotifyAll(); }
+    }
+
+    private async Task DownloadDxfAsync()
+    {
+        if (!CanDownloadDxf || _generation is null || SaveDxfAsync is null) return;
+        try
+        {
+            await using var stream = await _generation.DownloadAsync(DxfDocumentId!.Value, DxfDocumentVersionId!.Value).ConfigureAwait(true);
+            await SaveDxfAsync(_dxfDocument?.OriginalFileName ?? "drawing.dxf", stream).ConfigureAwait(true);
+            GenerationStatus = "DXF download completed."; NotifyAll();
+        }
+        catch (Exception exception) { _logger?.Log(exception, "Combined DXF download", $"documentId={DxfDocumentId}; versionId={DxfDocumentVersionId}"); ErrorMessage = $"DXF download failed: {exception.Message}"; NotifyAll(); }
+    }
+
     public void ResetWorkflow()
     {
         InvalidateProcessing();
         Verification.ResetWorkflowState();
-        _stepDocument = null; _dxfDocument = null; _dxfDimensionCount = 0; StepStatus = "Waiting for a STEP model."; DxfStatus = "Waiting for a DXF drawing."; ProcessingStatus = "Upload both files to begin processing."; ErrorMessage = string.Empty;
+        _stepDocument = null; _dxfDocument = null; _stepVersionId = null; _dxfVersionId = null; _dxfDimensionCount = 0; DxfUpload.SetReplacementTarget(null); StepStatus = "Waiting for a STEP model."; DxfStatus = "Waiting for a DXF drawing."; ProcessingStatus = "Upload both files to begin processing."; ErrorMessage = string.Empty;
         NotifyAll();
     }
     private void InvalidateProcessing()
@@ -176,7 +224,7 @@ public sealed class CombinedUploadVerifyViewModel : TaskScreenViewModel, IDispos
         _processingCancellation = null;
         _isProcessing = false;
     }
-    private void NotifyAll() { foreach (var name in new[] { nameof(StepDocument), nameof(DxfDocument), nameof(StepDocumentId), nameof(DxfDocumentId), nameof(ExtractedDxfDimensionCount), nameof(StepStatus), nameof(DxfStatus), nameof(ProcessingStatus), nameof(ErrorMessage), nameof(IsBusy), nameof(CanVerify) }) Notify(name); StateChanged?.Invoke(); ((RelayCommand)VerifyCommand).Raise(); ((RelayCommand)NewWorkflowCommand).Raise(); }
+    private void NotifyAll() { foreach (var name in new[] { nameof(StepDocument), nameof(DxfDocument), nameof(StepDocumentId), nameof(DxfDocumentId), nameof(StepDocumentVersionId), nameof(DxfDocumentVersionId), nameof(ExtractedDxfDimensionCount), nameof(StepStatus), nameof(DxfStatus), nameof(ProcessingStatus), nameof(ErrorMessage), nameof(IsBusy), nameof(CanVerify), nameof(CanGenerateDxf), nameof(CanDownloadDxf), nameof(GenerationProgress), nameof(GenerationStatus) }) Notify(name); StateChanged?.Invoke(); ((RelayCommand)VerifyCommand).Raise(); ((RelayCommand)GenerateDxfCommand).Raise(); ((RelayCommand)DownloadDxfCommand).Raise(); ((RelayCommand)NewWorkflowCommand).Raise(); }
     private void Notify([CallerMemberName] string? name = null) => RaisePropertyChanged(name);
     public void Dispose() { InvalidateProcessing(); StepUpload.DocumentUploaded -= OnStepUploaded; DxfUpload.DocumentUploaded -= OnDxfUploaded; Verification.ResetWorkflowState(); Verification.Dispose(); GC.SuppressFinalize(this); }
     private sealed class ProcessingOperation : IDisposable

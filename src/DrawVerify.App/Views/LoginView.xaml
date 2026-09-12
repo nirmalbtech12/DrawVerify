@@ -2,6 +2,14 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="{DynamicResource ShellBackground}">
+    <UserControl.Resources>
+        <!-- Keep the login action available when this view is constructed before application dictionaries are loaded. -->
+        <Style x:Key="PrimaryAction" TargetType="Button">
+            <Setter Property="Background" Value="{DynamicResource BrandGreenDark}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BrandGreen}" />
+            <Setter Property="Foreground" Value="White" />
+        </Style>
+    </UserControl.Resources>
     <Grid Margin="32">
         <Border MaxWidth="920" HorizontalAlignment="Center" VerticalAlignment="Center"
                 Background="{DynamicResource SurfaceBackground}" BorderBrush="{DynamicResource BrandBorder}"

@@ -16,5 +16,7 @@ public enum DocumentAuditAction
     CommentAdded = 18, StatusChanged = 19,
     UnsupportedGdtDetected = 20, UnsupportedGdtReviewChanged = 21,
     GdtValidationCompleted = 22, GdtReviewChanged = 23,
-    FlaggedCannotValidate = 24, DispositionChanged = 25
+    FlaggedCannotValidate = 24, DispositionChanged = 25,
+    DxfGenerationStarted = 26, DxfGenerationCompleted = 27, DxfGenerationFailed = 28,
+    DxfValidationCompleted = 29, DxfDownloaded = 30, DxfReplaced = 31
 }
