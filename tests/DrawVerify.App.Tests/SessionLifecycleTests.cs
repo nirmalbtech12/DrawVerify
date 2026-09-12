@@ -33,4 +33,16 @@ public sealed class SessionLifecycleTests
         Assert.True(authorization.IsAllowed(session.CurrentUser, RolePermission.Upload));
         Assert.Equal(2, session.CurrentUser!.RoleVersion);
     }
+
+    [Fact(DisplayName = "TD-UI-004 self-role refresh updates session authorization immediately")]
+    public void Self_role_refresh_updates_current_session_without_relogin()
+    {
+        var session = new SessionAuthenticationService();
+        session.SignIn(new("user", [SystemRoles.Maker], 1));
+        session.ReplaceCurrentUserRoles("USER", [SystemRoles.Approver], 2);
+        Assert.Equal(new[] { SystemRoles.Approver }, session.CurrentUser!.Roles);
+        Assert.Equal(2, session.CurrentUser.RoleVersion);
+        Assert.False(new RoleAuthorization().IsAllowed(session.CurrentUser, RolePermission.Upload));
+        Assert.True(new RoleAuthorization().IsAllowed(session.CurrentUser, RolePermission.FinalApproval));
+    }
 }

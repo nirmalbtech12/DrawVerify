@@ -17,4 +17,15 @@ public sealed class RoleAuthorization
         if (user is null) return false;
         return user.Roles.Any(role => SystemRoles.TryCanonicalize(role, out var canonical) && Permissions.TryGetValue(canonical, out var allowed) && allowed.Contains(permission));
     }
+
+    public IReadOnlySet<RolePermission> EffectivePermissions(IEnumerable<string>? roles)
+    {
+        var effective = new HashSet<RolePermission>();
+        foreach (var role in roles ?? Array.Empty<string>())
+        {
+            if (SystemRoles.TryCanonicalize(role, out var canonical) && Permissions.TryGetValue(canonical, out var allowed))
+                effective.UnionWith(allowed);
+        }
+        return effective;
+    }
 }

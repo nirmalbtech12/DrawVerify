@@ -6,8 +6,10 @@ public enum RoleReplacementFailure
 {
     None,
     UserNotFound,
+    InvalidRoles,
     StaleRoleVersion,
-    LastAdministrator
+    LastAdministrator,
+    LastApprover
 }
 
 public sealed record RoleReplacementResult(bool Succeeded, RoleReplacementFailure Failure = RoleReplacementFailure.None, string? Message = null, long RoleVersion = 0);
