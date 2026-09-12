@@ -26,6 +26,7 @@ public sealed class DxfDimensionExtractionService
     private readonly IDxfGdtParser _gdtParser = new DxfGdtParser();
 
     public Task<IReadOnlyList<GdtAnnotationData>> ExtractGdtAsync(Stream content, Guid documentId, Guid documentVersionId, CancellationToken cancellationToken = default) => _gdtParser.ParseAsync(content, documentId, documentVersionId, cancellationToken);
+    public Task<DxfDimensionExtractionResult> ParseAsync(Stream content, Guid documentId, Guid documentVersionId, CancellationToken cancellationToken = default) => _parser.ParseAsync(content, documentId, documentVersionId, cancellationToken);
 
     public DxfDimensionExtractionService(
         IDocumentRepository documents,

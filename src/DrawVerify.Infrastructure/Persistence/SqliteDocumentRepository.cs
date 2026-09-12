@@ -1,4 +1,5 @@
 using System.Globalization;
+using DrawVerify.Core.Enums;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
 using Microsoft.Data.Sqlite;
@@ -7,7 +8,7 @@ namespace DrawVerify.Infrastructure.Persistence;
 
 public sealed class SqliteDocumentRepository : IDocumentRepository, ITransactionalDocumentRepository
 {
-    private const string DocumentColumns = "DocumentId,OriginalFileName,FileSizeBytes,UploadTimestampUtc,DocumentType,UploadStatus,VerificationStatus,VerificationError,GeometryStatus,Status,CurrentVersion";
+    private const string DocumentColumns = "DocumentId,OriginalFileName,FileSizeBytes,UploadTimestampUtc,DocumentType,UploadStatus,VerificationStatus,VerificationError,GeometryStatus,Status,CurrentVersion,DrawingSource";
     private const string DocumentColumnsWithUploader = DocumentColumns + ",UploaderUserId,UploaderDisplayName";
     private readonly string _connectionString;
     private readonly Dictionary<Guid, DocumentVersion> _measurementVersions = new();
@@ -42,6 +43,7 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
                 Execute(connection, transaction, CreateDocumentSql(includeUploaderColumns: true));
                 hasUploaderColumns = true;
             }
+
             else
             {
                 var columns = GetColumnOrdinals(connection, transaction, "Document");
@@ -64,9 +66,12 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
                     AddColumnIfMissing(connection, transaction, "Document", "VerificationError", "TEXT NULL");
                     AddColumnIfMissing(connection, transaction, "Document", "UploaderUserId", "TEXT NULL");
                     AddColumnIfMissing(connection, transaction, "Document", "UploaderDisplayName", "TEXT NULL");
+                    AddColumnIfMissing(connection, transaction, "Document", "DrawingSource", "INTEGER NOT NULL DEFAULT 1");
                     hasUploaderColumns = true;
                 }
             }
+
+            AddColumnIfMissing(connection, transaction, "Document", "DrawingSource", "INTEGER NOT NULL DEFAULT 1");
 
             if (!Exists(connection, transaction, "DocumentVersion"))
             {
@@ -76,6 +81,7 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
             {
                 RebuildDocumentVersionWithoutRemovedIdentityColumns(connection, transaction);
             }
+            AddColumnIfMissing(connection, transaction, "DocumentVersion", "DrawingSource", "INTEGER NOT NULL DEFAULT 1");
 
             if (!Exists(connection, transaction, "DocumentAuditLog"))
             {
@@ -348,8 +354,8 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = _documentHasUploaderColumns
-            ? "INSERT INTO Document (DocumentId,OriginalFileName,FileSizeBytes,UploadTimestampUtc,DocumentType,UploadStatus,VerificationStatus,VerificationError,GeometryStatus,Status,CurrentVersion,UploaderUserId,UploaderDisplayName) VALUES ($id,$name,$size,$timestamp,$type,$upload,$verification,$verificationError,$geometry,$status,$version,$uploaderId,$uploaderName)"
-            : "INSERT INTO Document (DocumentId,OriginalFileName,FileSizeBytes,UploadTimestampUtc,DocumentType,UploadStatus,VerificationStatus,VerificationError,GeometryStatus,Status,CurrentVersion) VALUES ($id,$name,$size,$timestamp,$type,$upload,$verification,$verificationError,$geometry,$status,$version)";
+            ? "INSERT INTO Document (DocumentId,OriginalFileName,FileSizeBytes,UploadTimestampUtc,DocumentType,UploadStatus,VerificationStatus,VerificationError,GeometryStatus,Status,CurrentVersion,DrawingSource,UploaderUserId,UploaderDisplayName) VALUES ($id,$name,$size,$timestamp,$type,$upload,$verification,$verificationError,$geometry,$status,$version,$source,$uploaderId,$uploaderName)"
+            : "INSERT INTO Document (DocumentId,OriginalFileName,FileSizeBytes,UploadTimestampUtc,DocumentType,UploadStatus,VerificationStatus,VerificationError,GeometryStatus,Status,CurrentVersion,DrawingSource) VALUES ($id,$name,$size,$timestamp,$type,$upload,$verification,$verificationError,$geometry,$status,$version,$source)";
         Add(command, "$id", document.DocumentId);
         Add(command, "$name", document.OriginalFileName);
         Add(command, "$size", document.FileSizeBytes);
@@ -361,6 +367,7 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
         Add(command, "$geometry", document.GeometryStatus);
         Add(command, "$status", document.Status);
         Add(command, "$version", document.CurrentVersion);
+        Add(command, "$source", document.DrawingSource == DrawingSource.Unknown ? DrawingSource.Uploaded : document.DrawingSource);
         if (_documentHasUploaderColumns)
         {
             command.Parameters.AddWithValue("$uploaderId", (object?)document.UploaderUserId ?? DBNull.Value);
@@ -373,13 +380,14 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "INSERT INTO DocumentVersion (VersionId,DocumentId,VersionNumber,StoredRelativePath,FileSizeBytes,CreatedUtc) VALUES ($id,$documentId,$number,$path,$size,$created)";
+        command.CommandText = "INSERT INTO DocumentVersion (VersionId,DocumentId,VersionNumber,StoredRelativePath,FileSizeBytes,CreatedUtc,DrawingSource) VALUES ($id,$documentId,$number,$path,$size,$created,$source)";
         Add(command, "$id", version.VersionId);
         Add(command, "$documentId", version.DocumentId);
         Add(command, "$number", version.VersionNumber);
         Add(command, "$path", version.StoredRelativePath);
         Add(command, "$size", version.FileSizeBytes);
         Add(command, "$created", version.CreatedUtc);
+        Add(command, "$source", version.DrawingSource == DrawingSource.Unknown ? DrawingSource.Uploaded : version.DrawingSource);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -420,6 +428,7 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
             DocumentType = (DrawVerify.Core.Enums.DocumentType)reader.GetInt32(reader.GetOrdinal("DocumentType")),
             UploadStatus = (DrawVerify.Core.Enums.UploadStatus)reader.GetInt32(reader.GetOrdinal("UploadStatus")),
             VerificationStatus = (DrawVerify.Core.Enums.VerificationStatus)reader.GetInt32(reader.GetOrdinal("VerificationStatus")),
+            DrawingSource = (DrawVerify.Core.Enums.DrawingSource)reader.GetInt32(reader.GetOrdinal("DrawingSource")),
             VerificationError = NullableString(reader, "VerificationError"),
             GeometryStatus = (DrawVerify.Core.Enums.GeometryStatus)reader.GetInt32(reader.GetOrdinal("GeometryStatus")),
             Status = (DrawVerify.Core.Enums.DocumentStatus)reader.GetInt32(reader.GetOrdinal("Status")),
@@ -429,7 +438,7 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
         };
 
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT VersionId,DocumentId,VersionNumber,StoredRelativePath,FileSizeBytes,CreatedUtc FROM DocumentVersion WHERE DocumentId=$id ORDER BY VersionNumber";
+        command.CommandText = "SELECT VersionId,DocumentId,VersionNumber,StoredRelativePath,FileSizeBytes,CreatedUtc,DrawingSource FROM DocumentVersion WHERE DocumentId=$id ORDER BY VersionNumber";
         command.Parameters.AddWithValue("$id", document.DocumentId.ToString());
         await using var versionReader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         var versions = new List<DocumentVersion>();
@@ -443,6 +452,7 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
                 StoredRelativePath = versionReader.GetString(3),
                 FileSizeBytes = versionReader.GetInt64(4),
                 CreatedUtc = DateTime.Parse(versionReader.GetString(5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)
+                ,DrawingSource = (DrawVerify.Core.Enums.DrawingSource)versionReader.GetInt32(6)
             });
         }
 
@@ -456,10 +466,10 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
     }
 
     private static string CreateDocumentSql(bool includeUploaderColumns) => includeUploaderColumns
-        ? "CREATE TABLE Document (DocumentId TEXT PRIMARY KEY, OriginalFileName TEXT NOT NULL, FileSizeBytes INTEGER NOT NULL, UploadTimestampUtc TEXT NOT NULL, DocumentType INTEGER NOT NULL, UploadStatus INTEGER NOT NULL, VerificationStatus INTEGER NOT NULL DEFAULT 0, VerificationError TEXT NULL, GeometryStatus INTEGER NOT NULL, Status INTEGER NOT NULL, CurrentVersion INTEGER NOT NULL, UploaderUserId TEXT NULL, UploaderDisplayName TEXT NULL)"
-        : "CREATE TABLE Document (DocumentId TEXT PRIMARY KEY, OriginalFileName TEXT NOT NULL, FileSizeBytes INTEGER NOT NULL, UploadTimestampUtc TEXT NOT NULL, DocumentType INTEGER NOT NULL, UploadStatus INTEGER NOT NULL, VerificationStatus INTEGER NOT NULL DEFAULT 0, VerificationError TEXT NULL, GeometryStatus INTEGER NOT NULL, Status INTEGER NOT NULL, CurrentVersion INTEGER NOT NULL)";
+        ? "CREATE TABLE Document (DocumentId TEXT PRIMARY KEY, OriginalFileName TEXT NOT NULL, FileSizeBytes INTEGER NOT NULL, UploadTimestampUtc TEXT NOT NULL, DocumentType INTEGER NOT NULL, UploadStatus INTEGER NOT NULL, VerificationStatus INTEGER NOT NULL DEFAULT 0, VerificationError TEXT NULL, GeometryStatus INTEGER NOT NULL, Status INTEGER NOT NULL, CurrentVersion INTEGER NOT NULL, DrawingSource INTEGER NOT NULL DEFAULT 1, UploaderUserId TEXT NULL, UploaderDisplayName TEXT NULL)"
+        : "CREATE TABLE Document (DocumentId TEXT PRIMARY KEY, OriginalFileName TEXT NOT NULL, FileSizeBytes INTEGER NOT NULL, UploadTimestampUtc TEXT NOT NULL, DocumentType INTEGER NOT NULL, UploadStatus INTEGER NOT NULL, VerificationStatus INTEGER NOT NULL DEFAULT 0, VerificationError TEXT NULL, GeometryStatus INTEGER NOT NULL, Status INTEGER NOT NULL, CurrentVersion INTEGER NOT NULL, DrawingSource INTEGER NOT NULL DEFAULT 1)";
 
-    private static string CreateDocumentVersionSql() => "CREATE TABLE DocumentVersion (VersionId TEXT PRIMARY KEY, DocumentId TEXT NOT NULL, VersionNumber INTEGER NOT NULL, StoredRelativePath TEXT NOT NULL, FileSizeBytes INTEGER NOT NULL, CreatedUtc TEXT NOT NULL, FOREIGN KEY(DocumentId) REFERENCES Document(DocumentId))";
+    private static string CreateDocumentVersionSql() => "CREATE TABLE DocumentVersion (VersionId TEXT PRIMARY KEY, DocumentId TEXT NOT NULL, VersionNumber INTEGER NOT NULL, StoredRelativePath TEXT NOT NULL, FileSizeBytes INTEGER NOT NULL, CreatedUtc TEXT NOT NULL, DrawingSource INTEGER NOT NULL DEFAULT 1, FOREIGN KEY(DocumentId) REFERENCES Document(DocumentId))";
     private static string CreateAuditSql() => "CREATE TABLE DocumentAuditLog (AuditId TEXT PRIMARY KEY, DocumentId TEXT NULL, Action INTEGER NOT NULL, UserId TEXT NULL, TimestampUtc TEXT NOT NULL, DetailsJson TEXT NOT NULL)";
     private static string CreateDimensionDataSql() => "CREATE TABLE DimensionData (DimensionDataId TEXT PRIMARY KEY, DocumentId TEXT NOT NULL, DocumentVersionId TEXT NOT NULL, SourceEntityOrdinal INTEGER NOT NULL, DimensionType INTEGER NOT NULL, NominalValue REAL NOT NULL, LowerTolerance REAL NULL, UpperTolerance REAL NULL, DisplayText TEXT NULL, RadialKind INTEGER NOT NULL DEFAULT 0, Layer TEXT NULL, PreviewAnchor TEXT NULL, BlockName TEXT NULL, ViewName TEXT NULL, LocationX REAL NULL, LocationY REAL NULL, FOREIGN KEY(DocumentId) REFERENCES Document(DocumentId), FOREIGN KEY(DocumentVersionId) REFERENCES DocumentVersion(VersionId), UNIQUE(DocumentVersionId,SourceEntityOrdinal))";
 
@@ -473,7 +483,7 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
         Execute(connection, transaction, CreateDocumentSql(includeUploaderColumns: false));
         var verificationStatus = sourceHasVerificationStatus ? "VerificationStatus" : "0";
         var verificationError = GetColumns(connection, transaction, "Document_legacy").Contains("VerificationError") ? "VerificationError" : "NULL";
-        Execute(connection, transaction, "INSERT INTO Document (" + DocumentColumns + ") SELECT DocumentId,OriginalFileName,FileSizeBytes,UploadTimestampUtc,DocumentType,UploadStatus," + verificationStatus + "," + verificationError + ",GeometryStatus,Status,CurrentVersion FROM Document_legacy");
+        Execute(connection, transaction, "INSERT INTO Document (" + DocumentColumns + ") SELECT DocumentId,OriginalFileName,FileSizeBytes,UploadTimestampUtc,DocumentType,UploadStatus," + verificationStatus + "," + verificationError + ",GeometryStatus,Status,CurrentVersion,1 FROM Document_legacy");
         Execute(connection, transaction, "DROP TABLE Document_legacy");
         foreach (var index in indexes)
             Execute(connection, transaction, index);
@@ -484,7 +494,7 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
         var indexes = GetIndexDefinitions(connection, transaction, "DocumentVersion");
         Execute(connection, transaction, "ALTER TABLE DocumentVersion RENAME TO DocumentVersion_legacy");
         Execute(connection, transaction, CreateDocumentVersionSql());
-        Execute(connection, transaction, "INSERT INTO DocumentVersion (VersionId,DocumentId,VersionNumber,StoredRelativePath,FileSizeBytes,CreatedUtc) SELECT VersionId,DocumentId,VersionNumber,StoredRelativePath,FileSizeBytes,CreatedUtc FROM DocumentVersion_legacy");
+        Execute(connection, transaction, "INSERT INTO DocumentVersion (VersionId,DocumentId,VersionNumber,StoredRelativePath,FileSizeBytes,CreatedUtc,DrawingSource) SELECT VersionId,DocumentId,VersionNumber,StoredRelativePath,FileSizeBytes,CreatedUtc,1 FROM DocumentVersion_legacy");
         Execute(connection, transaction, "DROP TABLE DocumentVersion_legacy");
         foreach (var index in indexes)
             Execute(connection, transaction, index);
