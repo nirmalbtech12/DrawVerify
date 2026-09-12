@@ -90,6 +90,40 @@ public sealed class DxfDocumentService
     public Task<DxfUploadResult> UploadDxfAsync(DxfUploadRequest request, DxfUploadPreparation preparation) =>
         UploadDxfCoreAsync(request, true, preparation);
 
+    public async Task<DxfUploadResult> ReplaceDxfAsync(Guid documentId, DxfUploadRequest request)
+    {
+        await RefreshAuthorizationForUploadAsync(request).ConfigureAwait(false);
+        if (!CanUploadDxf) return UnauthorizedResult("The Maker role is required to replace files.");
+        var validation = await ValidateAsync(request).ConfigureAwait(false);
+        if (validation is not null) return validation;
+        var existing = await _documents.GetAsync(documentId, request.CancellationToken).ConfigureAwait(false);
+        if (existing is null || existing.DocumentType != DrawVerify.Core.Enums.DocumentType.DxfDrawing)
+            return DxfUploadResult.Rejected("The selected DXF document was not found or is not replaceable.");
+        DxfUploadStagingFile? staging = null; string? stagingPath = null; string? finalPath = null;
+        try
+        {
+            var name = LeafName(request.OriginalFileName); var size = GetSize(request);
+            staging = await _files.CreateStagingFileAsync(name, request.CancellationToken).ConfigureAwait(false); stagingPath = staging.RelativePath;
+            await CopyAsync(request.Content, staging.Stream, size, request.Progress, request.CancellationToken).ConfigureAwait(false);
+            await staging.DisposeAsync().ConfigureAwait(false);
+            finalPath = await _files.MoveToFinalAsync(staging, request.CancellationToken).ConfigureAwait(false); staging = null;
+            var current = _documents.GetCurrentVersion(documentId) ?? existing.Version ?? throw new InvalidOperationException("The current DXF version was not found.");
+            var version = NewVersion(documentId, Math.Max(existing.CurrentVersion, current.VersionNumber) + 1, finalPath, size);
+            var audit = CreateAudit(documentId, DocumentAuditAction.DxfReplaced, request, JsonSerializer.Serialize(new { replacedVersionId = current.VersionId, newVersionId = version.VersionId }));
+            await _transactionalDocuments.AddVersionWithAuditAsync(documentId, version, audit, request.CancellationToken).ConfigureAwait(false);
+            var updated = existing with { FileSizeBytes = size, UploadTimestampUtc = version.CreatedUtc, CurrentVersion = version.VersionNumber, VerificationStatus = VerificationStatus.PendingVerification, VerificationError = null, DrawingSource = DrawingSource.Uploaded, Version = version, Versions = existing.Versions.Append(version).ToArray() };
+            return SuccessResult(updated, name, size);
+        }
+        catch (Exception exception)
+        {
+            await TryDisposeAsync(staging, exception, "replacement failure compensation").ConfigureAwait(false);
+            await TryDeleteAsync(stagingPath, exception, "replacement failure compensation").ConfigureAwait(false);
+            await TryDeleteAsync(finalPath, exception, "replacement failure compensation").ConfigureAwait(false);
+            _logger?.Log(exception, "DXF replacement", $"documentId={documentId}");
+            throw;
+        }
+    }
+
     public async Task<DxfUploadResult> CancelDuplicateAsync(DxfUploadRequest request, Guid documentId)
     {
         await RefreshAuthorizationForUploadAsync(request).ConfigureAwait(false);
@@ -327,6 +361,7 @@ public sealed class DxfDocumentService
             DocumentType = DrawVerify.Core.Enums.DocumentType.DxfDrawing,
             UploadStatus = DrawVerify.Core.Enums.UploadStatus.Uploaded,
             VerificationStatus = DrawVerify.Core.Enums.VerificationStatus.PendingVerification,
+            DrawingSource = DrawingSource.Uploaded,
             UploaderUserId = current.UserId,
             UploaderDisplayName = current.DisplayName,
             Version = version,
@@ -335,7 +370,7 @@ public sealed class DxfDocumentService
     }
 
     private static DocumentVersion NewVersion(Guid documentId, int number, string path, long size, DateTime? timestamp = null) =>
-        new() { DocumentId = documentId, VersionNumber = number, StoredRelativePath = path, FileSizeBytes = size, CreatedUtc = timestamp ?? DateTime.UtcNow };
+        new() { DocumentId = documentId, VersionNumber = number, StoredRelativePath = path, FileSizeBytes = size, CreatedUtc = timestamp ?? DateTime.UtcNow, DrawingSource = DrawingSource.Uploaded };
 
     private AuditEntry CreateAudit(Guid? documentId, DocumentAuditAction action, DxfUploadRequest request, string detail)
         => CreateAudit(documentId, action, request, detail, GetSize(request));

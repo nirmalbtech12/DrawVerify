@@ -13,6 +13,7 @@ public sealed record Document
     public DateTime UploadTimestampUtc { get; init; } = DateTime.UtcNow;
     public DateTime UploadTimestamp => UploadTimestampUtc;
     public DrawVerify.Core.Enums.DocumentType DocumentType { get; init; } = DrawVerify.Core.Enums.DocumentType.StepModel;
+    public DrawingSource DrawingSource { get; init; } = DrawingSource.Unknown;
     public DrawVerify.Core.Enums.UploadStatus UploadStatus { get; set; } = DrawVerify.Core.Enums.UploadStatus.Uploaded;
     public DrawVerify.Core.Enums.VerificationStatus VerificationStatus { get; init; } = DrawVerify.Core.Enums.VerificationStatus.Unknown;
     public string? VerificationError { get; init; }

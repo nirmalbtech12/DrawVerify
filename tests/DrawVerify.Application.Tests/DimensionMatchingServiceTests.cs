@@ -24,9 +24,9 @@ public sealed class DimensionMatchingServiceTests
     {
         var step = NewDocument(CoreDocumentType.StepModel, CoreGeometryStatus.Processed, VerificationStatus.Unknown);
         var dxf = NewDocument(CoreDocumentType.DxfDrawing, CoreGeometryStatus.NotExtracted, VerificationStatus.DimensionsExtracted);
-        var session = new VerificationSession { VerificationSessionId = Guid.NewGuid(), StepDocumentId = step.DocumentId, DxfDocumentId = dxf.DocumentId };
+        var session = PairedSession(step, dxf);
         var dimensions = new[] { new CoreDimensionData(dxf.DocumentId, dxf.Version!.VersionId, 1, DimensionType.Linear, 10) };
-        var sessions = new SessionFake(session); var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser("checker", new[] { "Checker" }) { UserId = "checker" });
+        var sessions = new SessionFake(session); var auth = MakerAuthentication("checker");
         var service = new DimensionMatchingService(new DocumentsFake(step, dxf, dimensions), sessions, new GeometryFake(new GeometryFeatureData { Reference = "matched", Length = 10 }, new GeometryFeatureData { Reference = "extra", GeometryType = "Hole", Diameter = 20 }), auth, new DimensionMatchingConfiguration());
         await service.MatchDimensionsToGeometryAsync(session.VerificationSessionId);
         Assert.Single(sessions.Matches, match => match.Status == DimensionMatchStatus.ExtraDimension);
@@ -51,10 +51,10 @@ public sealed class DimensionMatchingServiceTests
     {
         var step = NewDocument(CoreDocumentType.StepModel, CoreGeometryStatus.Processed, VerificationStatus.Unknown);
         var dxf = NewDocument(CoreDocumentType.DxfDrawing, CoreGeometryStatus.NotExtracted, VerificationStatus.DimensionsExtracted);
-        var session = new VerificationSession { VerificationSessionId = Guid.NewGuid(), StepDocumentId = step.DocumentId, DxfDocumentId = dxf.DocumentId };
+        var session = PairedSession(step, dxf);
         var docs = new DocumentsFake(step, dxf, new[] { new CoreDimensionData(dxf.DocumentId, dxf.Version!.VersionId, 1, DimensionType.Linear, 10) });
         var sessions = new SessionFake(session); var geometry = new GeometryFake(new GeometryFeatureData { Reference = "Edge:1", GeometryType = "Line", Length = 9.85 });
-        var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser("checker", new[] { "Checker" }) { UserId = "checker" });
+        var auth = MakerAuthentication("checker");
         var service = new DimensionMatchingService(docs, sessions, geometry, auth, new DimensionMatchingConfiguration());
         await service.MatchDimensionsToGeometryAsync(session.VerificationSessionId);
         Assert.Equal(.15, Assert.Single(sessions.Matches).SignedDelta!.Value, 12);
@@ -79,7 +79,7 @@ public sealed class DimensionMatchingServiceTests
     {
         var step = NewDocument(CoreDocumentType.StepModel, CoreGeometryStatus.Processed, VerificationStatus.Unknown);
         var dxf = NewDocument(CoreDocumentType.DxfDrawing, CoreGeometryStatus.NotExtracted, VerificationStatus.DimensionsExtracted);
-        var session = new VerificationSession { StepDocumentId = step.DocumentId, DxfDocumentId = dxf.DocumentId };
+        var session = PairedSession(step, dxf);
         var documents = new DocumentsFake(step, dxf, new[] { new CoreDimensionData(dxf.DocumentId, dxf.Version!.VersionId, 1, DimensionType.Linear, 10) });
         var sessions = new SessionFake(session);
         var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser("maker", new[] { "Maker" }) { UserId = "maker" });
@@ -106,7 +106,7 @@ public sealed class DimensionMatchingServiceTests
     {
         var step = NewDocument(CoreDocumentType.StepModel, CoreGeometryStatus.Processed, VerificationStatus.Unknown);
         var dxf = NewDocument(CoreDocumentType.DxfDrawing, CoreGeometryStatus.NotExtracted, VerificationStatus.DimensionsExtracted);
-        var session = new VerificationSession { VerificationSessionId = Guid.NewGuid(), StepDocumentId = step.DocumentId, DxfDocumentId = dxf.DocumentId };
+        var session = PairedSession(step, dxf);
         var dimensions = new[]
         {
             new CoreDimensionData(dxf.DocumentId, dxf.Version!.VersionId, 1, DimensionType.Linear, 10, displayText: "10 mm"),
@@ -114,7 +114,7 @@ public sealed class DimensionMatchingServiceTests
         };
         var documents = new DocumentsFake(step, dxf, dimensions);
         var sessions = new SessionFake(session);
-        var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser("checker", new[] { "Checker" }) { UserId = "checker-id" });
+        var auth = MakerAuthentication("checker-id");
         var geometry = new GeometryFake(new GeometryFeatureData { Reference = "Edge:1", GeometryType = "Line", Length = 10 });
         var service = new DimensionMatchingService(documents, sessions, geometry, auth, new DimensionMatchingConfiguration());
 
@@ -139,7 +139,7 @@ public sealed class DimensionMatchingServiceTests
     {
         var step = NewDocument(CoreDocumentType.StepModel, CoreGeometryStatus.Processed, VerificationStatus.Unknown);
         var dxf = NewDocument(CoreDocumentType.DxfDrawing, CoreGeometryStatus.NotExtracted, VerificationStatus.DimensionsExtracted);
-        var session = new VerificationSession { VerificationSessionId = Guid.NewGuid(), StepDocumentId = step.DocumentId, DxfDocumentId = dxf.DocumentId };
+        var session = PairedSession(step, dxf);
         var dimensions = new[] { new CoreDimensionData(dxf.DocumentId, dxf.Version!.VersionId, 1, DimensionType.Linear, 10) };
         var sessions = new SessionFake(session); var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser("maker", new[] { "Maker" }) { UserId = "maker" });
         var features = new[] { new GeometryFeatureData { Reference = "Edge:matched", GeometryType = "Line", Length = 10 }, new GeometryFeatureData { Reference = "Edge:extra", GeometryType = "Line", Length = 99 } };
@@ -191,9 +191,9 @@ public sealed class DimensionMatchingServiceTests
         var step = NewDocument(CoreDocumentType.StepModel, CoreGeometryStatus.Processed, VerificationStatus.Unknown);
         var dxf = NewDocument(CoreDocumentType.DxfDrawing, CoreGeometryStatus.NotExtracted, VerificationStatus.DimensionsExtracted);
         var dimensions = Enumerable.Range(1, 500).Select(i => new CoreDimensionData(dxf.DocumentId, dxf.Version!.VersionId, i, DimensionType.Linear, i)).ToArray();
-        var session = new VerificationSession { VerificationSessionId = Guid.NewGuid(), StepDocumentId = step.DocumentId, DxfDocumentId = dxf.DocumentId };
+        var session = PairedSession(step, dxf);
         var sessions = new SessionFake(session);
-        var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser("checker", new[] { "Checker" }) { UserId = "checker" });
+        var auth = MakerAuthentication("checker");
         var features = Enumerable.Range(1, 500).Select(i => new GeometryFeatureData { Reference = $"Edge:{i}", GeometryType = "Line", Length = i }).ToArray();
         var service = new DimensionMatchingService(new DocumentsFake(step, dxf, dimensions), sessions, new GeometryFake(features), auth, new DimensionMatchingConfiguration());
         await service.MatchDimensionsToGeometryAsync(session.VerificationSessionId);
@@ -234,9 +234,10 @@ public sealed class DimensionMatchingServiceTests
         var step = NewDocument(CoreDocumentType.StepModel, CoreGeometryStatus.Processed, VerificationStatus.Unknown);
         var dxf = NewDocument(CoreDocumentType.DxfDrawing, CoreGeometryStatus.NotExtracted, VerificationStatus.DimensionsExtracted);
         var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser("maker", new[] { "Maker" }));
-        var service = new DimensionMatchingService(new DocumentsFake(step, dxf, new[] { new CoreDimensionData(dxf.DocumentId, dxf.Version!.VersionId, 1, DimensionType.Linear, 1) }), new SessionFake(new VerificationSession { StepDocumentId = step.DocumentId, DxfDocumentId = dxf.DocumentId }), new GeometryFake(new GeometryFeatureData { Reference = "edge", Length = 1 }), auth, new DimensionMatchingConfiguration());
+        var session = PairedSession(step, dxf);
+        var service = new DimensionMatchingService(new DocumentsFake(step, dxf, new[] { new CoreDimensionData(dxf.DocumentId, dxf.Version!.VersionId, 1, DimensionType.Linear, 1) }), new SessionFake(session), new GeometryFake(new GeometryFeatureData { Reference = "edge", Length = 1 }), auth, new DimensionMatchingConfiguration());
         using var cancellation = new CancellationTokenSource(); cancellation.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.MatchDimensionsToGeometryAsync(Guid.NewGuid(), cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.MatchDimensionsToGeometryAsync(session.VerificationSessionId, cancellation.Token));
     }
 
     [Fact(DisplayName = "TD-KAN45-REVIEW-02 persists structured DXF extraction failures with source, audit, and logging context")]
@@ -244,9 +245,9 @@ public sealed class DimensionMatchingServiceTests
     {
         var step = NewDocument(CoreDocumentType.StepModel, CoreGeometryStatus.Processed, VerificationStatus.Unknown);
         var dxf = NewDocument(CoreDocumentType.DxfDrawing, CoreGeometryStatus.NotExtracted, VerificationStatus.DimensionsExtracted);
-        var session = new VerificationSession { VerificationSessionId = Guid.NewGuid(), StepDocumentId = step.DocumentId, DxfDocumentId = dxf.DocumentId };
+        var session = PairedSession(step, dxf);
         var sessions = new SessionFake(session);
-        var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser("checker", new[] { "Checker" }) { UserId = "checker" });
+        var auth = MakerAuthentication("checker");
         var logger = new RecordingLogger();
         var service = CreateGdtService(new DocumentsFake(step, dxf), sessions, auth, logger, DxfGdtExtractionResult.Failure("WorkerProtocol", "DXF worker protocol failed."));
 
@@ -266,9 +267,9 @@ public sealed class DimensionMatchingServiceTests
     {
         var step = NewDocument(CoreDocumentType.StepModel, CoreGeometryStatus.Processed, VerificationStatus.Unknown);
         var dxf = NewDocument(CoreDocumentType.DxfDrawing, CoreGeometryStatus.NotExtracted, VerificationStatus.DimensionsExtracted);
-        var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser("checker", new[] { "Checker" }) { UserId = "checker" });
+        var auth = MakerAuthentication("checker");
 
-        var parserSession = new VerificationSession { VerificationSessionId = Guid.NewGuid(), StepDocumentId = step.DocumentId, DxfDocumentId = dxf.DocumentId };
+        var parserSession = PairedSession(step, dxf);
         var parserSessions = new SessionFake(parserSession); var parserLogger = new RecordingLogger();
         var parserService = new DimensionMatchingService(new DocumentsFake(step, dxf), parserSessions, new GeometryFake(), auth, new DimensionMatchingConfiguration(), logger: parserLogger,
             gdtVerification: new VerificationService(new VerificationEngine(new GdtValidator()), parserSessions), dxfFiles: new DxfStoreFake(), dxfGdtParser: new ThrowingParser(), stepGdtService: new StepFake(GdtAnnotationExtractionResult.Unsupported("unreachable")));
@@ -276,7 +277,7 @@ public sealed class DimensionMatchingServiceTests
         Assert.Equal("Parser", Assert.Single(parserSessions.GdtResults).Diagnostics.Single(d => d.StartsWith("Extraction category:", StringComparison.Ordinal)).Replace("Extraction category: ", string.Empty));
         Assert.Contains(parserLogger.Operations, operation => operation == "DXF GD&T extraction");
 
-        var stepSession = new VerificationSession { VerificationSessionId = Guid.NewGuid(), StepDocumentId = step.DocumentId, DxfDocumentId = dxf.DocumentId };
+        var stepSession = PairedSession(step, dxf);
         var stepSessions = new SessionFake(stepSession); var stepLogger = new RecordingLogger();
         var stepService = new DimensionMatchingService(new DocumentsFake(step, dxf), stepSessions, new GeometryFake(), auth, new DimensionMatchingConfiguration(), logger: stepLogger,
             gdtVerification: new VerificationService(new VerificationEngine(new GdtValidator()), stepSessions), dxfFiles: new DxfStoreFake(), dxfGdtParser: new ParserFake(DxfGdtExtractionResult.Success(Array.Empty<GdtAnnotationData>())), stepGdtService: new StepFake(GdtAnnotationExtractionResult.Failure("WorkerProtocol", "STEP worker protocol failed.")));
@@ -292,9 +293,9 @@ public sealed class DimensionMatchingServiceTests
     {
         var step = NewDocument(CoreDocumentType.StepModel, CoreGeometryStatus.Processed, VerificationStatus.Unknown);
         var dxf = NewDocument(CoreDocumentType.DxfDrawing, CoreGeometryStatus.NotExtracted, VerificationStatus.DimensionsExtracted);
-        var session = new VerificationSession { VerificationSessionId = Guid.NewGuid(), StepDocumentId = step.DocumentId, DxfDocumentId = dxf.DocumentId };
+        var session = PairedSession(step, dxf);
         var sessions = new SessionFake(session);
-        var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser("checker", new[] { "Checker" }) { UserId = "checker" });
+        var auth = MakerAuthentication("checker");
         var cancellation = new CancellationTokenSource();
         var service = CreateGdtService(new DocumentsFake(step, dxf), sessions, auth, new RecordingLogger(), cancellation);
 
@@ -316,6 +317,23 @@ public sealed class DimensionMatchingServiceTests
     {
         var id = Guid.NewGuid(); var version = new DocumentVersion { DocumentId = id, VersionNumber = 1, StoredRelativePath = "fixture.step", FileSizeBytes = 10 };
         return new Document { DocumentId = id, DocumentType = type, GeometryStatus = geometry, VerificationStatus = verification, Version = version, Versions = new[] { version } };
+    }
+
+    private static VerificationSession PairedSession(Document step, Document dxf)
+        => new()
+        {
+            VerificationSessionId = Guid.NewGuid(),
+            StepDocumentId = step.DocumentId,
+            DxfDocumentId = dxf.DocumentId,
+            StepDocumentVersionId = step.Version!.VersionId,
+            DxfDocumentVersionId = dxf.Version!.VersionId
+        };
+
+    private static SessionAuthenticationService MakerAuthentication(string userId)
+    {
+        var authentication = new SessionAuthenticationService();
+        authentication.SignIn(new AuthenticatedUser(userId, new[] { "Maker" }) { UserId = userId });
+        return authentication;
     }
 
     private sealed class DocumentsFake(params Document[] documents) : IDocumentRepository

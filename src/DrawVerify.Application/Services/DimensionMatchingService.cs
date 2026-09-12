@@ -32,7 +32,7 @@ public sealed class DimensionMatchingService
 
     public async Task<VerificationSession> MatchDimensionsToGeometryAsync(Guid sessionId, CancellationToken cancellationToken = default, double? toleranceOverrideMm = null)
     {
-        EnsureAuthorized(RolePermission.MatchDimensionsToGeometry);
+        EnsureAuthorized(RolePermission.StartVerification);
         var started = Stopwatch.GetTimestamp();
         var session = await _sessions.GetAsync(sessionId, cancellationToken).ConfigureAwait(false) ?? throw new InvalidOperationException("Verification session was not found.");
         if (toleranceOverrideMm is not null && (!double.IsFinite(toleranceOverrideMm.Value) || toleranceOverrideMm.Value < 0)) throw new ArgumentOutOfRangeException(nameof(toleranceOverrideMm));
@@ -49,11 +49,15 @@ public sealed class DimensionMatchingService
             var dxf = await _documents.GetAsync(session.DxfDocumentId, cancellationToken).ConfigureAwait(false) ?? throw new InvalidOperationException("DXF document was not found.");
             if (step.DocumentType != DrawVerify.Core.Enums.DocumentType.StepModel || step.GeometryStatus != DrawVerify.Core.Enums.GeometryStatus.Processed) throw new InvalidOperationException("Matching requires a processed STEP model.");
             if (dxf.DocumentType != DrawVerify.Core.Enums.DocumentType.DxfDrawing || dxf.VerificationStatus != DrawVerify.Core.Enums.VerificationStatus.DimensionsExtracted) throw new InvalidOperationException("Matching requires extracted DXF dimensions.");
-            var stepVersion = _documents.GetCurrentVersion(step.DocumentId) ?? step.Version ?? throw new InvalidOperationException("STEP version was not found.");
-            var dxfVersion = _documents.GetCurrentVersion(dxf.DocumentId) ?? dxf.Version ?? throw new InvalidOperationException("DXF version was not found.");
-            stepDocumentVersionId = stepVersion.VersionId;
-            dxfDocumentVersionId = dxfVersion.VersionId;
-            var current = session with { StepDocumentVersionId = stepVersion.VersionId, DxfDocumentVersionId = dxfVersion.VersionId, Status = VerificationSessionStatus.Pending, ErrorMessage = null };
+            if (session.StepDocumentVersionId is not Guid selectedStepVersionId || session.DxfDocumentVersionId is not Guid selectedDxfVersionId)
+                throw new InvalidOperationException("Verification requires explicit STEP and DXF version selections.");
+            var stepVersion = FindSelectedVersion(step, selectedStepVersionId, "STEP");
+            var dxfVersion = FindSelectedVersion(dxf, selectedDxfVersionId, "DXF");
+            if (_documents.GetCurrentVersion(step.DocumentId)?.VersionId != selectedStepVersionId || _documents.GetCurrentVersion(dxf.DocumentId)?.VersionId != selectedDxfVersionId)
+                throw new InvalidOperationException("The selected verification versions are stale; select the current STEP and DXF versions again.");
+            stepDocumentVersionId = selectedStepVersionId;
+            dxfDocumentVersionId = selectedDxfVersionId;
+            var current = session with { Status = VerificationSessionStatus.Pending, ErrorMessage = null };
             await ExtractAndPersistGdtAsync(current, stepVersion, dxfVersion, cancellationToken).ConfigureAwait(false);
             var dimensions = await _documents.GetDimensionsAsync(dxf.DocumentId, cancellationToken).ConfigureAwait(false);
             var extracted = _geometry.ExtractMatchableGeometry(new MatchableGeometryExtractionRequest(stepVersion.StoredRelativePath), cancellationToken);
@@ -156,8 +160,14 @@ public sealed class DimensionMatchingService
     }
     public Task<VerificationSession> GetOrCreateSessionAsync(Guid stepDocumentId, Guid dxfDocumentId, CancellationToken cancellationToken = default)
     {
-        EnsureAuthorized(RolePermission.MatchDimensionsToGeometry);
-        return _sessions.GetOrCreateAsync(stepDocumentId, dxfDocumentId, cancellationToken);
+        EnsureAuthorized(RolePermission.StartVerification);
+        throw new InvalidOperationException("Explicit STEP and DXF version IDs are required to create a verification session.");
+    }
+    public Task<VerificationSession> GetOrCreateSessionAsync(Guid stepDocumentId, Guid dxfDocumentId, Guid stepDocumentVersionId, Guid dxfDocumentVersionId, CancellationToken cancellationToken = default)
+    {
+        EnsureAuthorized(RolePermission.StartVerification);
+        if (stepDocumentVersionId == Guid.Empty || dxfDocumentVersionId == Guid.Empty) throw new ArgumentException("Explicit STEP and DXF version IDs are required.");
+        return _sessions.GetOrCreateAsync(stepDocumentId, dxfDocumentId, stepDocumentVersionId, dxfDocumentVersionId, cancellationToken);
     }
     public Task<IReadOnlyList<DimensionMatch>> GetResultsAsync(Guid sessionId, DimensionMatchStatus? status = null, CancellationToken cancellationToken = default) { EnsureAuthorized(RolePermission.ViewDimensionMatchResults); return _sessions.GetMatchesAsync(sessionId, status, cancellationToken); }
     public Task<IReadOnlyList<GdtResult>> GetGdtResultsAsync(Guid sessionId, CancellationToken cancellationToken = default) { EnsureAuthorized(RolePermission.ViewGdtCannotValidate); return _sessions.GetGdtResultsAsync(sessionId, cancellationToken); }
@@ -217,7 +227,12 @@ public sealed class DimensionMatchingService
         var session = await _sessions.GetAsync(sessionId, cancellationToken).ConfigureAwait(false) ?? throw new InvalidOperationException("Verification session was not found.");
         return session.ToleranceThresholdMm ?? _configuration.ToleranceThresholdMm;
     }
-    private void EnsureAuthorized(RolePermission permission) { if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, permission)) throw new UnauthorizedAccessException("Only authenticated Maker or Checker users may access dimension matching."); }
+    private static DocumentVersion FindSelectedVersion(Document document, Guid versionId, string label)
+    {
+        var version = document.Versions.FirstOrDefault(candidate => candidate.VersionId == versionId) ?? (document.Version?.VersionId == versionId ? document.Version : null);
+        return version ?? throw new InvalidOperationException($"The selected {label} document version was not found.");
+    }
+    private void EnsureAuthorized(RolePermission permission) { if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, permission)) throw new UnauthorizedAccessException("Only an authenticated Maker may start or execute verification."); }
     private async Task AddCommentPreservingReviewAsync(Guid sessionId, Guid dimensionMatchId, string comment, CancellationToken cancellationToken)
     {
         var current = await GetUnmatchedReviewAsync(sessionId, dimensionMatchId, cancellationToken).ConfigureAwait(false);

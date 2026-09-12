@@ -43,6 +43,20 @@ public sealed class SqliteVerificationSessionRepository : IVerificationSessionRe
         command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString()); command.Parameters.AddWithValue("$step", stepDocumentId.ToString()); command.Parameters.AddWithValue("$dxf", dxfDocumentId.ToString()); command.Parameters.AddWithValue("$updated", DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
         await using var reader = await command.ExecuteReaderAsync(cancellationToken); await reader.ReadAsync(cancellationToken); return MapSession(reader);
     }
+    public async Task<VerificationSession> GetOrCreateAsync(Guid stepDocumentId, Guid dxfDocumentId, Guid stepDocumentVersionId, Guid dxfDocumentVersionId, CancellationToken cancellationToken = default)
+    {
+        if (stepDocumentId == Guid.Empty || dxfDocumentId == Guid.Empty || stepDocumentVersionId == Guid.Empty || dxfDocumentVersionId == Guid.Empty)
+            throw new ArgumentException("Explicit document and version IDs are required.");
+        await using var connection = new SqliteConnection(_connectionString); await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "INSERT INTO VerificationSession (VerificationSessionId,StepDocumentId,DxfDocumentId,StepDocumentVersionId,DxfDocumentVersionId,Status,UpdatedUtc) VALUES ($id,$step,$dxf,$stepVersion,$dxfVersion,0,$updated) ON CONFLICT(StepDocumentId,DxfDocumentId) DO NOTHING; SELECT VerificationSessionId,StepDocumentId,DxfDocumentId,StepDocumentVersionId,DxfDocumentVersionId,Status,ErrorMessage,UpdatedUtc,ToleranceThresholdMm FROM VerificationSession WHERE StepDocumentId=$step AND DxfDocumentId=$dxf;";
+        command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString()); command.Parameters.AddWithValue("$step", stepDocumentId.ToString()); command.Parameters.AddWithValue("$dxf", dxfDocumentId.ToString()); command.Parameters.AddWithValue("$stepVersion", stepDocumentVersionId.ToString()); command.Parameters.AddWithValue("$dxfVersion", dxfDocumentVersionId.ToString()); command.Parameters.AddWithValue("$updated", DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken); if (!await reader.ReadAsync(cancellationToken)) throw new InvalidOperationException("The verification session could not be created.");
+        var session = MapSession(reader);
+        if (session.StepDocumentVersionId != stepDocumentVersionId || session.DxfDocumentVersionId != dxfDocumentVersionId)
+            throw new InvalidOperationException("The verification session is bound to different document versions; select the current versions again.");
+        return session;
+    }
     public async Task<VerificationSession?> GetAsync(Guid sessionId, CancellationToken cancellationToken = default)
     {
         await using var connection = new SqliteConnection(_connectionString); await connection.OpenAsync(cancellationToken); await using var command = connection.CreateCommand(); command.CommandText = "SELECT VerificationSessionId,StepDocumentId,DxfDocumentId,StepDocumentVersionId,DxfDocumentVersionId,Status,ErrorMessage,UpdatedUtc,ToleranceThresholdMm FROM VerificationSession WHERE VerificationSessionId=$id"; command.Parameters.AddWithValue("$id", sessionId.ToString()); await using var reader = await command.ExecuteReaderAsync(cancellationToken); return await reader.ReadAsync(cancellationToken) ? MapSession(reader) : null;

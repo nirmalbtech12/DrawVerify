@@ -126,7 +126,13 @@ public static class CompositionRoot
         return new MeasurementExtractionService(new SqliteDocumentRepository(database, logger), new SqliteAuditRepository(database), worker);
     }
     public static CombinedUploadVerifyViewModel CreateCombinedUploadVerifyViewModel() =>
-        new(CreateStepUploadViewModel(), CreateDxfUploadViewModel(), CreateMeasurementExtractionService(), CreateDxfDimensionExtractionService(), new VerificationViewModel(Session, Authorization, CreateDimensionMatchingService(), new CentralizedLogger(), DimensionMatchingConfiguration), new CentralizedLogger());
+        new(CreateStepUploadViewModel(), CreateDxfUploadViewModel(), CreateMeasurementExtractionService(), CreateDxfDimensionExtractionService(), new VerificationViewModel(Session, Authorization, CreateDimensionMatchingService(), new CentralizedLogger(), DimensionMatchingConfiguration), new CentralizedLogger(), CreateDxfDrawingGenerationService());
+    public static DxfDrawingGenerationService CreateDxfDrawingGenerationService()
+    {
+        var database = DatabasePath(); var logger = new CentralizedLogger(); var documents = new SqliteDocumentRepository(database, logger); var users = new SqliteUserRepository(database, logger); var dxfFiles = new DxfDocumentFileStore(AppContext.BaseDirectory, DxfUploadConfiguration);
+        var extraction = new DxfDimensionExtractionService(documents, dxfFiles, new DxfDimensionParser(), DxfDimensionExtractionConfiguration, Session, users, logger, Authorization);
+        return new DxfDrawingGenerationService(documents, new DocumentFileStore(AppContext.BaseDirectory, StepUploadConfiguration), dxfFiles, new OcctGeometryService(), new SqliteAuditRepository(database), Session, Authorization, logger, users, extraction);
+    }
     public static DocumentDetailViewModel CreateDocumentDetailViewModel(DrawVerify.Core.Models.Document document) =>
         new(document, CreateDxfDimensionExtractionService());
     public static DimensionMatchingService CreateDimensionMatchingService()
