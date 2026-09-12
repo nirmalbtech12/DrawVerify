@@ -37,6 +37,8 @@ public sealed class DxfDrawingGenerationService : IDxfDrawingGenerationService
         var tempPath = Path.Combine(Path.GetTempPath(), $"drawverify-{Guid.NewGuid():N}.step");
         DxfUploadStagingFile? staging = null;
         string? finalPath = null;
+        Guid? generatedDocumentId = null;
+        var diagnostics = new List<string>();
         try
         {
             await WriteAuditAsync(stepDocumentId, DocumentAuditAction.DxfGenerationStarted, new { stepVersionId = version.VersionId }, cancellationToken).ConfigureAwait(false);
@@ -46,37 +48,42 @@ public sealed class DxfDrawingGenerationService : IDxfDrawingGenerationService
                 await source.CopyToAsync(target, cancellationToken).ConfigureAwait(false);
             var drawings = new List<ProjectionDrawing>();
             var views = Enum.GetValues<ProjectionDrawingView>();
-            for (var index = 0; index < views.Length; index++) { cancellationToken.ThrowIfCancellationRequested(); progress?.Report(new("projection", 10 + index * 12, $"Generating {views[index]} view…")); drawings.Add(_projection.Generate(tempPath, views[index], cancellationToken)); }
+            for (var index = 0; index < views.Length; index++) { cancellationToken.ThrowIfCancellationRequested(); progress?.Report(new("projection", 10 + index * 12, $"Generating {views[index]} view…")); var drawing = _projection.Generate(tempPath, views[index], cancellationToken); drawings.Add(drawing); diagnostics.AddRange(drawing.Diagnostics.Select(message => $"{drawing.View}: {message}")); }
+            if (diagnostics.Count > 0)
+                progress?.Report(new("projection-warning", 82, $"Projection completed with {diagnostics.Count} warning(s); unsupported entities were omitted."));
             progress?.Report(new("encoding", 82, "Encoding the supported drawing entities…"));
             var bytes = DxfFileWriter.Write(drawings);
             if (_extraction is null) throw new InvalidOperationException("The canonical DXF extraction service is not configured; generated output cannot become verification-ready.");
             await using var content = new MemoryStream(bytes, writable: false);
             var validation = await DxfFileValidator.ValidateAsync(content, bytes.Length, 30, cancellationToken).ConfigureAwait(false);
-            if (!validation.IsValid) return Failure($"Generated DXF validation failed: {validation.Reason}");
+            if (!validation.IsValid) return Failure($"Generated DXF validation failed: {validation.Reason}", diagnostics);
             content.Position = 0;
             var preflight = await _extraction.ParseAsync(content, Guid.Empty, Guid.Empty, cancellationToken).ConfigureAwait(false);
             if (!preflight.Succeeded || preflight.Dimensions.Count == 0)
                 throw new InvalidDataException(preflight.ErrorMessage ?? "Generated DXF contains no supported dimensions.");
-            await WriteAuditAsync(stepDocumentId, DocumentAuditAction.DimensionsExtracted, new { stage = "preflight", dimensionCount = preflight.Dimensions.Count, warningCount = preflight.Warnings.Count }, cancellationToken).ConfigureAwait(false);
+            diagnostics.AddRange(preflight.Warnings.Select(warning => $"DXF preflight: {warning}"));
+            await WriteAuditAsync(stepDocumentId, DocumentAuditAction.DimensionsExtracted, new { stage = "preflight", dimensionCount = preflight.Dimensions.Count, warningCount = diagnostics.Count, diagnostics }, cancellationToken).ConfigureAwait(false);
             staging = await _dxfFiles.CreateStagingFileAsync($"{Path.GetFileNameWithoutExtension(step.OriginalFileName)}-generated.dxf", cancellationToken).ConfigureAwait(false);
             await staging.Stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
             await staging.DisposeAsync().ConfigureAwait(false);
             finalPath = await _dxfFiles.MoveToFinalAsync(staging, cancellationToken).ConfigureAwait(false); staging = null;
-            await WriteAuditAsync(stepDocumentId, DocumentAuditAction.DxfValidationCompleted, new { stage = "structural", byteCount = bytes.Length }, cancellationToken).ConfigureAwait(false);
-            var documentId = Guid.NewGuid(); var now = DateTime.UtcNow; var documentVersion = new DocumentVersion { DocumentId = documentId, VersionNumber = 1, StoredRelativePath = finalPath, FileSizeBytes = bytes.Length, CreatedUtc = now, DrawingSource = DrawingSource.Generated };
+            await WriteAuditAsync(stepDocumentId, DocumentAuditAction.DxfValidationCompleted, new { stage = "structural", byteCount = bytes.Length, warningCount = diagnostics.Count, diagnostics }, cancellationToken).ConfigureAwait(false);
+            var documentId = Guid.NewGuid(); generatedDocumentId = documentId; var now = DateTime.UtcNow; var documentVersion = new DocumentVersion { DocumentId = documentId, VersionNumber = 1, StoredRelativePath = finalPath, FileSizeBytes = bytes.Length, CreatedUtc = now, DrawingSource = DrawingSource.Generated };
             var document = new Document { DocumentId = documentId, OriginalFileName = $"{Path.GetFileNameWithoutExtension(step.OriginalFileName)}-generated.dxf", FileSizeBytes = bytes.Length, UploadTimestampUtc = now, DocumentType = DrawVerify.Core.Enums.DocumentType.DxfDrawing, UploadStatus = DrawVerify.Core.Enums.UploadStatus.Uploaded, VerificationStatus = VerificationStatus.PendingVerification, DrawingSource = DrawingSource.Generated, Version = documentVersion, Versions = new[] { documentVersion }, UploaderUserId = _session.CurrentUser?.UserId, UploaderDisplayName = _session.CurrentUser?.DisplayName };
             await _transactionalDocuments.CreateWithVersionAndAuditAsync(document, documentVersion, new AuditEntry { DocumentId = documentId, UserId = _session.CurrentUser?.UserId ?? "Anonymous", Action = DocumentAuditAction.Uploaded, DetailsJson = JsonSerializer.Serialize(new { source = DrawingSource.Generated.ToString(), stepDocumentId, stepVersionId = version.VersionId }) }, cancellationToken).ConfigureAwait(false);
             var extracted = await _extraction.ExtractDimensionsAsync(documentId, cancellationToken).ConfigureAwait(false);
+            diagnostics.AddRange(extracted.Warnings.Select(warning => $"DXF extraction: {warning}"));
             if (!extracted.Succeeded || extracted.Dimensions.Count == 0)
                 throw new InvalidDataException(extracted.Message.Length == 0 ? "Generated DXF contains no supported dimensions." : extracted.Message);
             document = (extracted.Document ?? document) with { DrawingSource = DrawingSource.Generated, Version = documentVersion };
-            await WriteAuditAsync(documentId, DocumentAuditAction.DimensionsExtracted, new { versionId = documentVersion.VersionId, dimensionCount = extracted.Dimensions.Count, warningCount = extracted.Warnings.Count }, cancellationToken).ConfigureAwait(false);
-            await WriteAuditAsync(documentId, DocumentAuditAction.DxfGenerationCompleted, new { versionId = documentVersion.VersionId, entityCount = drawings.Sum(drawing => drawing.EntityCount), dimensionCount = drawings.Sum(drawing => drawing.DimensionCount) }, cancellationToken).ConfigureAwait(false);
-            progress?.Report(new("complete", 100, "2D drawing generated successfully."));
-            return new(true, "2D drawing generated successfully.", document, Array.Empty<string>(), documentVersion.VersionId) { ExtractedDimensionCount = (await _documents.GetDimensionsAsync(documentId, cancellationToken).ConfigureAwait(false)).Count };
+            await WriteAuditAsync(documentId, DocumentAuditAction.DimensionsExtracted, new { versionId = documentVersion.VersionId, dimensionCount = extracted.Dimensions.Count, warningCount = diagnostics.Count, diagnostics }, cancellationToken).ConfigureAwait(false);
+            await WriteAuditAsync(documentId, DocumentAuditAction.DxfGenerationCompleted, new { versionId = documentVersion.VersionId, entityCount = drawings.Sum(drawing => drawing.EntityCount), dimensionCount = drawings.Sum(drawing => drawing.DimensionCount), warningCount = diagnostics.Count, diagnostics }, cancellationToken).ConfigureAwait(false);
+            var message = diagnostics.Count == 0 ? "2D drawing generated successfully." : $"2D drawing generated with warnings ({diagnostics.Count} projected item(s) omitted or flagged).";
+            progress?.Report(new("complete", 100, message));
+            return new(true, message, document, diagnostics, documentVersion.VersionId) { ExtractedDimensionCount = (await _documents.GetDimensionsAsync(documentId, cancellationToken).ConfigureAwait(false)).Count };
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { if (finalPath is not null) await TryDeleteAsync(finalPath); return Failure("2D drawing generation was cancelled."); }
-        catch (Exception exception) { if (finalPath is not null) await TryDeleteAsync(finalPath); _logger?.Log(exception, "DXF drawing generation", $"stepDocumentId={stepDocumentId}; stepVersionId={version.VersionId}"); try { await WriteAuditAsync(stepDocumentId, DocumentAuditAction.DxfGenerationFailed, new { error = exception.Message }, CancellationToken.None); } catch { } return Failure($"2D drawing generation failed: {exception.Message}"); }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { await TryRollbackAsync(generatedDocumentId); if (finalPath is not null) await TryDeleteAsync(finalPath); return Failure("2D drawing generation was cancelled.", diagnostics); }
+        catch (Exception exception) { await TryRollbackAsync(generatedDocumentId); if (finalPath is not null) await TryDeleteAsync(finalPath); _logger?.Log(exception, "DXF drawing generation", $"stepDocumentId={stepDocumentId}; stepVersionId={version.VersionId}; diagnostics={JsonSerializer.Serialize(diagnostics)}"); try { await WriteAuditAsync(stepDocumentId, DocumentAuditAction.DxfGenerationFailed, new { error = exception.Message, diagnostics }, CancellationToken.None); } catch { } return Failure($"2D drawing generation failed: {exception.Message}", diagnostics); }
         finally { if (staging is not null) await staging.DisposeAsync().ConfigureAwait(false); try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { } }
     }
     public async Task<Stream> DownloadAsync(Guid documentId, Guid versionId, CancellationToken cancellationToken = default)
@@ -101,5 +108,11 @@ public sealed class DxfDrawingGenerationService : IDxfDrawingGenerationService
     private async Task WriteAuditAsync(Guid documentId, DocumentAuditAction action, object details, CancellationToken cancellationToken)
     { await _audit.WriteAsync(new AuditEntry { DocumentId = documentId, UserId = _session.CurrentUser?.UserId ?? "Anonymous", Action = action, DetailsJson = JsonSerializer.Serialize(details) }, cancellationToken).ConfigureAwait(false); }
     private async Task TryDeleteAsync(string relativePath) { try { await _dxfFiles.DeleteAsync(relativePath, CancellationToken.None).ConfigureAwait(false); } catch (Exception cleanup) { _logger?.Log(cleanup, "DXF generation cleanup", $"orphanPath={relativePath}"); } }
-    private static DxfDrawingGenerationResult Failure(string message) => new(false, message, Diagnostics: new[] { message });
+    private async Task TryRollbackAsync(Guid? documentId)
+    {
+        if (documentId is not Guid id) return;
+        try { await _transactionalDocuments.DeleteDocumentAsync(id, CancellationToken.None).ConfigureAwait(false); }
+        catch (Exception rollback) { _logger?.Log(rollback, "DXF generation rollback", $"documentId={id}"); }
+    }
+    private static DxfDrawingGenerationResult Failure(string message, IReadOnlyList<string>? diagnostics = null) => new(false, message, Diagnostics: (diagnostics ?? Array.Empty<string>()).Append(message).ToArray());
 }

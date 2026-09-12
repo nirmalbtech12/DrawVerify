@@ -349,6 +349,28 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task DeleteDocumentAsync(Guid documentId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var statement in new[]
+        {
+            "DELETE FROM DimensionData WHERE DocumentId=$id",
+            "DELETE FROM DocumentAuditLog WHERE DocumentId=$id",
+            "DELETE FROM DocumentVersion WHERE DocumentId=$id",
+            "DELETE FROM Document WHERE DocumentId=$id"
+        })
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = statement;
+            command.Parameters.AddWithValue("$id", documentId.ToString());
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     private async Task InsertDocumentAsync(SqliteConnection connection, SqliteTransaction transaction, Document document, CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
