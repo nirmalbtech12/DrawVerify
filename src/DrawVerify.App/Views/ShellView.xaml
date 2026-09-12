@@ -17,7 +17,10 @@
         <Menu x:Name="ApplicationMenu" DockPanel.Dock="Top" KeyboardNavigation.IsTabStop="True" />
         <Border DockPanel.Dock="Bottom" Background="{DynamicResource StatusBackground}"
                 BorderBrush="{DynamicResource BrandBorder}" BorderThickness="0,1,0,0" Padding="16,8">
-            <TextBlock x:Name="StatusText" Text="Ready" Foreground="{DynamicResource BrandMuted}" />
+            <Grid>
+                <TextBlock x:Name="StatusText" Text="Ready" Foreground="{DynamicResource BrandMuted}" />
+                <TextBlock Text="© 2026 LEMU Technologies" Foreground="{DynamicResource BrandMuted}" HorizontalAlignment="Right" />
+            </Grid>
         </Border>
         <Grid Margin="24">
             <Grid.ColumnDefinitions>

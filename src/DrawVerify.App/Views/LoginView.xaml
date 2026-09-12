@@ -27,8 +27,20 @@
                     <TextBox Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}" />
                     <TextBlock Text="Password" Foreground="{DynamicResource BrandMuted}" Margin="0,16,0,6" />
                     <PasswordBox PasswordChanged="PasswordChanged" />
+                    <TextBlock Text="License &amp; terms" Foreground="{DynamicResource BrandGreen}" FontWeight="SemiBold" Margin="0,16,0,4" />
+                    <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource BrandMuted}" FontSize="11">
+                        <Hyperlink NavigateUri="LICENSE.txt" RequestNavigate="LicenseLinkRequested">DrawVerify license</Hyperlink>
+                        <Run Text=" · " />
+                        <Hyperlink NavigateUri="https://www.gnu.org/licenses/lgpl-3.0.html" RequestNavigate="LicenseLinkRequested">LGPL-3.0</Hyperlink>
+                        <Run Text=" · " />
+                        <Hyperlink NavigateUri="https://dev.opencascade.org/doc/occt-8.0.0/overview/html/" RequestNavigate="LicenseLinkRequested">OCCT LGPL-2.1</Hyperlink>
+                    </TextBlock>
+                    <CheckBox IsChecked="{Binding LicenseAccepted, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="0,10,0,0">
+                        <TextBlock Text="I accept the terms and license" TextWrapping="Wrap" Foreground="{DynamicResource BrandWhite}" />
+                    </CheckBox>
                     <Button Content="Sign in" Command="{Binding LoginCommand}" Style="{StaticResource PrimaryAction}" Height="42" Margin="0,24,0,8" HorizontalContentAlignment="Center" />
                     <TextBlock Text="{Binding Message}" Foreground="{DynamicResource BrandError}" TextWrapping="Wrap" />
+                    <TextBlock Text="© 2026 LEMU Technologies" Foreground="{DynamicResource BrandMuted}" FontSize="11" Margin="0,20,0,0" />
                 </StackPanel>
             </Grid>
         </Border>

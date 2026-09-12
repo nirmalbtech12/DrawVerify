@@ -22,6 +22,9 @@
   <ItemGroup>
     <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\config\gdt-subset.default.json" Link="config\gdt-subset.default.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\LICENSE.txt" Link="LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Resource Include="..\..\LICENSE.txt" Link="LICENSE.txt" />
+    <None Include="..\..\docs\lgpl-compliance.md" Link="docs\lgpl-compliance.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="..\..\branding\**" Link="branding\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
