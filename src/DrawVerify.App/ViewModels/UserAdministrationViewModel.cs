@@ -19,7 +19,7 @@ public sealed class UserAdministrationViewModel : INotifyPropertyChanged
     private long _roleVersion;
     public UserAdministrationViewModel(UserAdministrationService service)
     {
-        _service = service; RoleCatalog = new(SystemRoles.Catalog); _canEditRoles = service.CanEditRoles;
+        _service = service; RoleCatalog = new(SystemRoles.WorkflowRoles); _canEditRoles = service.CanEditRoles;
         RoleOptions = new(RoleCatalog.Select(role => new RoleSelectionOption(role, false, ToggleRole)));
         AssignedRoles = new(service.CurrentUserRoles);
         CreateCommand = new Command(async _ => await CreateAsync(), _ => !IsBusy && CanEditRoles);
@@ -154,9 +154,9 @@ public sealed class UserAdministrationViewModel : INotifyPropertyChanged
     {
         if (!CanEditRoles || SelectedUser is null) { Message = "Only an administrator can change user roles."; Changed(nameof(Message)); return; }
         SyncAssignedRolesFromOptions();
-        if (RoleConfirmation is null && (AssignedRoles.Count == 0 || IsAdminRemoval())) { Message = "Role change confirmation is unavailable; no changes were saved."; Changed(nameof(Message)); return; }
+        if (RoleConfirmation is null && (AssignedRoles.Count == 0 || IsAdminRemoval() || IsApproverRemoval())) { Message = "Role change confirmation is unavailable; no changes were saved."; Changed(nameof(Message)); return; }
+        if ((IsAdminRemoval() || IsApproverRemoval()) && !RoleConfirmation!(CriticalRoleWarning())) return;
         if (AssignedRoles.Count == 0 && !RoleConfirmation!("This user will have no roles. Do you want to continue?")) return;
-        if (AssignedRoles.Count > 0 && IsAdminRemoval() && !RoleConfirmation!("This will remove the last Admin role from this user. Do you want to continue?")) return;
         IsBusy = true; Changed(nameof(IsBusy));
         try
         {
@@ -192,6 +192,8 @@ public sealed class UserAdministrationViewModel : INotifyPropertyChanged
     private void SyncAssignedRolesFromOptions()
     {
         AssignedRoles.Clear();
+        foreach (var role in CurrentRoles.Where(role => !SystemRoles.WorkflowRoles.Any(x => string.Equals(x.Id, role, StringComparison.OrdinalIgnoreCase))))
+            AssignedRoles.Add(role);
         foreach (var option in RoleOptions.Where(x => x.IsSelected)) AssignedRoles.Add(option.Role.Id);
         Changed(nameof(IsRoleDirty));
         RefreshRoleOptionState();
@@ -201,6 +203,13 @@ public sealed class UserAdministrationViewModel : INotifyPropertyChanged
         foreach (var option in RoleOptions) option.RefreshState(CurrentRoles.Contains(option.Role.Id, StringComparer.OrdinalIgnoreCase));
     }
     private bool IsAdminRemoval() => CurrentRoles.Contains("Admin", StringComparer.OrdinalIgnoreCase) && !AssignedRoles.Contains("Admin", StringComparer.OrdinalIgnoreCase);
+    private bool IsApproverRemoval() => CurrentRoles.Contains(SystemRoles.Approver, StringComparer.OrdinalIgnoreCase) && !AssignedRoles.Contains(SystemRoles.Approver, StringComparer.OrdinalIgnoreCase);
+    private string CriticalRoleWarning() => IsAdminRemoval() && IsApproverRemoval()
+        ? "This will remove the last Admin and Approver role from this user. Do you want to continue?"
+        : IsAdminRemoval() ? "This will remove the last Admin role from this user. Do you want to continue?"
+        : AssignedRoles.Count == 0
+            ? "This will remove the last Approver role and leave this user with no roles. Do you want to continue?"
+            : "This will remove the last Approver role from this user. Do you want to continue?";
     private async Task RefreshUsersPreservingRoleDraftAsync()
     {
         var selectedId = SelectedUser?.Id;

@@ -19,6 +19,8 @@ public static class SystemRoles
         new RoleDefinition(Viewer, Viewer, "Read-only access to approved documents and reports.")
     });
     public static IReadOnlyList<RoleDefinition> Catalog => Definitions;
+    public static IReadOnlyList<RoleDefinition> WorkflowRoles { get; } =
+        Definitions.Where(x => x.Id is Maker or Checker or Approver).ToArray();
     public static bool TryCanonicalize(string? value, out string canonical)
     {
         canonical = string.Empty;
@@ -38,5 +40,13 @@ public static class SystemRoles
             result.Add(canonical);
         }
         return result.AsReadOnly();
+    }
+
+    public static IReadOnlyList<string> ValidateAndCanonicalizeWorkflowRoles(IEnumerable<string>? roles)
+    {
+        var canonical = ValidateAndCanonicalize(roles);
+        if (canonical.Any(role => role is Admin or Viewer))
+            throw new InvalidOperationException("Only Maker, Checker, and Approver can be assigned as workflow roles.");
+        return canonical;
     }
 }

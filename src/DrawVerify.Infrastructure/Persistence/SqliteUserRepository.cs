@@ -43,6 +43,9 @@ public sealed class SqliteUserRepository : IUserRepository
 
     public async Task<RoleReplacementResult> ReplaceRolesAsync(string normalizedUsername, IReadOnlyList<string> roles, long expectedRoleVersion, RoleAssignmentAuditEntry audit, CancellationToken cancellationToken = default)
     {
+        IReadOnlyList<string> canonicalRoles;
+        try { canonicalRoles = Core.Authorization.SystemRoles.ValidateAndCanonicalize(roles).OrderBy(role => role, StringComparer.Ordinal).ToArray(); }
+        catch (InvalidOperationException ex) { return new(false, RoleReplacementFailure.InvalidRoles, ex.Message, expectedRoleVersion); }
         await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(cancellationToken); await using var tx = (SqliteTransaction)await c.BeginTransactionAsync(cancellationToken);
         try
         {
@@ -53,18 +56,24 @@ public sealed class SqliteUserRepository : IUserRepository
             if (currentVersion != expectedRoleVersion) { await tx.RollbackAsync(cancellationToken); return new(false, RoleReplacementFailure.StaleRoleVersion, "The user's roles changed while you were editing. Reload and try again.", currentVersion); }
             var before = new List<string>();
             await using (var readRoles = c.CreateCommand()) { readRoles.Transaction = tx; readRoles.CommandText = "SELECT RoleName FROM UserAccountRole WHERE UserId=$id ORDER BY RoleName"; readRoles.Parameters.AddWithValue("$id", id); await using var reader = await readRoles.ExecuteReaderAsync(cancellationToken); while (await reader.ReadAsync(cancellationToken)) before.Add(reader.GetString(0)); }
-            if (before.Contains(Core.Authorization.SystemRoles.Admin, StringComparer.OrdinalIgnoreCase) && !roles.Contains(Core.Authorization.SystemRoles.Admin, StringComparer.OrdinalIgnoreCase))
+            if (before.Contains(Core.Authorization.SystemRoles.Admin, StringComparer.OrdinalIgnoreCase) && !canonicalRoles.Contains(Core.Authorization.SystemRoles.Admin, StringComparer.OrdinalIgnoreCase))
             {
                 await using var count = c.CreateCommand(); count.Transaction = tx; count.CommandText = "SELECT COUNT(*) FROM UserAccountRole WHERE RoleName=$role"; count.Parameters.AddWithValue("$role", Core.Authorization.SystemRoles.Admin);
                 if (Convert.ToInt32(await count.ExecuteScalarAsync(cancellationToken)) <= 1) { await tx.RollbackAsync(cancellationToken); return new(false, RoleReplacementFailure.LastAdministrator, "At least one administrator must remain.", currentVersion); }
             }
+            if (before.Contains(Core.Authorization.SystemRoles.Approver, StringComparer.OrdinalIgnoreCase) && !canonicalRoles.Contains(Core.Authorization.SystemRoles.Approver, StringComparer.OrdinalIgnoreCase))
+            {
+                await using var count = c.CreateCommand(); count.Transaction = tx; count.CommandText = "SELECT COUNT(*) FROM UserAccountRole WHERE RoleName=$role"; count.Parameters.AddWithValue("$role", Core.Authorization.SystemRoles.Approver);
+                if (Convert.ToInt32(await count.ExecuteScalarAsync(cancellationToken)) <= 1) { await tx.RollbackAsync(cancellationToken); return new(false, RoleReplacementFailure.LastApprover, "At least one Approver must remain.", currentVersion); }
+            }
+            if (before.SequenceEqual(canonicalRoles, StringComparer.OrdinalIgnoreCase)) { await tx.RollbackAsync(cancellationToken); return new(true, RoleVersion: currentVersion); }
             await Execute(c, tx, "DELETE FROM UserAccountRole WHERE UserId=$id", cancellationToken, ("$id", id));
-            foreach (var role in roles) await Execute(c, tx, "INSERT INTO UserAccountRole (UserId,RoleName) VALUES ($id,$r)", cancellationToken, ("$id", id), ("$r", role));
+            foreach (var role in canonicalRoles) await Execute(c, tx, "INSERT INTO UserAccountRole (UserId,RoleName) VALUES ($id,$r)", cancellationToken, ("$id", id), ("$r", role));
             await Execute(c, tx, "UPDATE UserAccount SET RoleVersion=RoleVersion+1 WHERE UserId=$id AND RoleVersion=$version", cancellationToken, ("$id", id), ("$version", expectedRoleVersion));
-            var added = roles.Except(before, StringComparer.OrdinalIgnoreCase).OrderBy(x => x, StringComparer.Ordinal).ToArray();
-            var removed = before.Except(roles, StringComparer.OrdinalIgnoreCase).OrderBy(x => x, StringComparer.Ordinal).ToArray();
+            var added = canonicalRoles.Except(before, StringComparer.OrdinalIgnoreCase).OrderBy(x => x, StringComparer.Ordinal).ToArray();
+            var removed = before.Except(canonicalRoles, StringComparer.OrdinalIgnoreCase).OrderBy(x => x, StringComparer.Ordinal).ToArray();
             var action = added.Length > 0 && removed.Length == 0 ? "RoleAssigned" : removed.Length > 0 && added.Length == 0 ? "RoleRemoved" : "RolesUpdated";
-            var entry = new AuthenticationAuditEntry(audit.ActorUsername, audit.AffectedUsername, audit.TimestampUtc, action, "Success", null, JsonSerializer.Serialize(before), JsonSerializer.Serialize(roles), ChangedFields: action == "RoleAssigned" ? JsonSerializer.Serialize(added) : action == "RoleRemoved" ? JsonSerializer.Serialize(removed) : null);
+            var entry = new AuthenticationAuditEntry(audit.ActorUsername, audit.AffectedUsername, audit.TimestampUtc, action, "Success", null, JsonSerializer.Serialize(before), JsonSerializer.Serialize(canonicalRoles), ChangedFields: action == "RoleAssigned" ? JsonSerializer.Serialize(added) : action == "RoleRemoved" ? JsonSerializer.Serialize(removed) : null);
             await SqliteAuthenticationAuditRepository.InsertAsync(c, tx, entry, cancellationToken); await tx.CommitAsync(cancellationToken);
             return new(true, RoleVersion: expectedRoleVersion + 1);
         }

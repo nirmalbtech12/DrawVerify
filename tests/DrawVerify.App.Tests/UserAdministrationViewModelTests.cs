@@ -102,7 +102,7 @@ public sealed class UserAdministrationViewModelTests
         Assert.True(vm.CreateCommand.CanExecute(null));
     }
 
-    [Fact(DisplayName = "TD-WPF-ROLE-003 displays the five roles, preselects, saves, and prevents duplicate selection")]
+    [Fact(DisplayName = "TD-UI-001 displays the three workflow roles, preselects, and prevents duplicate selection")]
     public async Task Admin_role_editor_uses_persisted_seed_and_confirms_success()
     {
         await using var seed = await AuthenticationAuthorizationTestSeed.CreateAsync();
@@ -114,7 +114,7 @@ public sealed class UserAdministrationViewModelTests
 
         await vm.LoadUsersAsync();
         vm.SelectedUser = vm.Users.Single(x => x.Username == "MAKER");
-        Assert.Equal(new[] { "Admin", "Maker", "Checker", "Approver", "Viewer" }, vm.RoleOptions.Select(x => x.Id));
+        Assert.Equal(new[] { "Maker", "Checker", "Approver" }, vm.RoleOptions.Select(x => x.Id));
         Assert.Equal(new[] { "Maker" }, vm.AssignedRoles);
         Assert.Equal(new[] { "Maker" }, vm.CurrentRoles);
         Assert.False(vm.IsRoleDirty);
@@ -137,7 +137,7 @@ public sealed class UserAdministrationViewModelTests
         Assert.True(vm.RoleOptions.Single(x => x.Id == "Checker").IsSelected);
     }
 
-    [Fact(DisplayName = "TD-KAN-120-01 role draft state and navigation preserve or discard changes explicitly")]
+    [Fact(DisplayName = "TD-KAN-120-01 workflow-role draft state and navigation preserve or discard changes explicitly")]
     public async Task Role_draft_state_and_navigation_follow_discard_contract()
     {
         await using var seed = await AuthenticationAuthorizationTestSeed.CreateAsync();
@@ -168,24 +168,24 @@ public sealed class UserAdministrationViewModelTests
         Assert.False(vm.IsRoleDirty);
 
         vm.ToggleRole("Maker");
-        vm.ToggleRole("Viewer");
+        vm.ToggleRole(SystemRoles.Approver);
         Assert.True(vm.IsRoleDirty);
         Assert.True(vm.RoleOptions.Single(x => x.Id == "Maker").IsPending);
-        Assert.True(vm.RoleOptions.Single(x => x.Id == "Viewer").IsPending);
-        Assert.Contains("pending", vm.RoleOptions.Single(x => x.Id == "Viewer").StateLabel, StringComparison.OrdinalIgnoreCase);
+        Assert.True(vm.RoleOptions.Single(x => x.Id == SystemRoles.Approver).IsPending);
+        Assert.Contains("pending", vm.RoleOptions.Single(x => x.Id == SystemRoles.Approver).StateLabel, StringComparison.OrdinalIgnoreCase);
 
         vm.RoleCancelCommand.Execute(null);
         Assert.True(vm.IsRoleDirty);
-        Assert.Contains("Viewer", vm.AssignedRoles);
+        Assert.Contains(SystemRoles.Approver, vm.AssignedRoles);
 
         declined = false;
         vm.RoleBackCommand.Execute(null);
         Assert.False(vm.IsRoleDirty);
         Assert.Equal(new[] { "Maker" }, vm.AssignedRoles);
-        Assert.False(vm.RoleOptions.Single(x => x.Id == "Viewer").IsPending);
+        Assert.False(vm.RoleOptions.Single(x => x.Id == SystemRoles.Approver).IsPending);
     }
 
-    [Fact(DisplayName = "TD-KAN-120-02 consequential role removals require confirmation before persistence")]
+    [Fact(DisplayName = "TD-UI-002 consequential role removals require confirmation before persistence")]
     public async Task Consequential_role_removals_request_confirmation_and_decline_without_saving()
     {
         await using var seed = await AuthenticationAuthorizationTestSeed.CreateAsync();
@@ -211,18 +211,17 @@ public sealed class UserAdministrationViewModelTests
 
         prompts.Clear();
         vm.RoleConfirmation = prompt => { prompts.Add(prompt); return false; };
-        vm.SelectedUser = vm.Users.Single(x => x.Username == "ADMIN");
-        vm.ToggleRole("Admin");
-        vm.ToggleRole("Viewer");
+        vm.SelectedUser = vm.Users.Single(x => x.Username == "APPROVER");
+        vm.ToggleRole(SystemRoles.Approver);
         await vm.SetRolesAsync();
         Assert.Single(prompts);
-        Assert.Contains("Admin", prompts[0], StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(new[] { "Admin" }, (await seed.Repository.FindByUsernameAsync("ADMIN"))!.Roles);
-        Assert.Equal(new[] { "Viewer" }, vm.AssignedRoles);
+        Assert.Contains("Approver", prompts[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(new[] { "Approver" }, (await seed.Repository.FindByUsernameAsync("APPROVER"))!.Roles);
+        Assert.Empty(vm.AssignedRoles);
         Assert.True(vm.IsRoleDirty);
     }
 
-    [Fact(DisplayName = "TD-WPF-ROLE-003 denies non-Admin editing while displaying own current role")]
+    [Fact(DisplayName = "TD-UI-004 denies non-Admin editing while displaying own current role")]
     public async Task Non_admin_seed_user_is_read_only()
     {
         await using var seed = await AuthenticationAuthorizationTestSeed.CreateAsync();
@@ -239,7 +238,7 @@ public sealed class UserAdministrationViewModelTests
         Assert.Contains("administrator", vm.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact(DisplayName = "TD-WPF-ROLE-003 reloads authoritative roles after a stale save")]
+    [Fact(DisplayName = "TD-UI-003 reloads authoritative roles after a stale save")]
     public async Task Stale_save_preserves_draft_and_retry_uses_refreshed_version()
     {
         await using var seed = await AuthenticationAuthorizationTestSeed.CreateAsync();
@@ -255,20 +254,59 @@ public sealed class UserAdministrationViewModelTests
         Assert.True((await seed.Repository.ReplaceRolesAsync("MAKER", new[] { SystemRoles.Checker }, current!.RoleVersion,
             new("ADMIN", "MAKER", current.Roles, new[] { SystemRoles.Checker }, DateTimeOffset.UtcNow, "RolesUpdated"))).Succeeded);
 
-        vm.ToggleRole(SystemRoles.Viewer);
+        vm.ToggleRole(SystemRoles.Checker);
         await vm.SetRolesAsync();
 
         Assert.Contains("changed", vm.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(new[] { SystemRoles.Maker, SystemRoles.Viewer }, vm.AssignedRoles);
+        Assert.Equal(new[] { SystemRoles.Maker, SystemRoles.Checker }, vm.AssignedRoles);
         Assert.True(vm.IsRoleDirty);
         Assert.True(vm.RoleOptions.Single(x => x.Id == SystemRoles.Maker).IsPending);
-        Assert.True(vm.RoleOptions.Single(x => x.Id == SystemRoles.Viewer).IsPending);
+        Assert.False(vm.RoleOptions.Single(x => x.Id == SystemRoles.Checker).IsPending);
 
         await vm.SetRolesAsync();
 
         Assert.Equal("Roles updated for 'MAKER'.", vm.Message);
         Assert.False(vm.IsRoleDirty);
-        Assert.Equal(new[] { SystemRoles.Maker, SystemRoles.Viewer }, (await seed.Repository.FindByUsernameAsync("MAKER"))!.Roles);
+        Assert.Equal(new[] { SystemRoles.Checker, SystemRoles.Maker }, (await seed.Repository.FindByUsernameAsync("MAKER"))!.Roles);
+    }
+
+    [Fact(DisplayName = "TD-UI-002 Save and Cancel expose success, pending, and no-write behavior")]
+    public async Task Role_editor_cancel_restores_authoritative_state_and_save_confirms_success()
+    {
+        await using var seed = await AuthenticationAuthorizationTestSeed.CreateAsync();
+        var session = await LoginAsAdminAsync(seed);
+        var vm = CreateViewModel(seed, session);
+        await vm.LoadUsersAsync();
+        vm.SelectedUser = vm.Users.Single(x => x.Username == "MAKER");
+        vm.ToggleRole(SystemRoles.Checker);
+        Assert.True(vm.IsRoleDirty);
+        Assert.Contains("pending", vm.RoleOptions.Single(x => x.Id == SystemRoles.Checker).StateLabel, StringComparison.OrdinalIgnoreCase);
+        vm.DiscardRoles();
+        Assert.False(vm.IsRoleDirty);
+        Assert.Equal(new[] { SystemRoles.Maker }, vm.AssignedRoles);
+        vm.ToggleRole(SystemRoles.Checker);
+        await vm.SetRolesAsync();
+        Assert.Equal("Roles updated for 'MAKER'.", vm.Message);
+        Assert.False(vm.IsRoleDirty);
+    }
+
+    [Fact(DisplayName = "TD-UI-003 validation failure refreshes authoritative role state")]
+    public async Task Validation_failure_does_not_present_local_roles_as_saved()
+    {
+        await using var seed = await AuthenticationAuthorizationTestSeed.CreateAsync();
+        var session = await LoginAsAdminAsync(seed);
+        var vm = CreateViewModel(seed, session);
+        await vm.LoadUsersAsync();
+        vm.SelectedUser = vm.Users.Single(x => x.Username == "MAKER");
+        vm.ToggleRole(SystemRoles.Checker);
+        var current = await seed.Repository.FindByUsernameAsync("MAKER");
+        Assert.True((await seed.Repository.ReplaceRolesAsync("MAKER", new[] { SystemRoles.Checker }, current!.RoleVersion,
+            new("ADMIN", "MAKER", current.Roles, new[] { SystemRoles.Checker }, DateTimeOffset.UtcNow, "RolesUpdated"))).Succeeded);
+        await vm.SetRolesAsync();
+        Assert.Contains("changed", vm.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(new[] { SystemRoles.Checker }, vm.CurrentRoles);
+        Assert.Equal(new[] { SystemRoles.Maker, SystemRoles.Checker }, vm.AssignedRoles);
+        Assert.True(vm.IsRoleDirty);
     }
 
     private static async Task<SessionAuthenticationService> LoginAsAdminAsync(AuthenticationAuthorizationTestSeed seed)

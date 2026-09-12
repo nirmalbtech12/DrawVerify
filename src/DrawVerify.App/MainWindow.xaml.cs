@@ -18,7 +18,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         CompositionRoot.Initialize(); InitializeComponent();
-        if (System.Windows.Application.Current.Resources["BrandIconSource"] is System.Windows.Media.ImageSource icon) Icon = icon;
+        if (System.Windows.Application.Current?.Resources["BrandIconSource"] is System.Windows.Media.ImageSource icon) Icon = icon;
         Loaded += async (_, _) => await ApplySystemRetentionAsync(); ShowLogin();
         InputBindings.Add(new KeyBinding(new RelayCommand(_ => GoBack()), Key.Left, ModifierKeys.Alt));
     }

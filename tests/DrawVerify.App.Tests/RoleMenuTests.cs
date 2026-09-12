@@ -9,6 +9,18 @@ namespace DrawVerify.App.Tests;
 
 public sealed class RoleMenuTests
 {
+    [Fact(DisplayName = "TD-UI-004 only Admin can access role administration navigation")]
+    public void Role_assignment_navigation_is_admin_only()
+    {
+        Sta.Run(() =>
+        {
+            var adminMenus = new RoleMenuBuilder(new TestSession(SystemRoles.Admin), new RoleAuthorization()).Build(_ => { }, () => Task.CompletedTask, _ => { });
+            var userMenus = new RoleMenuBuilder(new TestSession(SystemRoles.Maker), new RoleAuthorization()).Build(_ => { }, () => Task.CompletedTask, _ => { });
+            var admin = Assert.Single(adminMenus, x => x.Header?.ToString() == "_Admin");
+            Assert.Contains(admin.Items.Cast<MenuItem>(), x => x.Header?.ToString() == "_Role Assignment");
+            Assert.DoesNotContain(userMenus, x => x.Header?.ToString() == "_Admin");
+        });
+    }
     [Theory(DisplayName = "WPF-003 role menu matrix contains only permitted top-level entries")]
     [InlineData(SystemRoles.Maker, true, false)]
     [InlineData(SystemRoles.Checker, false, false)]
