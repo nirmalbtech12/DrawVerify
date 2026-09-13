@@ -64,7 +64,7 @@ public static class CompositionRoot
     public static IWorkflowService CreateWorkflowService()
     {
         var database = DatabasePath(); var logger = new CentralizedLogger();
-        return new WorkflowService(new SqliteWorkflowRepository(database, logger), Session, WorkflowConfiguration, Authorization, logger, new SqliteDocumentRepository(database, logger), new SqliteVerificationSessionRepository(database));
+        return new WorkflowService(new SqliteWorkflowRepository(database, logger, WorkflowConfiguration), Session, WorkflowConfiguration, Authorization, logger, new SqliteDocumentRepository(database, logger), new SqliteVerificationSessionRepository(database));
     }
     public static DimensionMatchingConfiguration ConfiguredDimensionMatching => DimensionMatchingConfiguration;
     public static GdtValidator CreateGdtValidator()
@@ -140,9 +140,9 @@ public static class CompositionRoot
         return new DxfDrawingGenerationService(documents, new DocumentFileStore(AppContext.BaseDirectory, StepUploadConfiguration), dxfFiles, new OcctGeometryService(), new SqliteAuditRepository(database), Session, Authorization, logger, users, extraction);
     }
     public static DocumentDetailViewModel CreateDocumentDetailViewModel(DrawVerify.Core.Models.Document document) =>
-        new(document, CreateDxfDimensionExtractionService(), CreateWorkflowService());
+        new(document, CreateDxfDimensionExtractionService(), CreateWorkflowService(), null, Session, Authorization);
     public static DocumentDetailViewModel CreateDocumentDetailViewModel(DrawVerify.Core.Models.Document document, DrawVerify.Core.Models.SubmissionRequest submissionRequest) =>
-        new(document, CreateDxfDimensionExtractionService(), CreateWorkflowService(), submissionRequest);
+        new(document, CreateDxfDimensionExtractionService(), CreateWorkflowService(), submissionRequest, Session, Authorization);
     public static DimensionMatchingService CreateDimensionMatchingService()
     {
         var database = DatabasePath();

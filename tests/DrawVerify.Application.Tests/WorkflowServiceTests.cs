@@ -119,6 +119,35 @@ public sealed class WorkflowServiceTests
         Assert.Empty(f.Workflow.Submissions);
     }
 
+    [Fact(DisplayName = "TD-APP-02 verification processing failure is explicit and non-mutating")]
+    public async Task Verification_processing_failure_is_rejected_without_submission()
+    {
+        var f = Fixture.Create();
+        f.Request = f.Request with { VerificationError = "verification worker failed" };
+
+        var result = await f.Service.SubmitForReviewAsync(f.Request);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains(result.Errors, x => x.Contains("Verification failed", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(WorkflowStatus.Draft, f.Workflow.InitialStatus);
+        Assert.Empty(f.Workflow.Submissions);
+        Assert.Equal(DocumentAuditAction.SubmissionRejected, Assert.Single(f.Workflow.Audits).Action);
+    }
+
+    [Fact(DisplayName = "TD-APP-01 InPreparation is an eligible initial state")]
+    public async Task In_preparation_package_can_be_submitted()
+    {
+        var f = Fixture.Create();
+        f.WorkflowState = new WorkflowState { PackageId = Package, Status = WorkflowStatus.InPreparation, Revision = 1 };
+
+        var result = await f.Service.SubmitForReviewAsync(f.Request);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(WorkflowStatus.SubmittedForReview, result.State!.Status);
+        Assert.Equal(WorkflowStatus.InPreparation, f.Workflow.InitialStatus);
+        Assert.Single(f.Workflow.Submissions);
+    }
+
     [Fact(DisplayName = "TD-APP-03 changed package is marked superseded")]
     public async Task Changed_document_reference_supersedes_submission()
     {

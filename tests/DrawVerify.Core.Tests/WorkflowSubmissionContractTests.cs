@@ -79,4 +79,15 @@ public sealed class WorkflowSubmissionContractTests
             Assert.Throws<InvalidOperationException>(configuration.Validate);
     }
 
+    [Fact(DisplayName = "TD-CORE-01 preserves legacy audit action values")]
+    public void Existing_audit_action_values_remain_stable()
+    {
+        Assert.Equal(1, (int)DocumentAuditAction.Uploaded);
+        Assert.Equal(4, (int)DocumentAuditAction.Cancelled);
+        Assert.Equal(19, (int)DocumentAuditAction.StatusChanged);
+        Assert.Equal(32, (int)DocumentAuditAction.SubmissionSucceeded);
+        Assert.Equal(33, (int)DocumentAuditAction.SubmissionCancelled);
+        Assert.Equal(34, (int)DocumentAuditAction.SubmissionRejected);
+    }
+
 }

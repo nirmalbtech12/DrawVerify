@@ -2,6 +2,7 @@ using System.Globalization;
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
+using DrawVerify.Core.Configuration;
 using Microsoft.Data.Sqlite;
 
 namespace DrawVerify.Infrastructure.Persistence;
@@ -12,8 +13,11 @@ namespace DrawVerify.Infrastructure.Persistence;
 public sealed class SqliteWorkflowRepository : IWorkflowRepository
 {
     private readonly string _connectionString;
-    public SqliteWorkflowRepository(string databasePath, ICentralizedLogger? logger = null)
+    private readonly WorkflowConfiguration _configuration;
+    public SqliteWorkflowRepository(string databasePath, ICentralizedLogger? logger = null, WorkflowConfiguration? configuration = null)
     {
+        _configuration = configuration ?? new WorkflowConfiguration { PermittedInitialStates = new[] { WorkflowStatus.Draft, WorkflowStatus.InPreparation }, SubmittedForReviewState = WorkflowStatus.SubmittedForReview, DuplicateSubmissionStates = new[] { WorkflowStatus.SubmittedForReview, WorkflowStatus.UnderReview, WorkflowStatus.Approved } };
+        _configuration.Validate();
         _connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath }.ToString();
         try { Initialize(); } catch (Exception ex) { logger?.Log(ex, "SQLite workflow migration", $"Unable to initialize workflow schema at '{databasePath}'."); throw; }
     }
@@ -47,7 +51,7 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository
         try
         {
             if (!submission.MakerAuthorized || string.IsNullOrWhiteSpace(submission.MakerUserId) || !string.Equals(submission.MakerUserId, audit.UserId, StringComparison.Ordinal)) throw new UnauthorizedAccessException("A Maker authorization snapshot is required for workflow submission.");
-            if (expected.Status is not (WorkflowStatus.Draft or WorkflowStatus.InPreparation)) throw new InvalidOperationException($"The package is in '{expected.Status}', and cannot be submitted for review.");
+            if (!_configuration.PermittedInitialStates.Contains(expected.Status)) throw new InvalidOperationException($"The package is in '{expected.Status}', and cannot be submitted for review.");
             await using var stateCommand = c.CreateCommand(); stateCommand.Transaction = t; stateCommand.CommandText = "SELECT Status,Revision FROM WorkflowState WHERE PackageId=$package"; stateCommand.Parameters.AddWithValue("$package", expected.PackageId.ToString());
             await using var stateReader = await stateCommand.ExecuteReaderAsync(token);
             var stateExists = await stateReader.ReadAsync(token);
@@ -56,9 +60,9 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository
             await stateReader.DisposeAsync();
             if (stateExists && (currentStatus != (int)expected.Status || currentRevision != expected.Revision)) throw new InvalidOperationException("The package workflow state changed before submission; refresh and try again.");
             if (stateExists)
-                await Exec(c, t, "UPDATE WorkflowState SET Status=$status,UpdatedUtc=$updated WHERE PackageId=$package AND Status=$expectedStatus AND Revision=$revision", token, ("$package", expected.PackageId.ToString()), ("$status", (int)WorkflowStatus.SubmittedForReview), ("$updated", submission.SubmittedUtc.ToString("O", CultureInfo.InvariantCulture)), ("$expectedStatus", (int)expected.Status), ("$revision", expected.Revision));
+                await Exec(c, t, "UPDATE WorkflowState SET Status=$status,UpdatedUtc=$updated WHERE PackageId=$package AND Status=$expectedStatus AND Revision=$revision", token, ("$package", expected.PackageId.ToString()), ("$status", (int)_configuration.SubmittedForReviewState), ("$updated", submission.SubmittedUtc.ToString("O", CultureInfo.InvariantCulture)), ("$expectedStatus", (int)expected.Status), ("$revision", expected.Revision));
             else
-                await Exec(c, t, "INSERT INTO WorkflowState(PackageId,Status,Revision,UpdatedUtc) VALUES($package,$status,$revision,$updated)", token, ("$package", expected.PackageId.ToString()), ("$status", (int)WorkflowStatus.SubmittedForReview), ("$revision", expected.Revision), ("$updated", submission.SubmittedUtc.ToString("O", CultureInfo.InvariantCulture)));
+                await Exec(c, t, "INSERT INTO WorkflowState(PackageId,Status,Revision,UpdatedUtc) VALUES($package,$status,$revision,$updated)", token, ("$package", expected.PackageId.ToString()), ("$status", (int)_configuration.SubmittedForReviewState), ("$revision", expected.Revision), ("$updated", submission.SubmittedUtc.ToString("O", CultureInfo.InvariantCulture)));
             await Exec(c, t, "INSERT INTO ReviewSubmission(SubmissionId,PackageId,DxfDocumentId,StepDocumentVersionId,DxfDocumentVersionId,VerificationSessionId,ExtractionEvidenceJson,VerificationEvidenceJson,Revision,MakerUserId,MakerDisplayName,SubmittedUtc,Note,Status) VALUES($id,$package,$dxfDocument,$step,$dxf,$session,$extract,$verify,$revision,$maker,$display,$submitted,$note,$status)", token, ("$id", submission.SubmissionId.ToString()), ("$package", submission.PackageId.ToString()), ("$dxfDocument", submission.DxfDocumentId.ToString()), ("$step", submission.StepDocumentVersionId.ToString()), ("$dxf", submission.DxfDocumentVersionId.ToString()), ("$session", submission.VerificationSessionId.ToString()), ("$extract", submission.ExtractionEvidenceJson), ("$verify", submission.VerificationEvidenceJson), ("$revision", submission.Revision), ("$maker", submission.MakerUserId), ("$display", submission.MakerDisplayName), ("$submitted", submission.SubmittedUtc.ToString("O", CultureInfo.InvariantCulture)), ("$note", (object?)submission.Note ?? DBNull.Value), ("$status", (int)submission.Status));
             await InsertAudit(c, t, audit, token); await t.CommitAsync(token); return submission;
         }

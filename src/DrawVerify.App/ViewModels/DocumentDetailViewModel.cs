@@ -5,6 +5,7 @@ using DrawVerify.Application.Services;
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Models;
 using DrawVerify.Core.Interfaces;
+using DrawVerify.Core.Authorization;
 using CoreDocumentType = DrawVerify.Core.Enums.DocumentType;
 using CoreUploadStatus = DrawVerify.Core.Enums.UploadStatus;
 
@@ -20,6 +21,8 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     private bool _isBusy;
     private readonly IWorkflowService? _workflowService;
     private readonly SubmissionRequest? _submissionRequest;
+    private readonly ISessionAuthenticationService? _authentication;
+    private readonly RoleAuthorization _authorization = new();
 
     public DocumentDetailViewModel()
     {
@@ -29,9 +32,9 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
 
     public DocumentDetailViewModel(Document document) : this(document, null) { }
 
-    public DocumentDetailViewModel(Document document, DxfDimensionExtractionService? dimensionService, IWorkflowService? workflowService = null, SubmissionRequest? submissionRequest = null) : this()
+    public DocumentDetailViewModel(Document document, DxfDimensionExtractionService? dimensionService, IWorkflowService? workflowService = null, SubmissionRequest? submissionRequest = null, ISessionAuthenticationService? authentication = null, RoleAuthorization? authorization = null) : this()
     {
-        _dimensionService = dimensionService; _workflowService = workflowService; _submissionRequest = submissionRequest;
+        _dimensionService = dimensionService; _workflowService = workflowService; _submissionRequest = submissionRequest; _authentication = authentication; _authorization = authorization ?? new RoleAuthorization();
         SubmitForReviewCommand = new RelayCommand(_ => RaiseSubmissionRequested(), _ => CanSubmitForReview);
         Load(document);
     }
@@ -40,7 +43,7 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     public event Action<Guid>? SubmitRequested;
     public event Action<SubmissionRequest>? SubmissionRequested;
     public ICommand SubmitForReviewCommand { get; private set; } = new RelayCommand(_ => { }, _ => false);
-    public bool CanSubmitForReview => _workflowService is not null && _document is not null;
+    public bool CanSubmitForReview => _workflowService is not null && _document is not null && (_authentication is null || (_authentication.IsAuthenticated && _authorization.IsAllowed(_authentication.CurrentUser, RolePermission.SubmitForReview)));
     public Document? Document => _document;
     public string OriginalFileName => _document?.OriginalFileName ?? string.Empty;
     public long FileSizeBytes => _document?.FileSizeBytes ?? 0;
@@ -82,11 +85,19 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     {
         if (_document is null) return;
         SubmitRequested?.Invoke(_document.DocumentId);
-        SubmissionRequested?.Invoke(_submissionRequest ?? new SubmissionRequest(_document.DocumentId)
+        var provided = _submissionRequest;
+        var request = (provided ?? new SubmissionRequest(_document.DocumentId)) with
         {
-            StepDocumentVersionId = _document.Version?.VersionId ?? Guid.Empty,
-            ExtractionCompleted = _document.GeometryStatus == DrawVerify.Core.Enums.GeometryStatus.Processed
-        });
+            StepDocumentVersionId = provided is not null && provided.StepDocumentVersionId != Guid.Empty ? provided.StepDocumentVersionId : (_document.DocumentType == CoreDocumentType.StepModel ? _document.Version?.VersionId ?? Guid.Empty : Guid.Empty),
+            DxfDocumentId = provided is not null && provided.DxfDocumentId != Guid.Empty ? provided.DxfDocumentId : (_document.DocumentType == CoreDocumentType.DxfDrawing ? _document.DocumentId : Guid.Empty),
+            DxfDocumentVersionId = provided is not null && provided.DxfDocumentVersionId != Guid.Empty ? provided.DxfDocumentVersionId : (_document.DocumentType == CoreDocumentType.DxfDrawing ? _document.Version?.VersionId ?? Guid.Empty : Guid.Empty),
+            ExtractionCompleted = provided?.ExtractionCompleted == true || _document.GeometryStatus == DrawVerify.Core.Enums.GeometryStatus.Processed,
+            DxfAvailable = provided?.DxfAvailable == true || _document.DocumentType == CoreDocumentType.DxfDrawing,
+            VerificationCompleted = provided?.VerificationCompleted == true || _document.VerificationStatus == VerificationStatus.DimensionsExtracted,
+            ExtractionEvidenceJson = !string.IsNullOrWhiteSpace(provided?.ExtractionEvidenceJson) && provided.ExtractionEvidenceJson != "{}" ? provided.ExtractionEvidenceJson : System.Text.Json.JsonSerializer.Serialize(new { documentId = _document.DocumentId, versionId = _document.Version?.VersionId, geometryStatus = _document.GeometryStatus }),
+            VerificationEvidenceJson = !string.IsNullOrWhiteSpace(provided?.VerificationEvidenceJson) && provided.VerificationEvidenceJson != "{}" ? provided.VerificationEvidenceJson : System.Text.Json.JsonSerializer.Serialize(new { documentId = _document.DocumentId, versionId = _document.Version?.VersionId, verificationStatus = _document.VerificationStatus })
+        };
+        SubmissionRequested?.Invoke(request);
     }
 
     public void Load(Document document)
