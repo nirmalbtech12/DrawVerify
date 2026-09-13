@@ -25,6 +25,8 @@ public sealed class SqliteWorkflowRepositoryTests
             var queue = Assert.Single(await repository.GetCheckerQueueAsync());
             Assert.Equal(package, queue.PackageId); Assert.Equal(1, queue.Revision); Assert.Equal("Maker One", queue.MakerDisplayName);
             Assert.Equal(snapshot.VerificationEvidenceJson, queue.VerificationSummary);
+            Assert.Equal(snapshot.DxfDocumentId, loaded.DxfDocumentId);
+            Assert.Equal(snapshot.Note, loaded.Note);
         }
         finally { Delete(path); }
     }
@@ -84,7 +86,33 @@ public sealed class SqliteWorkflowRepositoryTests
         finally { Delete(path); }
     }
 
-    private static ReviewSubmission Snapshot(Guid package) => new() { SubmissionId = Guid.NewGuid(), PackageId = package, StepDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000011"), DxfDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000012"), VerificationSessionId = Guid.Parse("00000000-0000-0000-0000-000000000013"), ExtractionEvidenceJson = "{\"extracted\":true}", VerificationEvidenceJson = "{\"verified\":true}", MakerUserId = "maker-001", MakerDisplayName = "Maker One", SubmittedUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), Note = "Please review hole tolerances", Revision = 1 };
+    [Fact(DisplayName = "TD-INFRA-02 additive migration preserves legacy audit rows")]
+    public async Task Migration_preserves_existing_audit_rows()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-workflow-{Guid.NewGuid():N}.db");
+        var package = Guid.NewGuid();
+        try
+        {
+            await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString()))
+            {
+                await connection.OpenAsync();
+                await using var command = connection.CreateCommand();
+                command.CommandText = "CREATE TABLE DocumentAuditLog (AuditId TEXT PRIMARY KEY, DocumentId TEXT NULL, Action INTEGER NOT NULL, UserId TEXT NULL, TimestampUtc TEXT NOT NULL, DetailsJson TEXT NOT NULL); INSERT INTO DocumentAuditLog VALUES ('legacy-audit', $document, 0, 'legacy-user', '2026-01-01T00:00:00.0000000Z', $details);";
+                command.Parameters.AddWithValue("$document", package.ToString());
+                command.Parameters.AddWithValue("$details", "{\"legacy\":true}");
+                await command.ExecuteNonQueryAsync();
+            }
+
+            var repository = new SqliteWorkflowRepository(path);
+            await using var verify = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString());
+            await verify.OpenAsync();
+            await using var count = verify.CreateCommand(); count.CommandText = "SELECT COUNT(*) FROM DocumentAuditLog WHERE AuditId='legacy-audit'";
+            Assert.Equal(1L, await count.ExecuteScalarAsync());
+        }
+        finally { Delete(path); }
+    }
+
+    private static ReviewSubmission Snapshot(Guid package) => new() { SubmissionId = Guid.NewGuid(), PackageId = package, DxfDocumentId = Guid.Parse("00000000-0000-0000-0000-000000000010"), StepDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000011"), DxfDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000012"), VerificationSessionId = Guid.Parse("00000000-0000-0000-0000-000000000013"), ExtractionEvidenceJson = "{\"extracted\":true}", VerificationEvidenceJson = "{\"verified\":true}", MakerUserId = "maker-001", MakerDisplayName = "Maker One", SubmittedUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), Note = "Please review hole tolerances", Revision = 1 };
     private static AuditEntry Audit(DocumentAuditAction action, Guid package, string result) => new() { DocumentId = package, UserId = "maker-001", Action = action, TimestampUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), DetailsJson = $"{{\"packageId\":\"{package}\",\"revision\":1,\"result\":\"{result}\",\"maker\":\"Maker One\"}}" };
     private static void Delete(string path)
     {

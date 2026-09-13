@@ -18,6 +18,7 @@ public sealed class WorkflowViewModelTests
         viewModel.Queue.Add(new WorkflowQueueItem(package, 1, "Maker One", new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), WorkflowStatus.SubmittedForReview, "verified"));
         Assert.Equal(WorkflowStatus.SubmittedForReview, viewModel.Queue.Single().Status); Assert.Equal("Maker One", viewModel.Queue.Single().MakerDisplayName);
         viewModel.CancelCommand.Execute(null); Assert.False(viewModel.IsConfirmationVisible); Assert.Equal("Please review hole tolerances", viewModel.Note); Assert.Equal(1, service.CancellationCalls);
+        Assert.Equal(0, service.SubmissionCalls);
     }
 
     [Fact(DisplayName = "TD-UI-02 queue displays required Checker fields")]
@@ -86,6 +87,23 @@ public sealed class WorkflowViewModelTests
         await WaitForAsync(() => !string.IsNullOrEmpty(viewModel.Message), TimeSpan.FromSeconds(5));
         Assert.Contains("could not be submitted", viewModel.Message);
         Assert.False(navigated); Assert.True(viewModel.IsConfirmationVisible);
+    }
+
+    [Fact(DisplayName = "TD-UI-02 duplicate workflow status is shown without success")]
+    public async Task Duplicate_submission_displays_current_status()
+    {
+        var service = new FakeWorkflowService { Result = new SubmissionResult(false, "The package is already Under Review.", Failures: new[] { "The package is already Under Review." }) };
+        var maker = new AuthenticatedUser("maker", new[] { SystemRoles.Maker }) { UserId = "maker-001", DisplayName = "Maker One" };
+        var viewModel = new WorkflowViewModel(service, new FakeAuthentication(maker));
+        viewModel.BeginSubmission(Guid.NewGuid());
+        await WaitForAsync(() => viewModel.IsConfirmationVisible, TimeSpan.FromSeconds(5));
+
+        viewModel.SubmitCommand.Execute(null);
+        await WaitForAsync(() => !string.IsNullOrEmpty(viewModel.Message), TimeSpan.FromSeconds(5));
+
+        Assert.Contains("Under Review", viewModel.Message);
+        Assert.True(viewModel.IsConfirmationVisible);
+        Assert.Equal(1, service.SubmissionCalls);
     }
 
     private static async Task WaitForAsync(Func<bool> condition, TimeSpan timeout)

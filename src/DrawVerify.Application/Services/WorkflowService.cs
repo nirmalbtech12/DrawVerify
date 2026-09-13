@@ -32,6 +32,8 @@ public sealed class WorkflowService : IWorkflowService
     public async Task<SubmissionReadiness> ValidateReadinessAsync(Guid packageId, CancellationToken cancellationToken = default)
     {
         var failures = new List<string>();
+        try
+        {
         if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.SubmitForReview)) failures.Add("Only an authenticated Maker can submit a package for review.");
         var state = await _workflow.GetStateAsync(packageId, cancellationToken).ConfigureAwait(false);
         if (state is null) failures.Add("The package has no workflow state and cannot be submitted.");
@@ -53,10 +55,18 @@ public sealed class WorkflowService : IWorkflowService
             return new(true, failures);
         }
         return new(failures.Count == 0, failures);
+        }
+        catch (Exception exception)
+        {
+            _logger?.Log(exception, "Workflow readiness validation", $"Unable to validate packageId={packageId}; operation=repository-and-consistency-check.");
+            throw;
+        }
     }
 
     public async Task<SubmissionReadiness> ValidateReadinessAsync(SubmissionRequest request, CancellationToken cancellationToken = default)
     {
+        try
+        {
         var readiness = await ValidateReadinessAsync(request.PackageId, cancellationToken).ConfigureAwait(false);
         var failures = new List<string>(readiness.Failures); ValidateRequest(request, failures);
         if (_documents is not null)
@@ -76,6 +86,12 @@ public sealed class WorkflowService : IWorkflowService
             }
         }
         return new(failures.Count == 0, failures);
+        }
+        catch (Exception exception)
+        {
+            _logger?.Log(exception, "Workflow readiness validation", $"Unable to validate packageId={request.PackageId}; operation=request-version-and-verification-consistency-check.");
+            throw;
+        }
     }
 
     private static void ValidateRequest(SubmissionRequest request, ICollection<string> failures)

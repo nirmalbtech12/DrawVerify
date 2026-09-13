@@ -66,4 +66,17 @@ public sealed class WorkflowSubmissionContractTests
         Assert.NotEqual(original.StepDocumentVersionId, replacement.StepDocumentVersionId);
     }
 
+    [Fact(DisplayName = "TD-CORE-01 workflow configuration rejects contradictory rules")]
+    public void Configuration_requires_the_submitted_state_and_all_duplicate_states()
+    {
+        var configurations = new[]
+        {
+            new WorkflowConfiguration { PermittedInitialStates = new[] { WorkflowStatus.Draft, WorkflowStatus.InPreparation }, DuplicateSubmissionStates = new[] { WorkflowStatus.SubmittedForReview, WorkflowStatus.UnderReview } },
+            new WorkflowConfiguration { PermittedInitialStates = new[] { WorkflowStatus.Draft }, SubmittedForReviewState = WorkflowStatus.UnderReview, DuplicateSubmissionStates = new[] { WorkflowStatus.SubmittedForReview, WorkflowStatus.UnderReview, WorkflowStatus.Approved } }
+        };
+
+        foreach (var configuration in configurations)
+            Assert.Throws<InvalidOperationException>(configuration.Validate);
+    }
+
 }

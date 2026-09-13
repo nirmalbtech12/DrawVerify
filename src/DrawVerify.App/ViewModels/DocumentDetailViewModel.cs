@@ -19,6 +19,7 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     private string _errorMessage = string.Empty;
     private bool _isBusy;
     private readonly IWorkflowService? _workflowService;
+    private readonly SubmissionRequest? _submissionRequest;
 
     public DocumentDetailViewModel()
     {
@@ -28,15 +29,16 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
 
     public DocumentDetailViewModel(Document document) : this(document, null) { }
 
-    public DocumentDetailViewModel(Document document, DxfDimensionExtractionService? dimensionService, IWorkflowService? workflowService = null) : this()
+    public DocumentDetailViewModel(Document document, DxfDimensionExtractionService? dimensionService, IWorkflowService? workflowService = null, SubmissionRequest? submissionRequest = null) : this()
     {
-        _dimensionService = dimensionService; _workflowService = workflowService;
-        SubmitForReviewCommand = new RelayCommand(_ => SubmitRequested?.Invoke(_document!.DocumentId), _ => CanSubmitForReview);
+        _dimensionService = dimensionService; _workflowService = workflowService; _submissionRequest = submissionRequest;
+        SubmitForReviewCommand = new RelayCommand(_ => RaiseSubmissionRequested(), _ => CanSubmitForReview);
         Load(document);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public event Action<Guid>? SubmitRequested;
+    public event Action<SubmissionRequest>? SubmissionRequested;
     public ICommand SubmitForReviewCommand { get; private set; } = new RelayCommand(_ => { }, _ => false);
     public bool CanSubmitForReview => _workflowService is not null && _document is not null;
     public Document? Document => _document;
@@ -75,6 +77,17 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     public ICommand ExtractCommand => ExtractDimensionsCommand;
     public ICommand LoadDimensionsCommand { get; }
     public ICommand RefreshDimensionsCommand => LoadDimensionsCommand;
+
+    private void RaiseSubmissionRequested()
+    {
+        if (_document is null) return;
+        SubmitRequested?.Invoke(_document.DocumentId);
+        SubmissionRequested?.Invoke(_submissionRequest ?? new SubmissionRequest(_document.DocumentId)
+        {
+            StepDocumentVersionId = _document.Version?.VersionId ?? Guid.Empty,
+            ExtractionCompleted = _document.GeometryStatus == DrawVerify.Core.Enums.GeometryStatus.Processed
+        });
+    }
 
     public void Load(Document document)
     {

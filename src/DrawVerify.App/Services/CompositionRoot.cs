@@ -141,6 +141,8 @@ public static class CompositionRoot
     }
     public static DocumentDetailViewModel CreateDocumentDetailViewModel(DrawVerify.Core.Models.Document document) =>
         new(document, CreateDxfDimensionExtractionService(), CreateWorkflowService());
+    public static DocumentDetailViewModel CreateDocumentDetailViewModel(DrawVerify.Core.Models.Document document, DrawVerify.Core.Models.SubmissionRequest submissionRequest) =>
+        new(document, CreateDxfDimensionExtractionService(), CreateWorkflowService(), submissionRequest);
     public static DimensionMatchingService CreateDimensionMatchingService()
     {
         var database = DatabasePath();

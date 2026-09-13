@@ -32,6 +32,7 @@ public sealed class WorkflowServiceTests
         foreach (var setup in new Action<Fixture>[]
         {
             f => f.Document = null,
+            f => f.Request = f.Request with { StepDocumentVersionId = Guid.Empty },
             f => f.Request = f.Request with { DxfAvailable = false },
             f => f.Request = f.Request with { ExtractionCompleted = false },
             f => f.Request = f.Request with { VerificationCompleted = false },
@@ -46,6 +47,55 @@ public sealed class WorkflowServiceTests
             Assert.False(result.Succeeded); Assert.NotEmpty(result.Errors); Assert.Empty(f.Workflow.Submissions); Assert.Single(f.Workflow.Audits); Assert.Equal(expectedStatus, f.Workflow.InitialStatus);
             Assert.Contains(result.Errors, error => error.Contains("available", StringComparison.OrdinalIgnoreCase) || error.Contains("completed", StringComparison.OrdinalIgnoreCase) || error.Contains("failed", StringComparison.OrdinalIgnoreCase) || error.Contains("missing", StringComparison.OrdinalIgnoreCase) || error.Contains("Maker", StringComparison.OrdinalIgnoreCase) || error.Contains("cannot be submitted", StringComparison.OrdinalIgnoreCase));
         }
+    }
+
+    [Fact(DisplayName = "TD-APP-02 unauthenticated submission is denied without mutation")]
+    public async Task Unauthenticated_actor_cannot_submit()
+    {
+        var f = Fixture.Create();
+        f.Auth.User = null;
+
+        var result = await f.Service.SubmitForReviewAsync(f.Request);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains(result.Errors, error => error.Contains("authenticated Maker", StringComparison.OrdinalIgnoreCase));
+        Assert.Empty(f.Workflow.Submissions);
+        Assert.Equal(DocumentAuditAction.SubmissionRejected, Assert.Single(f.Workflow.Audits).Action);
+    }
+
+    [Theory(DisplayName = "TD-APP-02 duplicate states are rejected without submission")]
+    [InlineData(WorkflowStatus.SubmittedForReview)]
+    [InlineData(WorkflowStatus.UnderReview)]
+    [InlineData(WorkflowStatus.Approved)]
+    public async Task Duplicate_states_are_not_mutated(WorkflowStatus status)
+    {
+        var f = Fixture.Create();
+        f.WorkflowState = new WorkflowState { PackageId = Package, Status = status, Revision = 1 };
+
+        var result = await f.Service.SubmitForReviewAsync(f.Request);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains(status.ToString(), string.Join(" ", result.Errors));
+        Assert.Equal(status, f.Workflow.InitialStatus);
+        Assert.Empty(f.Workflow.Submissions);
+    }
+
+    [Theory(DisplayName = "TD-APP-02 every non-Maker role is denied without mutation")]
+    [InlineData(SystemRoles.Checker)]
+    [InlineData(SystemRoles.Approver)]
+    [InlineData(SystemRoles.Viewer)]
+    public async Task Non_maker_roles_cannot_submit(string role)
+    {
+        var f = Fixture.Create();
+        f.Auth.User = new AuthenticatedUser(role, new[] { role }) { UserId = role + "-001", DisplayName = role };
+
+        var result = await f.Service.SubmitForReviewAsync(f.Request);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains(result.Errors, error => error.Contains("Maker", StringComparison.OrdinalIgnoreCase));
+        Assert.Empty(f.Workflow.Submissions);
+        Assert.Equal(WorkflowStatus.Draft, f.Workflow.InitialStatus);
+        Assert.Equal(DocumentAuditAction.SubmissionRejected, Assert.Single(f.Workflow.Audits).Action);
     }
 
     [Fact(DisplayName = "TD-APP-03 changed references cannot silently replace submission")]
@@ -117,6 +167,20 @@ public sealed class WorkflowServiceTests
         Assert.Equal(DocumentAuditAction.SubmissionCancelled, audit.Action); Assert.Equal("maker-001", audit.UserId);
         Assert.Contains("keep this note", audit.DetailsJson); Assert.Contains(Package.ToString(), audit.DetailsJson);
         Assert.Empty(await f.Service.GetCheckerQueueAsync());
+    }
+
+    [Fact(DisplayName = "TD-APP-04 audit details exclude the optional note payload")]
+    public async Task Successful_audit_contains_context_without_sensitive_note()
+    {
+        var f = Fixture.Create();
+        f.Request = f.Request with { Note = "internal-only note" };
+
+        await f.Service.SubmitForReviewAsync(f.Request);
+
+        var audit = Assert.Single(f.Workflow.Audits);
+        Assert.Contains("maker-001", audit.DetailsJson);
+        Assert.Contains("Maker One", audit.DetailsJson);
+        Assert.DoesNotContain("internal-only note", audit.DetailsJson);
     }
 
     private sealed class Fixture

@@ -5,6 +5,7 @@ using DrawVerify.App.Navigation;
 using DrawVerify.App.Services;
 using DrawVerify.App.ViewModels;
 using DrawVerify.App.Views;
+using DrawVerify.Core.Models;
 using DrawVerify.Infrastructure.Logging;
 
 namespace DrawVerify.App;
@@ -13,6 +14,7 @@ public partial class MainWindow : Window
 {
     private ShellView? _shell;
     private NavigationService? _navigation;
+    private SubmissionRequest? _pendingSubmission;
     private readonly NavigationHistory _history = new();
     public Func<MessageBoxResult> DiscardConfirmation { get; set; } = () => MessageBox.Show("Discard unsaved changes?", "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Warning);
     public MainWindow()
@@ -42,6 +44,17 @@ public partial class MainWindow : Window
         if (requestedTarget is not null && guard.CanAccess(requestedTarget)) Navigate(requestedTarget); else Navigate(ScreenRegistry.Dashboard);
     }
     private void Navigate(string target) => _navigation?.Navigate(target, () => CreateScreen(target));
+    public void ShowDocumentDetails(Document document, SubmissionRequest submissionRequest)
+    {
+        var view = new DocumentDetailView { DataContext = CompositionRoot.CreateDocumentDetailViewModel(document, submissionRequest) };
+        ((DocumentDetailViewModel)view.DataContext).SubmissionRequested += request =>
+        {
+            _pendingSubmission = request;
+            Navigate(ScreenRegistry.Workflow);
+        };
+        if (_shell is null) ShowAuthenticatedContent();
+        _shell?.SetScreen(view, "DocumentDetails");
+    }
     private UIElement CreateScreen(string target)
     {
         if (target == ScreenRegistry.Dashboard) return new DashboardView { DataContext = new DashboardViewModel(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization) };
@@ -49,7 +62,7 @@ public partial class MainWindow : Window
         if (target == ScreenRegistry.StepUpload) { var view = new StepUploadView { DataContext = CompositionRoot.CreateStepUploadViewModel() }; view.AttachFilePicker((StepUploadViewModel)view.DataContext); view.BackRequested += () => HandleTaskBack((TaskScreenViewModel)view.DataContext); return view; }
         if (target == ScreenRegistry.DxfUpload) { var view = new DxfUploadView { DataContext = CompositionRoot.CreateDxfUploadViewModel() }; view.AttachFilePicker((DxfUploadViewModel)view.DataContext); view.BackRequested += () => HandleTaskBack((TaskScreenViewModel)view.DataContext); return view; }
         if (target == ScreenRegistry.Verification) { var view = new VerificationView { DataContext = new VerificationViewModel(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization, CompositionRoot.CreateDimensionMatchingService(), new CentralizedLogger(), CompositionRoot.ConfiguredDimensionMatching) }; view.BackRequested += () => HandleTaskBack((TaskScreenViewModel)view.DataContext); return view; }
-        if (target == ScreenRegistry.Workflow) { var model = new WorkflowViewModel(CompositionRoot.CreateWorkflowService(), CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization, new CentralizedLogger()); model.NavigationRequested += _ => Navigate(ScreenRegistry.Workflow); var view = new WorkflowView { DataContext = model }; view.BackRequested += () => HandleTaskBack(model); _ = model.LoadQueueAsync(); return view; }
+        if (target == ScreenRegistry.Workflow) { var model = new WorkflowViewModel(CompositionRoot.CreateWorkflowService(), CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization, new CentralizedLogger()); model.NavigationRequested += _ => Navigate(ScreenRegistry.Workflow); var pending = _pendingSubmission; _pendingSubmission = null; if (pending is not null) model.BeginSubmission(pending); var view = new WorkflowView { DataContext = model }; view.BackRequested += () => HandleTaskBack(model); _ = model.LoadQueueAsync(); return view; }
         if (target == ScreenRegistry.UserAdministration) return CreateAdministrationView();
         if (target == ScreenRegistry.AuditLog) return new AuditLogView { DataContext = new AuditLogViewModel(CompositionRoot.CreateAuditLogService()) };
         if (target == ScreenRegistry.Report) return new ReportView { DataContext = new ReportViewModel(CompositionRoot.CreateReportService(), new CentralizedLogger()) };
