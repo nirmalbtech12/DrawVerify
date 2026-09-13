@@ -6,6 +6,9 @@ namespace DrawVerify.Core.Models;
 public sealed record ReviewPackage
 {
     public Guid PackageId { get; init; }
+    public Guid StepDocumentId { get; init; }
+    public Guid DxfDocumentId { get; init; }
+    public Guid VerificationSessionId { get; init; }
     public int Revision { get; init; }
     public WorkflowStatus Status { get; init; }
     public string MakerUserId { get; init; } = string.Empty;
@@ -34,6 +37,7 @@ public sealed record ReviewPackage
         return new()
         {
         PackageId = submission.PackageId, Revision = submission.Revision, Status = submission.Status,
+        DxfDocumentId = submission.DxfDocumentId, VerificationSessionId = submission.VerificationSessionId,
         MakerUserId = submission.MakerUserId, MakerDisplayName = submission.MakerDisplayName, SubmittedUtc = submission.SubmittedUtc,
         Note = submission.Note, StepDocumentVersionId = submission.StepDocumentVersionId, DxfDocumentVersionId = submission.DxfDocumentVersionId,
         ExtractionEvidenceJson = submission.ExtractionEvidenceJson, VerificationEvidenceJson = submission.VerificationEvidenceJson,

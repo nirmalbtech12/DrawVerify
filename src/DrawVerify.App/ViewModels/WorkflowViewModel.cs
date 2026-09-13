@@ -35,6 +35,8 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     public string Message { get => _message; private set { _message = value; RaisePropertyChanged(nameof(Message)); } }
     public WorkflowStatus? CurrentStatus { get => _currentStatus; private set { _currentStatus = value; RaisePropertyChanged(nameof(CurrentStatus)); } }
     public ObservableCollection<WorkflowQueueItem> Queue { get; } = new();
+    public ObservableCollection<ReviewPackage> MakerPackages { get; } = new();
+    public ObservableCollection<ReviewComment> MakerReviewComments { get; } = new();
     public ReviewPackage? ReviewPackage { get => _reviewPackage; private set { _reviewPackage = value; RaisePropertyChanged(nameof(ReviewPackage)); RaiseReviewCommands(); } }
     public string ReviewComment { get => _reviewComment; set { _reviewComment = value ?? string.Empty; RaisePropertyChanged(nameof(ReviewComment)); RaiseReviewCommands(); } }
     public string ReviewError { get => _reviewError; private set { _reviewError = value; RaisePropertyChanged(nameof(ReviewError)); } }
@@ -48,6 +50,7 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     public event Action<SubmissionRequest>? ReturnRequested;
     public event Action? DecisionConfirmationRequested;
     public event Action<ReviewFinding>? VerificationNavigationRequested;
+    public event Action<ReviewPackage>? MakerPackageSelected;
     public ICommand SubmitCommand { get; }
     public ICommand CancelCommand { get; }
     public ICommand ApproveCommand { get; private set; } = null!;
@@ -76,11 +79,24 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
         if (ReviewPackage is null || _service is null) return;
         if (RequireSectionConfirmation && !HasViewedKeySections && !_decisionConfirmed) { _pendingDecision = type; DecisionConfirmationRequested?.Invoke(); ReviewError = "Review the Documents and Verification sections, then confirm the decision."; return; }
         try { await _service.DecideAsync(ReviewPackage.PackageId, ReviewPackage.Revision, type, ReviewComment); ReviewError = string.Empty; await LoadQueueAsync(); }
-        catch (Exception exception) { _logger?.Log(exception, "WPF review decision", $"Unable to decide packageId={ReviewPackage.PackageId}, revision={ReviewPackage.Revision}."); ReviewError = exception is ArgumentException ? exception.Message : "The review decision could not be saved."; }
+        catch (Exception exception) { _logger?.Log(exception, "WPF review decision", $"Unable to complete review decision notification for packageId={ReviewPackage.PackageId}, revision={ReviewPackage.Revision}."); ReviewError = exception is ArgumentException ? exception.Message : "The decision was saved, but Maker notification delivery failed."; }
     }
     public void MarkSectionViewed(string section) { if (!string.IsNullOrWhiteSpace(section)) _viewedSections.Add(section); RaisePropertyChanged(nameof(HasViewedKeySections)); }
     public void ConfirmDecision() { _decisionConfirmed = true; var pending = _pendingDecision; _pendingDecision = null; if (pending is not null) _ = DecideAsync(pending.Value); }
     public void SelectVerificationFinding(ReviewFinding finding) { SelectedVerificationFinding = finding ?? throw new ArgumentNullException(nameof(finding)); VerificationNavigationRequested?.Invoke(finding); }
+    public async Task LoadMakerReviewPackagesAsync()
+    {
+        if (_service is null) return;
+        try { MakerPackages.Clear(); MakerReviewComments.Clear(); foreach (var package in await _service.GetMakerReviewPackagesAsync()) { MakerPackages.Add(package); foreach (var comment in package.Comments) MakerReviewComments.Add(comment); } }
+        catch (UnauthorizedAccessException) { }
+        catch (Exception exception) { _logger?.Log(exception, "WPF Maker review comments", "Unable to load Maker-visible review packages."); }
+    }
+    public async Task SelectMakerPackageAsync(ReviewPackage package)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        try { MakerReviewComments.Clear(); foreach (var comment in (await _service!.GetReviewPackageForReaderAsync(package.PackageId, package.Revision))?.Comments ?? Array.Empty<ReviewComment>()) MakerReviewComments.Add(comment); MakerPackageSelected?.Invoke(package); }
+        catch (Exception exception) { _logger?.Log(exception, "WPF Maker review comments", $"Unable to load comments for packageId={package.PackageId}, revision={package.Revision}."); ReviewError = exception is UnauthorizedAccessException ? "You are not authorized to view these review comments." : "Unable to load review comments."; }
+    }
     private async Task SaveReviewCommentAsync()
     {
         if (ReviewPackage is null || _service is null) return;

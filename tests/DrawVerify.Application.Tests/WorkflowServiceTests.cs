@@ -260,6 +260,36 @@ public sealed class WorkflowServiceTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => f.Service.DecideAsync(Package, 7, ReviewDecisionType.Approve, null));
     }
 
+    [Theory(DisplayName = "TD-APP-051 blank reject or request-change comments do not persist")]
+    [InlineData(ReviewDecisionType.Reject)]
+    [InlineData(ReviewDecisionType.RequestChanges)]
+    public async Task Blank_required_decision_comments_are_rejected_without_mutation(ReviewDecisionType type)
+    {
+        var f = Fixture.Create();
+        f.Auth.User = new AuthenticatedUser("checker", new[] { SystemRoles.Checker }) { UserId = "checker-1", DisplayName = "Checker One" };
+        f.Workflow.ReviewPackage = ReviewPackageFixture();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => f.Service.DecideAsync(Package, 7, type, " \t"));
+
+        Assert.Equal(0, f.Workflow.DecisionCalls);
+        Assert.Null(f.Workflow.SavedStatus);
+        Assert.Empty(f.Workflow.Audits);
+    }
+
+    [Fact(DisplayName = "TD-APP-049 and TD-APP-051 unauthorized review operations are non-mutating")]
+    public async Task Unauthorized_checker_operations_are_denied()
+    {
+        var f = Fixture.Create();
+        f.Workflow.ReviewPackage = ReviewPackageFixture();
+        f.Auth.User = new AuthenticatedUser("viewer", new[] { SystemRoles.Viewer }) { UserId = "viewer-1", DisplayName = "Viewer" };
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service.GetCheckerQueueAsync());
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service.DecideAsync(Package, 7, ReviewDecisionType.Approve, null));
+
+        Assert.Equal(0, f.Workflow.DecisionCalls);
+        Assert.Empty(f.Workflow.Audits);
+    }
+
     [Fact(DisplayName = "TD-APP-052 review comments do not change decision or status")]
     public async Task Review_comment_is_saved_with_author_and_trimmed_text()
     {

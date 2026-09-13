@@ -132,6 +132,11 @@ public sealed class SqliteWorkflowRepositoryTests
             Assert.Equal("checker-1", reopened.PriorDecision.CheckerUserId);
             Assert.Equal("fix dimensions", reopened.PriorDecision.Comments);
             Assert.Equal(submission.ExtractionEvidenceJson, JsonSerializer.Deserialize<ReviewPackage>(reopened.PriorDecision.SnapshotJson)!.ExtractionEvidenceJson);
+            await using var schemaConnection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString());
+            await schemaConnection.OpenAsync();
+            await using var schemaCommand = schemaConnection.CreateCommand();
+            schemaCommand.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('ReviewDecision','ReviewComment','InAppNotification')";
+            Assert.Equal(3L, await schemaCommand.ExecuteScalarAsync());
         }
         finally { Delete(path); }
     }

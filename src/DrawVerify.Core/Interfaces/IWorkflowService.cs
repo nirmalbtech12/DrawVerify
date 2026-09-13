@@ -27,4 +27,6 @@ public interface IWorkflowService
         => Task.FromResult<ReviewPackage?>(null);
     Task<IReadOnlyList<ReviewComment>> GetReviewCommentsAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
         => Task.FromResult<IReadOnlyList<ReviewComment>>(Array.Empty<ReviewComment>());
+    Task<IReadOnlyList<ReviewPackage>> GetMakerReviewPackagesAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<ReviewPackage>>(Array.Empty<ReviewPackage>());
 }

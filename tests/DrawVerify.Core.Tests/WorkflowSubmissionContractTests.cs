@@ -129,4 +129,40 @@ public sealed class WorkflowSubmissionContractTests
         Assert.Equal(39, (int)DocumentAuditAction.ChangesRequested);
     }
 
+    [Theory(DisplayName = "TD-CORE-049 reject and request-change comments are mandatory")]
+    [InlineData(ReviewDecisionType.Reject, null)]
+    [InlineData(ReviewDecisionType.Reject, " ")]
+    [InlineData(ReviewDecisionType.RequestChanges, null)]
+    [InlineData(ReviewDecisionType.RequestChanges, "\t")]
+    public void Decision_types_requiring_comments_reject_blank_values(ReviewDecisionType type, string? comments)
+    {
+        var decision = new ReviewDecision
+        {
+            PackageId = Guid.NewGuid(), Revision = 7, CheckerUserId = "checker-1",
+            DecisionType = type, Comments = comments
+        };
+
+        Assert.Throws<ArgumentException>(decision.Validate);
+    }
+
+    [Fact(DisplayName = "TD-CORE-049 review package preserves all snapshot identifiers")]
+    public void Review_package_expression_update_preserves_original_snapshot()
+    {
+        var submission = new ReviewSubmission
+        {
+            PackageId = Guid.NewGuid(), DxfDocumentId = Guid.NewGuid(), VerificationSessionId = Guid.NewGuid(),
+            StepDocumentVersionId = Guid.NewGuid(), DxfDocumentVersionId = Guid.NewGuid(), Revision = 7,
+            ExtractionEvidenceJson = "{\"dimensions\":[10],\"gdt\":[\"A\"]}",
+            VerificationEvidenceJson = "{\"matched\":[\"D1\"],\"missing\":[\"D2\"],\"extra\":[\"D3\"]}"
+        };
+        var package = ReviewPackage.FromSubmission(submission);
+        var changed = package with { VerificationEvidenceJson = "{\"matched\":[]}" };
+
+        Assert.Equal(submission.StepDocumentVersionId, package.StepDocumentVersionId);
+        Assert.Equal(submission.DxfDocumentVersionId, package.DxfDocumentVersionId);
+        Assert.Equal(submission.ExtractionEvidenceJson, package.ExtractionEvidenceJson);
+        Assert.Equal(submission.VerificationEvidenceJson, package.VerificationEvidenceJson);
+        Assert.NotEqual(package.VerificationEvidenceJson, changed.VerificationEvidenceJson);
+    }
+
 }

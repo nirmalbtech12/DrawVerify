@@ -231,6 +231,12 @@ public sealed class WorkflowService : IWorkflowService
         RequireReviewPermission();
         var package = await _workflow.GetReviewPackageAsync(packageId, revision, cancellationToken).ConfigureAwait(false);
         if (package is null) return null;
+        if (_sessions is not null)
+        {
+            var session = await _sessions.GetAsync(package.VerificationSessionId, cancellationToken).ConfigureAwait(false)
+                ?? throw new KeyNotFoundException($"Verification session '{package.VerificationSessionId}' was not found for review package '{packageId}'.");
+            package = package with { StepDocumentId = session.StepDocumentId, DxfDocumentId = session.DxfDocumentId };
+        }
         if (package.Status is not (WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview))
             throw new InvalidOperationException($"The package is currently '{package.Status}' and is not available for review.");
         var user = _authentication.CurrentUser!;
@@ -282,6 +288,20 @@ public sealed class WorkflowService : IWorkflowService
 
     public async Task<IReadOnlyList<ReviewComment>> GetReviewCommentsAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
         => (await GetReviewPackageForReaderAsync(packageId, revision, cancellationToken).ConfigureAwait(false))?.Comments ?? Array.Empty<ReviewComment>();
+
+    public async Task<IReadOnlyList<ReviewPackage>> GetMakerReviewPackagesAsync(CancellationToken cancellationToken = default)
+    {
+        if (!_authentication.IsAuthenticated) throw new UnauthorizedAccessException("Authentication is required to read review comments.");
+        var user = _authentication.CurrentUser!;
+        var submissions = await _workflow.GetSubmissionsAsync(Guid.Empty, cancellationToken).ConfigureAwait(false);
+        var packages = new List<ReviewPackage>();
+        foreach (var submission in submissions.Where(x => string.Equals(x.MakerUserId, user.UserId, StringComparison.OrdinalIgnoreCase)))
+        {
+            var package = await _workflow.GetReviewPackageAsync(submission.PackageId, submission.Revision, cancellationToken).ConfigureAwait(false);
+            if (package is not null) packages.Add(package);
+        }
+        return packages;
+    }
 
     private void RequireReviewPermission()
     {

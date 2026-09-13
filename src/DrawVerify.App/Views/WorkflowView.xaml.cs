@@ -22,6 +22,11 @@ public partial class WorkflowView : UserControl
         if (e.AddedItems.Count > 0 && e.AddedItems[0] is DrawVerify.Core.Models.ReviewFinding finding && DataContext is WorkflowViewModel model)
             model.SelectVerificationFinding(finding);
     }
+    private async void MakerPackageSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (e.AddedItems.Count > 0 && e.AddedItems[0] is DrawVerify.Core.Models.ReviewPackage package && DataContext is WorkflowViewModel model)
+            await model.SelectMakerPackageAsync(package);
+    }
     private void AttachDirtyTracking(object sender, System.Windows.RoutedEventArgs e) => AddHandler(TextBox.TextChangedEvent, new TextChangedEventHandler(UserInputChanged));
     private void UserInputChanged(object sender, TextChangedEventArgs e) => (DataContext as TaskScreenViewModel)?.MarkDirtyFromUserInput();
 }
