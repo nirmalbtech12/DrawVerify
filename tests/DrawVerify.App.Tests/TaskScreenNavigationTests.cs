@@ -16,6 +16,8 @@ public sealed class TaskScreenNavigationTests
         {
             foreach (var view in new Control[] { new StepUploadView(), new DxfUploadView() })
             {
+                view.Measure(new Size(1200, 800));
+                view.Arrange(new Rect(0, 0, 1200, 800));
                 var buttons = Find<Button>(view).ToArray();
                 Assert.Contains(buttons, button => string.Equals(button.Content?.ToString(), "Cancel", StringComparison.OrdinalIgnoreCase));
                 Assert.NotEmpty(Find<ProgressBar>(view));
