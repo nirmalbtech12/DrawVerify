@@ -14,11 +14,13 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository
 {
     private readonly string _connectionString;
     private readonly WorkflowConfiguration _configuration;
+    private readonly ICentralizedLogger? _logger;
     public SqliteWorkflowRepository(string databasePath, ICentralizedLogger? logger = null, WorkflowConfiguration? configuration = null)
     {
         _configuration = configuration ?? new WorkflowConfiguration { PermittedInitialStates = new[] { WorkflowStatus.Draft, WorkflowStatus.InPreparation }, SubmittedForReviewState = WorkflowStatus.SubmittedForReview, DuplicateSubmissionStates = new[] { WorkflowStatus.SubmittedForReview, WorkflowStatus.UnderReview, WorkflowStatus.Approved } };
         _configuration.Validate();
         _connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath }.ToString();
+        _logger = logger;
         try { Initialize(); } catch (Exception ex) { logger?.Log(ex, "SQLite workflow migration", $"Unable to initialize workflow schema at '{databasePath}'."); throw; }
     }
     private void Initialize()
@@ -83,16 +85,22 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository
         {
             await using var state = c.CreateCommand(); state.Transaction=t; state.CommandText="UPDATE WorkflowState SET Status=$status,UpdatedUtc=$updated WHERE PackageId=$package AND Status IN ($submitted,$underReview) AND Revision=$revision"; state.Parameters.AddWithValue("$status",(int)resultingStatus); state.Parameters.AddWithValue("$updated",decision.DecidedUtc.ToString("O",CultureInfo.InvariantCulture)); state.Parameters.AddWithValue("$package",decision.PackageId.ToString()); state.Parameters.AddWithValue("$submitted",(int)WorkflowStatus.SubmittedForReview); state.Parameters.AddWithValue("$underReview",(int)WorkflowStatus.UnderReview); state.Parameters.AddWithValue("$revision",decision.Revision); if (await state.ExecuteNonQueryAsync(token) != 1) throw await CreateDecisionConflictAsync(c, t, decision.PackageId, decision.Revision, token);
             await Exec(c,t,"UPDATE ReviewSubmission SET Status=$status WHERE PackageId=$package AND Revision=$revision",token,("$status",(int)resultingStatus),("$package",decision.PackageId.ToString()),("$revision",decision.Revision));
-            await Exec(c,t,"INSERT INTO ReviewDecision VALUES($id,$package,$revision,$user,$display,$time,$type,$comments,$reference,$snapshot)",token,("$id",decision.DecisionId.ToString()),("$package",decision.PackageId.ToString()),("$revision",decision.Revision),("$user",decision.CheckerUserId),("$display",decision.CheckerDisplayName),("$time",decision.DecidedUtc.ToString("O",CultureInfo.InvariantCulture)),("$type",(int)decision.DecisionType),("$comments",(object?)decision.Comments??DBNull.Value),("$reference",decision.SnapshotReference),("$snapshot",decision.SnapshotJson));
+            try
+            {
+                await Exec(c,t,"INSERT INTO ReviewDecision VALUES($id,$package,$revision,$user,$display,$time,$type,$comments,$reference,$snapshot)",token,("$id",decision.DecisionId.ToString()),("$package",decision.PackageId.ToString()),("$revision",decision.Revision),("$user",decision.CheckerUserId),("$display",decision.CheckerDisplayName),("$time",decision.DecidedUtc.ToString("O",CultureInfo.InvariantCulture)),("$type",(int)decision.DecisionType),("$comments",(object?)decision.Comments??DBNull.Value),("$reference",decision.SnapshotReference),("$snapshot",decision.SnapshotJson));
+            }
+            catch (SqliteException exception) when (IsReviewDecisionConflict(exception))
+            {
+                throw await CreateDecisionConflictAsync(c, t, decision.PackageId, decision.Revision, token);
+            }
             await InsertAudit(c,t,auditEntry,token); await t.CommitAsync(token); return decision;
         }
-        catch (SqliteException exception) when (exception.SqliteErrorCode == 19)
-        {
-            await t.RollbackAsync(token);
-            throw await CreateDecisionConflictAsync(null, null, decision.PackageId, decision.Revision, token);
-        }
-        catch { await t.RollbackAsync(token); throw; }
+        catch (ReviewDecisionConflictException) { await t.RollbackAsync(token); throw; }
+        catch (Exception exception) { await t.RollbackAsync(token); _logger?.Log(exception, "SQLite review decision persistence", $"Unable to persist decision for packageId={decision.PackageId}, revision={decision.Revision}."); throw; }
     }
+
+    private static bool IsReviewDecisionConflict(SqliteException exception)
+        => exception.SqliteErrorCode == 19 && exception.Message.Contains("ReviewDecision.PackageId", StringComparison.OrdinalIgnoreCase) && exception.Message.Contains("ReviewDecision.Revision", StringComparison.OrdinalIgnoreCase);
 
     private async Task<ReviewDecisionConflictException> CreateDecisionConflictAsync(SqliteConnection? transactionConnection, SqliteTransaction? transaction, Guid packageId, int requestedRevision, CancellationToken token)
     {
