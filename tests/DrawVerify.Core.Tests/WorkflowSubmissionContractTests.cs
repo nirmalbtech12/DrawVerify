@@ -1,6 +1,7 @@
 using DrawVerify.Core.Configuration;
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Models;
+using System.Text.Json;
 using Xunit;
 
 namespace DrawVerify.Core.Tests;
@@ -88,6 +89,80 @@ public sealed class WorkflowSubmissionContractTests
         Assert.Equal(32, (int)DocumentAuditAction.SubmissionSucceeded);
         Assert.Equal(33, (int)DocumentAuditAction.SubmissionCancelled);
         Assert.Equal(34, (int)DocumentAuditAction.SubmissionRejected);
+    }
+
+    [Fact(DisplayName = "TD-CORE-049 review contracts validate, serialize, and preserve snapshots")]
+    public void Review_contracts_validate_required_fields_and_round_trip_exact_evidence()
+    {
+        var packageId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+        var step = Guid.Parse("00000000-0000-0000-0000-000000000011");
+        var dxf = Guid.Parse("00000000-0000-0000-0000-000000000012");
+        var submission = new ReviewSubmission
+        {
+            PackageId = packageId, StepDocumentVersionId = step, DxfDocumentVersionId = dxf,
+            ExtractionEvidenceJson = "{\"dimensions\":[10]}", VerificationEvidenceJson = "{\"missing\":[\"D1\"]}",
+            MakerUserId = "maker-1", MakerDisplayName = "Maker One", Revision = 7,
+            SubmittedUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+        };
+        var package = ReviewPackage.FromSubmission(submission);
+        var decision = new ReviewDecision
+        {
+            PackageId = packageId, Revision = 7, CheckerUserId = "checker-1", CheckerDisplayName = "Checker One",
+            DecisionType = ReviewDecisionType.Approve, SnapshotReference = package.SnapshotReference,
+            SnapshotJson = JsonSerializer.Serialize(package)
+        };
+
+        decision.Validate();
+        var roundTrip = JsonSerializer.Deserialize<ReviewDecision>(JsonSerializer.Serialize(decision));
+        Assert.NotNull(roundTrip);
+        Assert.Equal(decision, roundTrip);
+        Assert.Equal(step, package.StepDocumentVersionId);
+        Assert.Equal(dxf, package.DxfDocumentVersionId);
+        Assert.Equal(submission.ExtractionEvidenceJson, package.ExtractionEvidenceJson);
+        Assert.Equal(submission.VerificationEvidenceJson, package.VerificationEvidenceJson);
+        Assert.Throws<ArgumentException>(() => (decision with { DecisionType = ReviewDecisionType.Reject, Comments = " " }).Validate());
+        Assert.Throws<ArgumentException>(() => (decision with { DecisionType = ReviewDecisionType.RequestChanges, Comments = null }).Validate());
+        Assert.Throws<ArgumentOutOfRangeException>(() => (decision with { Revision = 0 }).Validate());
+        Assert.Equal(36, (int)DocumentAuditAction.ReviewStarted);
+        Assert.Equal(37, (int)DocumentAuditAction.Approved);
+        Assert.Equal(38, (int)DocumentAuditAction.Rejected);
+        Assert.Equal(39, (int)DocumentAuditAction.ChangesRequested);
+    }
+
+    [Theory(DisplayName = "TD-CORE-049 reject and request-change comments are mandatory")]
+    [InlineData(ReviewDecisionType.Reject, null)]
+    [InlineData(ReviewDecisionType.Reject, " ")]
+    [InlineData(ReviewDecisionType.RequestChanges, null)]
+    [InlineData(ReviewDecisionType.RequestChanges, "\t")]
+    public void Decision_types_requiring_comments_reject_blank_values(ReviewDecisionType type, string? comments)
+    {
+        var decision = new ReviewDecision
+        {
+            PackageId = Guid.NewGuid(), Revision = 7, CheckerUserId = "checker-1",
+            DecisionType = type, Comments = comments
+        };
+
+        Assert.Throws<ArgumentException>(decision.Validate);
+    }
+
+    [Fact(DisplayName = "TD-CORE-049 review package preserves all snapshot identifiers")]
+    public void Review_package_expression_update_preserves_original_snapshot()
+    {
+        var submission = new ReviewSubmission
+        {
+            PackageId = Guid.NewGuid(), DxfDocumentId = Guid.NewGuid(), VerificationSessionId = Guid.NewGuid(),
+            StepDocumentVersionId = Guid.NewGuid(), DxfDocumentVersionId = Guid.NewGuid(), Revision = 7,
+            ExtractionEvidenceJson = "{\"dimensions\":[10],\"gdt\":[\"A\"]}",
+            VerificationEvidenceJson = "{\"matched\":[\"D1\"],\"missing\":[\"D2\"],\"extra\":[\"D3\"]}"
+        };
+        var package = ReviewPackage.FromSubmission(submission);
+        var changed = package with { VerificationEvidenceJson = "{\"matched\":[]}" };
+
+        Assert.Equal(submission.StepDocumentVersionId, package.StepDocumentVersionId);
+        Assert.Equal(submission.DxfDocumentVersionId, package.DxfDocumentVersionId);
+        Assert.Equal(submission.ExtractionEvidenceJson, package.ExtractionEvidenceJson);
+        Assert.Equal(submission.VerificationEvidenceJson, package.VerificationEvidenceJson);
+        Assert.NotEqual(package.VerificationEvidenceJson, changed.VerificationEvidenceJson);
     }
 
 }

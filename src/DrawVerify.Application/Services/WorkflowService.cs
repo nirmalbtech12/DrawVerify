@@ -24,11 +24,12 @@ public sealed class WorkflowService : IWorkflowService
     private readonly WorkflowStateMachine _machine;
     private readonly ICentralizedLogger? _logger;
     private readonly Func<DateTime> _clock;
+    private readonly INotificationService? _notifications;
 
-    public WorkflowService(IWorkflowRepository workflow, ISessionAuthenticationService authentication, WorkflowConfiguration configuration, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null, IDocumentRepository? documents = null, IVerificationSessionRepository? sessions = null, Func<DateTime>? clock = null)
+    public WorkflowService(IWorkflowRepository workflow, ISessionAuthenticationService authentication, WorkflowConfiguration configuration, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null, IDocumentRepository? documents = null, IVerificationSessionRepository? sessions = null, Func<DateTime>? clock = null, INotificationService? notifications = null)
     {
         _workflow = workflow ?? throw new ArgumentNullException(nameof(workflow)); _authentication = authentication ?? throw new ArgumentNullException(nameof(authentication));
-        _authorization = authorization ?? new RoleAuthorization(); _machine = new WorkflowStateMachine(configuration ?? throw new ArgumentNullException(nameof(configuration))); _logger = logger; _documents = documents; _sessions = sessions; _clock = clock ?? (() => DateTime.UtcNow);
+        _authorization = authorization ?? new RoleAuthorization(); _machine = new WorkflowStateMachine(configuration ?? throw new ArgumentNullException(nameof(configuration))); _logger = logger; _documents = documents; _sessions = sessions; _clock = clock ?? (() => DateTime.UtcNow); _notifications = notifications;
     }
 
     public async Task<SubmissionReadiness> ValidateReadinessAsync(Guid packageId, CancellationToken cancellationToken = default)
@@ -219,7 +220,94 @@ public sealed class WorkflowService : IWorkflowService
         return state;
     }
     public async Task<IReadOnlyList<ReviewSubmission>> GetSubmittedPackagesAsync(CancellationToken cancellationToken = default) => (await _workflow.GetSubmissionsAsync(Guid.Empty, cancellationToken).ConfigureAwait(false)).Where(x => x.Status == WorkflowStatus.SubmittedForReview).ToArray();
-    public Task<IReadOnlyList<WorkflowQueueItem>> GetCheckerQueueAsync(CancellationToken cancellationToken = default) => _workflow.GetCheckerQueueAsync(cancellationToken);
+    public Task<IReadOnlyList<WorkflowQueueItem>> GetCheckerQueueAsync(CancellationToken cancellationToken = default)
+    {
+        RequireReviewPermission();
+        return _workflow.GetCheckerQueueAsync(_authentication.CurrentUser!.UserId, cancellationToken);
+    }
+
+    public async Task<ReviewPackage?> OpenReviewPackageAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
+    {
+        RequireReviewPermission();
+        var package = await _workflow.GetReviewPackageAsync(packageId, revision, cancellationToken).ConfigureAwait(false);
+        if (package is null) return null;
+        if (_sessions is not null)
+        {
+            var session = await _sessions.GetAsync(package.VerificationSessionId, cancellationToken).ConfigureAwait(false)
+                ?? throw new KeyNotFoundException($"Verification session '{package.VerificationSessionId}' was not found for review package '{packageId}'.");
+            package = package with { StepDocumentId = session.StepDocumentId, DxfDocumentId = session.DxfDocumentId };
+        }
+        if (package.Status is not (WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview))
+            throw new InvalidOperationException($"The package is currently '{package.Status}' and is not available for review.");
+        var user = _authentication.CurrentUser!;
+        var now = _clock().ToUniversalTime();
+        await _workflow.RecordReviewStartedAsync(package, CreateAudit(packageId, revision, DocumentAuditAction.ReviewStarted, "ReviewStarted", now, user, snapshotReference: package.SnapshotReference), cancellationToken).ConfigureAwait(false);
+        return package;
+    }
+
+    public async Task<ReviewDecision> DecideAsync(Guid packageId, int revision, ReviewDecisionType decisionType, string? comments, CancellationToken cancellationToken = default)
+    {
+        RequireReviewPermission();
+        var package = await _workflow.GetReviewPackageAsync(packageId, revision, cancellationToken).ConfigureAwait(false)
+            ?? throw new KeyNotFoundException($"Review package '{packageId}' revision {revision} was not found.");
+        if (package.PriorDecision is not null)
+            throw new InvalidOperationException($"A decision was already recorded for this package revision: {package.PriorDecision.DecisionType} at {package.PriorDecision.DecidedUtc:O}.");
+        var user = _authentication.CurrentUser!;
+        var decision = new ReviewDecision { PackageId = packageId, Revision = revision, CheckerUserId = user.UserId, CheckerDisplayName = user.DisplayName, DecidedUtc = _clock().ToUniversalTime(), DecisionType = decisionType, Comments = string.IsNullOrWhiteSpace(comments) ? null : comments.Trim(), SnapshotReference = package.SnapshotReference, SnapshotJson = JsonSerializer.Serialize(package) };
+        decision.Validate();
+        var status = decisionType switch { ReviewDecisionType.Approve => _machine.ApprovedState, ReviewDecisionType.Reject => _machine.RejectedState, ReviewDecisionType.RequestChanges => _machine.ChangesRequestedState, _ => throw new ArgumentOutOfRangeException(nameof(decisionType)) };
+        var action = decisionType switch { ReviewDecisionType.Approve => DocumentAuditAction.Approved, ReviewDecisionType.Reject => DocumentAuditAction.Rejected, _ => DocumentAuditAction.ChangesRequested };
+        var saved = await _workflow.SaveReviewDecisionAsync(package, decision, status, CreateAudit(packageId, revision, action, decisionType.ToString(), decision.DecidedUtc, user, new[] { decision.Comments ?? string.Empty }, decision.SnapshotReference), cancellationToken).ConfigureAwait(false);
+        if (_notifications is not null)
+        {
+            try { await _notifications.NotifyMakerAsync(packageId, revision, saved, cancellationToken).ConfigureAwait(false); }
+            catch (Exception exception) { _logger?.Log(exception, "Workflow review notification", $"Unable to notify Maker for packageId={packageId}, revision={revision} after decision persistence succeeded."); throw new NotificationDeliveryException(packageId, revision, exception); }
+        }
+        return saved;
+    }
+
+    public async Task<ReviewComment> AddReviewCommentAsync(Guid packageId, int revision, string text, CancellationToken cancellationToken = default)
+    {
+        RequireReviewPermission();
+        if (string.IsNullOrWhiteSpace(text)) throw new ArgumentException("Review comment cannot be blank.", nameof(text));
+        var user = _authentication.CurrentUser!; var comment = new ReviewComment { PackageId = packageId, Revision = revision, AuthorUserId = user.UserId, AuthorDisplayName = user.DisplayName, CreatedUtc = _clock().ToUniversalTime(), Text = text.Trim() };
+        await _workflow.SaveReviewCommentAsync(comment, CreateAudit(packageId, revision, DocumentAuditAction.ReviewCommentAdded, "CommentAdded", comment.CreatedUtc, user), cancellationToken).ConfigureAwait(false);
+        return comment;
+    }
+
+    public async Task<ReviewPackage?> GetReviewPackageForReaderAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
+    {
+        if (!_authentication.IsAuthenticated) throw new UnauthorizedAccessException("Authentication is required to read review comments.");
+        var package = await _workflow.GetReviewPackageAsync(packageId, revision, cancellationToken).ConfigureAwait(false);
+        if (package is null) return null;
+        var user = _authentication.CurrentUser!;
+        var authorized = _authorization.IsAllowed(user, RolePermission.ReviewVerification) || string.Equals(user.UserId, package.MakerUserId, StringComparison.OrdinalIgnoreCase);
+        if (!authorized) throw new UnauthorizedAccessException("You are not authorized to read this review package.");
+        return package;
+    }
+
+    public async Task<IReadOnlyList<ReviewComment>> GetReviewCommentsAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
+        => (await GetReviewPackageForReaderAsync(packageId, revision, cancellationToken).ConfigureAwait(false))?.Comments ?? Array.Empty<ReviewComment>();
+
+    public async Task<IReadOnlyList<ReviewPackage>> GetMakerReviewPackagesAsync(CancellationToken cancellationToken = default)
+    {
+        if (!_authentication.IsAuthenticated) throw new UnauthorizedAccessException("Authentication is required to read review comments.");
+        var user = _authentication.CurrentUser!;
+        var submissions = await _workflow.GetSubmissionsAsync(Guid.Empty, cancellationToken).ConfigureAwait(false);
+        var packages = new List<ReviewPackage>();
+        foreach (var submission in submissions.Where(x => string.Equals(x.MakerUserId, user.UserId, StringComparison.OrdinalIgnoreCase)))
+        {
+            var package = await _workflow.GetReviewPackageAsync(submission.PackageId, submission.Revision, cancellationToken).ConfigureAwait(false);
+            if (package is not null) packages.Add(package);
+        }
+        return packages;
+    }
+
+    private void RequireReviewPermission()
+    {
+        if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ReviewVerification))
+            throw new UnauthorizedAccessException("Only an authorized Checker or Approver can review drawing packages.");
+    }
 
     private async Task RecordAuditAsync(Guid packageId, int revision, DocumentAuditAction action, string result, IReadOnlyList<string> failures, CancellationToken cancellationToken)
     {
@@ -230,5 +318,5 @@ public sealed class WorkflowService : IWorkflowService
         try { await RecordAuditAsync(packageId, revision, action, result, failures, cancellationToken).ConfigureAwait(false); }
         catch (Exception exception) { _logger?.Log(exception, "Workflow audit", $"Unable to record action={action} for packageId={packageId}, revision={revision}."); throw; }
     }
-    private static AuditEntry CreateAudit(Guid packageId, int revision, DocumentAuditAction action, string result, DateTime timestamp, AuthenticatedUser? user, IReadOnlyList<string>? failures = null) => new() { DocumentId = packageId, UserId = user?.UserId ?? "Anonymous", Action = action, TimestampUtc = timestamp, DetailsJson = JsonSerializer.Serialize(new { packageId, revision, action = action.ToString(), result, makerUserId = user?.UserId, makerDisplayName = user?.DisplayName, failures }) };
+    private static AuditEntry CreateAudit(Guid packageId, int revision, DocumentAuditAction action, string result, DateTime timestamp, AuthenticatedUser? user, IReadOnlyList<string>? failures = null, string? snapshotReference = null) => new() { DocumentId = packageId, UserId = user?.UserId ?? "Anonymous", Action = action, TimestampUtc = timestamp, DetailsJson = JsonSerializer.Serialize(new { packageId, revision, action = action.ToString(), result, makerUserId = user?.UserId, makerDisplayName = user?.DisplayName, failures, snapshotReference }) };
 }

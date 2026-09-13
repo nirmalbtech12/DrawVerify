@@ -200,6 +200,7 @@ public sealed class WorkflowServiceTests
         Assert.Empty(f.Workflow.Submissions); var audit = Assert.Single(f.Workflow.Audits);
         Assert.Equal(DocumentAuditAction.SubmissionCancelled, audit.Action); Assert.Equal("maker-001", audit.UserId);
         Assert.Contains("keep this note", audit.DetailsJson); Assert.Contains(Package.ToString(), audit.DetailsJson);
+        f.Auth.User = new AuthenticatedUser("checker", new[] { SystemRoles.Checker }) { UserId = "checker-001", DisplayName = "Checker One" };
         Assert.Empty(await f.Service.GetCheckerQueueAsync());
     }
 
@@ -216,6 +217,97 @@ public sealed class WorkflowServiceTests
         Assert.Contains("Maker One", audit.DetailsJson);
         Assert.DoesNotContain("internal-only note", audit.DetailsJson);
     }
+
+    [Fact(DisplayName = "TD-APP-049 Checker queue is authorized and projects submitted states")]
+    public async Task Checker_queue_requires_review_permission()
+    {
+        var f = Fixture.Create();
+        f.Auth.User = new AuthenticatedUser("checker", new[] { SystemRoles.Checker }) { UserId = "checker-1", DisplayName = "Checker One" };
+        f.Workflow.Queue.Add(new WorkflowQueueItem(Package, 7, "Maker One", Now, WorkflowStatus.SubmittedForReview, "verified"));
+        f.Workflow.Queue.Add(new WorkflowQueueItem(Guid.NewGuid(), 8, "Maker Two", Now, WorkflowStatus.UnderReview, "missing"));
+        Assert.Equal(2, (await f.Service.GetCheckerQueueAsync()).Count);
+        f.Auth.User = new AuthenticatedUser("viewer", new[] { SystemRoles.Viewer });
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service.GetCheckerQueueAsync());
+    }
+
+    [Fact(DisplayName = "TD-APP-050 opening a package records review and returns immutable evidence")]
+    public async Task Opening_review_package_records_start_and_exact_evidence()
+    {
+        var f = Fixture.Create();
+        f.Auth.User = new AuthenticatedUser("checker", new[] { SystemRoles.Checker }) { UserId = "checker-1", DisplayName = "Checker One" };
+        f.Workflow.ReviewPackage = ReviewPackageFixture();
+        var result = await f.Service.OpenReviewPackageAsync(Package, 7);
+        Assert.Equal(f.Workflow.ReviewPackage, result);
+        Assert.Equal(1, f.Workflow.ReviewStartedCalls);
+        Assert.Equal("{\"dimensions\":[10]}", result!.ExtractionEvidenceJson);
+        Assert.Equal("{\"missing\":[\"D1\"]}", result.VerificationEvidenceJson);
+        Assert.Equal(Guid.Parse("00000000-0000-0000-0000-000000000011"), result.StepDocumentVersionId);
+    }
+
+    [Theory(DisplayName = "TD-APP-051 review decisions validate comments and persist expected revision")]
+    [InlineData(ReviewDecisionType.Approve, "", WorkflowStatus.Approved)]
+    [InlineData(ReviewDecisionType.Reject, "fix dimensions", WorkflowStatus.Rejected)]
+    [InlineData(ReviewDecisionType.RequestChanges, "clarify GD&T", WorkflowStatus.ChangesRequested)]
+    public async Task Review_decision_branches_are_explicit(ReviewDecisionType type, string comments, WorkflowStatus expected)
+    {
+        var f = Fixture.Create();
+        f.Auth.User = new AuthenticatedUser("checker", new[] { SystemRoles.Checker }) { UserId = "checker-1", DisplayName = "Checker One" };
+        f.Workflow.ReviewPackage = ReviewPackageFixture();
+        var saved = await f.Service.DecideAsync(Package, 7, type, comments);
+        Assert.Equal(type, saved.DecisionType); Assert.Equal(expected, f.Workflow.SavedStatus); Assert.Equal(7, f.Workflow.LastDecision!.Revision);
+        Assert.Equal("checker-1", saved.CheckerUserId); Assert.Equal(1, f.Workflow.DecisionCalls);
+        f.Workflow.ReviewPackage = f.Workflow.ReviewPackage with { PriorDecision = saved };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Service.DecideAsync(Package, 7, ReviewDecisionType.Approve, null));
+    }
+
+    [Theory(DisplayName = "TD-APP-051 blank reject or request-change comments do not persist")]
+    [InlineData(ReviewDecisionType.Reject)]
+    [InlineData(ReviewDecisionType.RequestChanges)]
+    public async Task Blank_required_decision_comments_are_rejected_without_mutation(ReviewDecisionType type)
+    {
+        var f = Fixture.Create();
+        f.Auth.User = new AuthenticatedUser("checker", new[] { SystemRoles.Checker }) { UserId = "checker-1", DisplayName = "Checker One" };
+        f.Workflow.ReviewPackage = ReviewPackageFixture();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => f.Service.DecideAsync(Package, 7, type, " \t"));
+
+        Assert.Equal(0, f.Workflow.DecisionCalls);
+        Assert.Null(f.Workflow.SavedStatus);
+        Assert.Empty(f.Workflow.Audits);
+    }
+
+    [Fact(DisplayName = "TD-APP-049 and TD-APP-051 unauthorized review operations are non-mutating")]
+    public async Task Unauthorized_checker_operations_are_denied()
+    {
+        var f = Fixture.Create();
+        f.Workflow.ReviewPackage = ReviewPackageFixture();
+        f.Auth.User = new AuthenticatedUser("viewer", new[] { SystemRoles.Viewer }) { UserId = "viewer-1", DisplayName = "Viewer" };
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service.GetCheckerQueueAsync());
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service.DecideAsync(Package, 7, ReviewDecisionType.Approve, null));
+
+        Assert.Equal(0, f.Workflow.DecisionCalls);
+        Assert.Empty(f.Workflow.Audits);
+    }
+
+    [Fact(DisplayName = "TD-APP-052 review comments do not change decision or status")]
+    public async Task Review_comment_is_saved_with_author_and_trimmed_text()
+    {
+        var f = Fixture.Create();
+        f.Auth.User = new AuthenticatedUser("checker", new[] { SystemRoles.Checker }) { UserId = "checker-1", DisplayName = "Checker One" };
+        var comment = await f.Service.AddReviewCommentAsync(Package, 7, "  inspect control  ");
+        Assert.Equal("inspect control", comment.Text); Assert.Equal("checker-1", comment.AuthorUserId);
+        Assert.Equal(0, f.Workflow.DecisionCalls); Assert.Null(f.Workflow.SavedStatus); Assert.Single(f.Workflow.Comments);
+        await Assert.ThrowsAsync<ArgumentException>(() => f.Service.AddReviewCommentAsync(Package, 7, " "));
+    }
+
+    private static ReviewPackage ReviewPackageFixture() => ReviewPackage.FromSubmission(new ReviewSubmission
+    {
+        PackageId = Package, Revision = 7, StepDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000011"),
+        DxfDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000012"), VerificationSessionId = Guid.NewGuid(),
+        ExtractionEvidenceJson = "{\"dimensions\":[10]}", VerificationEvidenceJson = "{\"missing\":[\"D1\"]}",
+        MakerUserId = "maker-1", MakerDisplayName = "Maker One", SubmittedUtc = Now
+    });
 
     private sealed class Fixture
     {
@@ -255,5 +347,5 @@ public sealed class WorkflowServiceTests
     }
     private sealed class FakeAuth : ISessionAuthenticationService { public AuthenticatedUser? User { get; set; } = CreateMaker(); private static AuthenticatedUser CreateMaker() => new AuthenticatedUser("maker", new[] { SystemRoles.Maker }) { UserId = "maker-001", DisplayName = "Maker One" }; public AuthenticatedUser? CurrentUser => User; public bool IsAuthenticated => User is not null; public void SignIn(AuthenticatedUser user) => User = user; public void SignOut() => User = null; }
     private sealed class FakeLogger : ICentralizedLogger { public string Context { get; private set; } = ""; public void Log(Exception exception, string operation, string context) => Context = context; }
-    private sealed class FakeWorkflow : IWorkflowRepository { public Func<WorkflowState>? StateProvider { get; set; } public WorkflowStatus InitialStatus { get; set; } = WorkflowStatus.Draft; public bool ThrowOnSubmit { get; set; } public Guid? SupersededSubmissionId { get; private set; } public List<ReviewSubmission> Submissions { get; } = new(); public List<AuditEntry> Audits { get; } = new(); public Task<WorkflowState?> GetStateAsync(Guid id, CancellationToken ct = default) => Task.FromResult<WorkflowState?>(StateProvider?.Invoke()); public Task<ReviewSubmission?> GetSubmissionAsync(Guid id, CancellationToken ct = default) => Task.FromResult<ReviewSubmission?>(Submissions.FirstOrDefault(x => x.SubmissionId == id)); public Task<IReadOnlyList<ReviewSubmission>> GetSubmissionsAsync(Guid id, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<ReviewSubmission>>(Submissions); public Task<IReadOnlyList<WorkflowQueueItem>> GetCheckerQueueAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<WorkflowQueueItem>>(Array.Empty<WorkflowQueueItem>()); public Task<ReviewSubmission> SubmitAtomicallyAsync(WorkflowState s, ReviewSubmission sub, AuditEntry a, CancellationToken ct = default) { if (ThrowOnSubmit) throw new InvalidOperationException("persist failed"); Submissions.Add(sub); Audits.Add(a); return Task.FromResult(sub); } public Task RecordAuditAsync(AuditEntry a, CancellationToken ct = default) { Audits.Add(a); return Task.CompletedTask; } public Task MarkSupersededAsync(Guid id, AuditEntry a, CancellationToken ct = default) { SupersededSubmissionId = id; return Task.CompletedTask; } }
+    private sealed class FakeWorkflow : IWorkflowRepository { public Func<WorkflowState>? StateProvider { get; set; } public WorkflowStatus InitialStatus { get; set; } = WorkflowStatus.Draft; public bool ThrowOnSubmit { get; set; } public Guid? SupersededSubmissionId { get; private set; } public List<ReviewSubmission> Submissions { get; } = new(); public List<AuditEntry> Audits { get; } = new(); public List<WorkflowQueueItem> Queue { get; } = new(); public ReviewPackage? ReviewPackage { get; set; } public int ReviewStartedCalls { get; private set; } public int DecisionCalls { get; private set; } public ReviewDecision? LastDecision { get; private set; } public WorkflowStatus? SavedStatus { get; private set; } public List<ReviewComment> Comments { get; } = new(); public Task<WorkflowState?> GetStateAsync(Guid id, CancellationToken ct = default) => Task.FromResult<WorkflowState?>(StateProvider?.Invoke()); public Task<ReviewSubmission?> GetSubmissionAsync(Guid id, CancellationToken ct = default) => Task.FromResult<ReviewSubmission?>(Submissions.FirstOrDefault(x => x.SubmissionId == id)); public Task<IReadOnlyList<ReviewSubmission>> GetSubmissionsAsync(Guid id, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<ReviewSubmission>>(Submissions); public Task<IReadOnlyList<WorkflowQueueItem>> GetCheckerQueueAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<WorkflowQueueItem>>(Queue); public Task<ReviewPackage?> GetReviewPackageAsync(Guid id, int revision, CancellationToken ct = default) => Task.FromResult(ReviewPackage); public Task RecordReviewStartedAsync(ReviewPackage package, AuditEntry a, CancellationToken ct = default) { ReviewStartedCalls++; Audits.Add(a); return Task.CompletedTask; } public Task<IReadOnlyList<ReviewComment>> GetReviewCommentsAsync(Guid id, int revision, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<ReviewComment>>(Comments); public Task SaveReviewCommentAsync(ReviewComment comment, AuditEntry a, CancellationToken ct = default) { Comments.Add(comment); Audits.Add(a); return Task.CompletedTask; } public Task<ReviewDecision> SaveReviewDecisionAsync(ReviewPackage package, ReviewDecision decision, WorkflowStatus status, AuditEntry a, CancellationToken ct = default) { DecisionCalls++; LastDecision = decision; SavedStatus = status; Audits.Add(a); return Task.FromResult(decision); } public Task<ReviewSubmission> SubmitAtomicallyAsync(WorkflowState s, ReviewSubmission sub, AuditEntry a, CancellationToken ct = default) { if (ThrowOnSubmit) throw new InvalidOperationException("persist failed"); Submissions.Add(sub); Audits.Add(a); return Task.FromResult(sub); } public Task RecordAuditAsync(AuditEntry a, CancellationToken ct = default) { Audits.Add(a); return Task.CompletedTask; } public Task MarkSupersededAsync(Guid id, AuditEntry a, CancellationToken ct = default) { SupersededSubmissionId = id; return Task.CompletedTask; } }
 }

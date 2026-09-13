@@ -1,3 +1,4 @@
+using DrawVerify.Core.Enums;
 using DrawVerify.Core.Models;
 
 namespace DrawVerify.Core.Interfaces;
@@ -16,4 +17,16 @@ public interface IWorkflowService
     Task<WorkflowState?> GetPackageAsync(Guid packageId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ReviewSubmission>> GetSubmittedPackagesAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyList<WorkflowQueueItem>> GetCheckerQueueAsync(CancellationToken cancellationToken = default);
+    Task<ReviewPackage?> OpenReviewPackageAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
+        => Task.FromResult<ReviewPackage?>(null);
+    Task<ReviewDecision> DecideAsync(Guid packageId, int revision, ReviewDecisionType decisionType, string? comments, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("Review decisions are not supported by this workflow service.");
+    Task<ReviewComment> AddReviewCommentAsync(Guid packageId, int revision, string text, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("Review comments are not supported by this workflow service.");
+    Task<ReviewPackage?> GetReviewPackageForReaderAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
+        => Task.FromResult<ReviewPackage?>(null);
+    Task<IReadOnlyList<ReviewComment>> GetReviewCommentsAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<ReviewComment>>(Array.Empty<ReviewComment>());
+    Task<IReadOnlyList<ReviewPackage>> GetMakerReviewPackagesAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<ReviewPackage>>(Array.Empty<ReviewPackage>());
 }

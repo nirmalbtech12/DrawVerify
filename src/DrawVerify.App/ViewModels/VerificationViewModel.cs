@@ -14,6 +14,28 @@ namespace DrawVerify.App.ViewModels;
 
 public sealed class VerificationViewModel : TaskScreenViewModel, IDisposable
 {
+    public string? HighlightIdentifier { get; private set; }
+    public string HighlightStatus => string.IsNullOrWhiteSpace(HighlightIdentifier) ? string.Empty : $"Highlighted review finding: {HighlightIdentifier}";
+    public void SetHighlight(string? identifier) { HighlightIdentifier = identifier; Notify(nameof(HighlightIdentifier)); Notify(nameof(HighlightStatus)); ApplyHighlight(); }
+    public async Task LoadReviewContextAsync(ReviewPackage package, string? highlightIdentifier, CancellationToken cancellationToken = default)
+    {
+        SetHighlight(highlightIdentifier);
+        StepDocumentId = package.StepDocumentId.ToString();
+        DxfDocumentId = package.DxfDocumentId.ToString();
+        StepDocumentVersionId = package.StepDocumentVersionId.ToString();
+        DxfDocumentVersionId = package.DxfDocumentVersionId.ToString();
+        if (package.VerificationSessionId != Guid.Empty)
+        {
+            SelectedSessionId = package.VerificationSessionId;
+            await RefreshMatchesAsync(package.VerificationSessionId, cancellationToken).ConfigureAwait(true);
+        }
+        else
+        {
+            await SelectPairAsync(package.StepDocumentId, package.DxfDocumentId, package.StepDocumentVersionId, package.DxfDocumentVersionId, cancellationToken).ConfigureAwait(true);
+        }
+        Notify(nameof(SelectedSessionId));
+        ApplyHighlight();
+    }
     private readonly ISessionAuthenticationService _session;
     private readonly RoleAuthorization _authorization;
     private readonly DimensionMatchingService? _matching;
@@ -359,9 +381,24 @@ public sealed class VerificationViewModel : TaskScreenViewModel, IDisposable
             NotVerifiedGdtResults = GdtResults.Where(result => result.Result.Status == VerificationStatus.NotVerified).ToArray();
             CannotValidateGdtResults = GdtResults.Where(result => result.Result.Status == VerificationStatus.CannotValidate).ToArray();
             _allMatchResults = matches.Select(match => new DimensionMatchItemViewModel(match)).ToArray(); ApplyResultView(); Notify(nameof(GdtResults)); Notify(nameof(NotVerifiedGdtResults)); Notify(nameof(CannotValidateGdtResults)); Notify(nameof(NotVerifiedGdtControls)); Notify(nameof(CannotValidateGdtControls));
+            ApplyHighlight();
         }
         catch (UnauthorizedAccessException) { ClearResults("Access denied."); }
         catch (Exception exception) { _logger?.Log(exception, "Load dimension matching results", $"Unable to load verificationSessionId={sessionId}."); ClearResults("Unable to load matching results."); }
+    }
+    private DimensionMatchItemViewModel? _selectedMatch;
+    public DimensionMatchItemViewModel? SelectedMatch
+    {
+        get => _selectedMatch;
+        set { _selectedMatch = value; Notify(); RaiseCommands(); }
+    }
+    private void ApplyHighlight()
+    {
+        if (string.IsNullOrWhiteSpace(HighlightIdentifier)) return;
+        var gdt = GdtResults.FirstOrDefault(item => string.Equals(item.Result.GdtResultId.ToString(), HighlightIdentifier, StringComparison.OrdinalIgnoreCase) || string.Equals(item.Result.Identifier, HighlightIdentifier, StringComparison.OrdinalIgnoreCase));
+        if (gdt is not null) { SelectedGdtResult = gdt; MatchingStatus = $"Highlighted GD&T control {HighlightIdentifier}."; Notify(nameof(MatchingStatus)); return; }
+        var dimension = _allMatchResults.FirstOrDefault(item => string.Equals(item.Match.DimensionMatchId.ToString(), HighlightIdentifier, StringComparison.OrdinalIgnoreCase) || item.Match.DxfDimensionReference.ToString(CultureInfo.InvariantCulture) == HighlightIdentifier);
+        if (dimension is not null) { SelectedMatch = dimension; if (dimension.IsUnmatched) SelectedUnmatchedDimension = dimension; else if (dimension.IsExtra) SelectedExtraDimension = dimension; MatchingStatus = $"Highlighted dimension {HighlightIdentifier}."; Notify(nameof(MatchingStatus)); }
     }
     private async Task SelectPairAsync()
     {
