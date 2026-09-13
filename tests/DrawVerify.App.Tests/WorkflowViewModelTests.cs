@@ -73,6 +73,21 @@ public sealed class WorkflowViewModelTests
         Assert.True(failedViewModel.IsConfirmationVisible);
     }
 
+    [Fact(DisplayName = "TD-UI-02 persistence failure is visible and does not navigate")]
+    public async Task Failed_submission_does_not_show_success_or_navigate()
+    {
+        var service = new FakeWorkflowService { ThrowOnSubmit = true };
+        var maker = new AuthenticatedUser("maker", new[] { SystemRoles.Maker }) { UserId = "maker-001", DisplayName = "Maker One" };
+        var viewModel = new WorkflowViewModel(service, new FakeAuthentication(maker));
+        var navigated = false; viewModel.NavigationRequested += _ => navigated = true;
+        viewModel.BeginSubmission(Guid.NewGuid());
+        await WaitForAsync(() => viewModel.IsConfirmationVisible, TimeSpan.FromSeconds(5));
+        viewModel.SubmitCommand.Execute(null);
+        await WaitForAsync(() => !string.IsNullOrEmpty(viewModel.Message), TimeSpan.FromSeconds(5));
+        Assert.Contains("could not be submitted", viewModel.Message);
+        Assert.False(navigated); Assert.True(viewModel.IsConfirmationVisible);
+    }
+
     private static async Task WaitForAsync(Func<bool> condition, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;
@@ -89,8 +104,9 @@ file sealed class FakeWorkflowService : IWorkflowService
     public int CancellationCalls { get; private set; }
     public int SubmissionCalls { get; private set; }
     public SubmissionResult Result { get; set; } = new(true, "The drawing was submitted for review.");
+    public bool ThrowOnSubmit { get; set; }
     public Task<SubmissionReadiness> ValidateReadinessAsync(Guid packageId, CancellationToken cancellationToken = default) => Task.FromResult(SubmissionReadiness.Ready);
-    public Task<SubmissionResult> SubmitForReviewAsync(SubmissionRequest request, CancellationToken cancellationToken = default) { SubmissionCalls++; return Task.FromResult(Result); }
+    public Task<SubmissionResult> SubmitForReviewAsync(SubmissionRequest request, CancellationToken cancellationToken = default) { SubmissionCalls++; if (ThrowOnSubmit) throw new InvalidOperationException("persist failed"); return Task.FromResult(Result); }
     public Task RecordCancellationAsync(Guid packageId, int revision, string? note, CancellationToken cancellationToken = default) { CancellationCalls++; return Task.CompletedTask; }
     public Task<WorkflowState?> GetPackageAsync(Guid packageId, CancellationToken cancellationToken = default) => Task.FromResult<WorkflowState?>(null);
     public Task<IReadOnlyList<ReviewSubmission>> GetSubmittedPackagesAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ReviewSubmission>>(Array.Empty<ReviewSubmission>());

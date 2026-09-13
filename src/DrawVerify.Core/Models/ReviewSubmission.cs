@@ -6,6 +6,7 @@ public sealed record ReviewSubmission
 {
     public Guid SubmissionId { get; init; } = Guid.NewGuid();
     public Guid PackageId { get; init; }
+    public Guid DxfDocumentId { get; init; }
     public Guid StepDocumentVersionId { get; init; }
     public Guid DxfDocumentVersionId { get; init; }
     public Guid VerificationSessionId { get; init; }
@@ -27,6 +28,7 @@ public sealed record SubmissionReadiness(bool IsReady, IReadOnlyList<string> Fai
 
 public sealed record SubmissionRequest(Guid PackageId, string? Note = null)
 {
+    public Guid DxfDocumentId { get; init; }
     public Guid StepDocumentVersionId { get; init; }
     public Guid DxfDocumentVersionId { get; init; }
     public Guid VerificationSessionId { get; init; }

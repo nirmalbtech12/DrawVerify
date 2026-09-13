@@ -21,8 +21,10 @@ public sealed class SqliteWorkflowRepositoryTests
             await repository.SubmitAtomicallyAsync(state, snapshot, Audit(DocumentAuditAction.SubmissionSucceeded, package, "Submitted"));
             Assert.Equal(WorkflowStatus.SubmittedForReview, (await repository.GetStateAsync(package))!.Status);
             var loaded = Assert.Single(await repository.GetSubmissionsAsync(package));
-            Assert.Equal(snapshot with { }, loaded); Assert.Equal(DateTimeKind.Utc, loaded.SubmittedUtc.Kind);
-            Assert.Single(await repository.GetCheckerQueueAsync());
+            Assert.Equal(snapshot, loaded); Assert.Equal(DateTimeKind.Utc, loaded.SubmittedUtc.Kind);
+            var queue = Assert.Single(await repository.GetCheckerQueueAsync());
+            Assert.Equal(package, queue.PackageId); Assert.Equal(1, queue.Revision); Assert.Equal("Maker One", queue.MakerDisplayName);
+            Assert.Equal(snapshot.VerificationEvidenceJson, queue.VerificationSummary);
         }
         finally { Delete(path); }
     }

@@ -19,6 +19,11 @@ public sealed class WorkflowServiceTests
     {
         var f = Fixture.Create(); var result = await f.Service.SubmitForReviewAsync(f.Request);
         Assert.True(result.Succeeded); Assert.Equal(WorkflowStatus.SubmittedForReview, result.State!.Status); Assert.Single(f.Workflow.Submissions);
+        Assert.Equal(f.Request.StepDocumentVersionId, f.Workflow.Submissions[0].StepDocumentVersionId);
+        Assert.Equal(f.Request.DxfDocumentVersionId, f.Workflow.Submissions[0].DxfDocumentVersionId);
+        Assert.Equal(f.Request.VerificationSessionId, f.Workflow.Submissions[0].VerificationSessionId);
+        Assert.Equal(f.Request.ExtractionEvidenceJson, f.Workflow.Submissions[0].ExtractionEvidenceJson);
+        Assert.Equal(f.Request.VerificationEvidenceJson, f.Workflow.Submissions[0].VerificationEvidenceJson);
     }
 
     [Fact(DisplayName = "TD-APP-02 readiness and authorization failures are explicit and non-mutating")]
@@ -107,7 +112,11 @@ public sealed class WorkflowServiceTests
     [Fact(DisplayName = "TD-APP-05 cancellation has no submit mutation and queue projection is exposed")]
     public async Task Cancellation_records_only_audit_and_queue_is_readable()
     {
-        var f = Fixture.Create(); await f.Service.RecordCancellationAsync(Package, 1, "keep this note"); Assert.Empty(f.Workflow.Submissions); Assert.Single(f.Workflow.Audits); Assert.Empty(await f.Service.GetCheckerQueueAsync());
+        var f = Fixture.Create(); await f.Service.RecordCancellationAsync(Package, 1, "keep this note");
+        Assert.Empty(f.Workflow.Submissions); var audit = Assert.Single(f.Workflow.Audits);
+        Assert.Equal(DocumentAuditAction.SubmissionCancelled, audit.Action); Assert.Equal("maker-001", audit.UserId);
+        Assert.Contains("keep this note", audit.DetailsJson); Assert.Contains(Package.ToString(), audit.DetailsJson);
+        Assert.Empty(await f.Service.GetCheckerQueueAsync());
     }
 
     private sealed class Fixture

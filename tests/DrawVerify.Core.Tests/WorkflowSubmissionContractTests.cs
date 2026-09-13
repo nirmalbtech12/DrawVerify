@@ -65,4 +65,5 @@ public sealed class WorkflowSubmissionContractTests
         Assert.Equal("{\"extracted\":true}", original.ExtractionEvidenceJson);
         Assert.NotEqual(original.StepDocumentVersionId, replacement.StepDocumentVersionId);
     }
+
 }

@@ -34,7 +34,8 @@ public sealed class WorkflowService : IWorkflowService
         var failures = new List<string>();
         if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.SubmitForReview)) failures.Add("Only an authenticated Maker can submit a package for review.");
         var state = await _workflow.GetStateAsync(packageId, cancellationToken).ConfigureAwait(false);
-        if (state is not null) failures.AddRange(_machine.ValidateState(state.Status).Failures);
+        if (state is null) failures.Add("The package has no workflow state and cannot be submitted.");
+        else failures.AddRange(_machine.ValidateState(state.Status).Failures);
         if (_documents is null)
         {
             failures.Add("STEP file is not available.");
@@ -94,12 +95,15 @@ public sealed class WorkflowService : IWorkflowService
         var user = _authentication.CurrentUser;
         if (!readiness.IsReady)
         {
-            await RecordAuditSafelyAsync(request.PackageId, 1, DocumentAuditAction.SubmissionRejected, "Rejected", readiness.Failures, cancellationToken).ConfigureAwait(false);
+            var currentState = await _workflow.GetStateAsync(request.PackageId, cancellationToken).ConfigureAwait(false);
+            await RecordAuditSafelyAsync(request.PackageId, currentState?.Revision ?? 0, DocumentAuditAction.SubmissionRejected, "Rejected", readiness.Failures, cancellationToken).ConfigureAwait(false);
             return new(false, string.Join(" ", readiness.Failures), Failures: readiness.Failures);
         }
-        var state = await _workflow.GetStateAsync(request.PackageId, cancellationToken).ConfigureAwait(false) ?? new WorkflowState { PackageId = request.PackageId };
+        var state = await _workflow.GetStateAsync(request.PackageId, cancellationToken).ConfigureAwait(false);
+        if (state is null)
+            return new(false, "The package has no workflow state and cannot be submitted.", Failures: new[] { "The package has no workflow state and cannot be submitted." });
         var now = _clock().ToUniversalTime();
-        var submission = new ReviewSubmission { PackageId = request.PackageId, Revision = state.Revision, MakerUserId = user!.UserId, MakerDisplayName = user.DisplayName, MakerAuthorized = true, SubmittedUtc = now, Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim(), StepDocumentVersionId = request.StepDocumentVersionId, DxfDocumentVersionId = request.DxfDocumentVersionId, VerificationSessionId = request.VerificationSessionId, ExtractionEvidenceJson = request.ExtractionEvidenceJson, VerificationEvidenceJson = request.VerificationEvidenceJson };
+        var submission = new ReviewSubmission { PackageId = request.PackageId, DxfDocumentId = request.DxfDocumentId, Revision = state.Revision, MakerUserId = user!.UserId, MakerDisplayName = user.DisplayName, MakerAuthorized = true, SubmittedUtc = now, Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim(), StepDocumentVersionId = request.StepDocumentVersionId, DxfDocumentVersionId = request.DxfDocumentVersionId, VerificationSessionId = request.VerificationSessionId, ExtractionEvidenceJson = request.ExtractionEvidenceJson, VerificationEvidenceJson = request.VerificationEvidenceJson };
         try
         {
             var saved = await _workflow.SubmitAtomicallyAsync(state, submission, CreateAudit(request.PackageId, state.Revision, DocumentAuditAction.SubmissionSucceeded, "Submitted", now, user), cancellationToken).ConfigureAwait(false);
@@ -120,7 +124,14 @@ public sealed class WorkflowService : IWorkflowService
         {
             var current = await _documents.GetAsync(packageId, cancellationToken).ConfigureAwait(false);
             var submission = (await _workflow.GetSubmissionsAsync(packageId, cancellationToken).ConfigureAwait(false)).Where(x => x.Status == WorkflowStatus.SubmittedForReview).OrderByDescending(x => x.Revision).FirstOrDefault();
-            if (submission is not null && current?.Version is not null && submission.StepDocumentVersionId != current.Version.VersionId)
+            var dxfChanged = submission is not null && submission.DxfDocumentId != Guid.Empty && _documents is not null && (await _documents.GetAsync(submission.DxfDocumentId, cancellationToken).ConfigureAwait(false))?.Version?.VersionId != submission.DxfDocumentVersionId;
+            var verificationChanged = false;
+            if (submission is not null && _sessions is not null)
+            {
+                var session = await _sessions.GetAsync(submission.VerificationSessionId, cancellationToken).ConfigureAwait(false);
+                verificationChanged = session is null || session.StepDocumentVersionId != submission.StepDocumentVersionId || session.DxfDocumentVersionId != submission.DxfDocumentVersionId;
+            }
+            if (submission is not null && current?.Version is not null && (submission.StepDocumentVersionId != current.Version.VersionId || dxfChanged || verificationChanged))
             {
                 await _workflow.MarkSupersededAsync(submission.SubmissionId, CreateAudit(packageId, submission.Revision, DocumentAuditAction.SubmissionSuperseded, "Superseded", _clock().ToUniversalTime(), _authentication.CurrentUser), cancellationToken).ConfigureAwait(false);
                 return state with { Status = WorkflowStatus.Superseded };
