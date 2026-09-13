@@ -112,13 +112,7 @@ public sealed class OcctGeometryService : IGeometryService, IMatchableGeometrySe
             AddCircles(entities, diagnostics, projection.VisibleCircles, false); AddCircles(entities, diagnostics, projection.HiddenCircles, true);
             AddPolylines(entities, diagnostics, projection.VisiblePolylines, false); AddPolylines(entities, diagnostics, projection.HiddenPolylines, true);
             if (entities.Count == 0) diagnostics.Add("The selected STEP projection produced no supported geometric entities.");
-            var dimensions = entities.Select((entity, index) => entity.Type switch
-            {
-                ProjectionDrawingEntityType.Line when entity.Coordinates.Count >= 4 => new ProjectionDrawingDimension("Linear", Math.Sqrt(Math.Pow(entity.Coordinates[2] - entity.Coordinates[0], 2) + Math.Pow(entity.Coordinates[3] - entity.Coordinates[1], 2)), entity.Coordinates[0], entity.Coordinates[1]),
-                ProjectionDrawingEntityType.Circle when entity.Coordinates.Count >= 3 => new ProjectionDrawingDimension("Diameter", entity.Coordinates[2] * 2, entity.Coordinates[0], entity.Coordinates[1]),
-                ProjectionDrawingEntityType.Arc when entity.Coordinates.Count >= 3 => new ProjectionDrawingDimension("Radius", entity.Coordinates[2], entity.Coordinates[0], entity.Coordinates[1]),
-                _ => null
-            }).Where(dimension => dimension is not null).Cast<ProjectionDrawingDimension>().ToArray();
+            var dimensions = CreateDimensions(entities, diagnostics);
             return new ProjectionDrawing(view, entities, dimensions, projection.ApproximationTolerance, diagnostics);
         }
         catch (OcctOperationException) { throw; }
@@ -134,6 +128,42 @@ public sealed class OcctGeometryService : IGeometryService, IMatchableGeometrySe
     { for (var index = 0; index < circles.Count; index++) { var circle = circles[index]; if (Finite(circle.CenterX, circle.CenterY, circle.Radius) && circle.Radius > 0) target.Add(new(ProjectionDrawingEntityType.Circle, new[] { circle.CenterX, circle.CenterY, circle.Radius }, hidden)); else diagnostics.Add($"Projection entity ordinal {index + 1} type CIRCLE was omitted because its geometry is invalid."); } }
     private static void AddPolylines(List<ProjectionDrawingEntity> target, List<string> diagnostics, IReadOnlyList<OcctPolyline2> polylines, bool hidden)
     { for (var index = 0; index < polylines.Count; index++) { var coordinates = polylines[index].Points.SelectMany(point => new[] { point.X, point.Y }).ToArray(); if (coordinates.Length >= 4 && coordinates.All(double.IsFinite)) target.Add(new(ProjectionDrawingEntityType.Polyline, coordinates, hidden)); else diagnostics.Add($"Projection entity ordinal {index + 1} type POLYLINE was omitted because it contains invalid or insufficient points."); } }
+
+    private static IReadOnlyList<ProjectionDrawingDimension> CreateDimensions(IReadOnlyList<ProjectionDrawingEntity> entities, ICollection<string> diagnostics)
+    {
+        var dimensions = new List<ProjectionDrawingDimension>();
+        for (var index = 0; index < entities.Count; index++)
+        {
+            var entity = entities[index];
+            ProjectionDrawingDimension? dimension = entity.Type switch
+            {
+                ProjectionDrawingEntityType.Line when entity.Coordinates.Count >= 4 => new("Linear", LinearMeasurement(entity.Coordinates[0], entity.Coordinates[1], entity.Coordinates[2], entity.Coordinates[3]), entity.Coordinates[0], entity.Coordinates[1]),
+                ProjectionDrawingEntityType.Circle when entity.Coordinates.Count >= 3 => new("Diameter", entity.Coordinates[2] * 2, entity.Coordinates[0], entity.Coordinates[1]),
+                ProjectionDrawingEntityType.Arc when entity.Coordinates.Count >= 3 => new("Radius", entity.Coordinates[2], entity.Coordinates[0], entity.Coordinates[1]),
+                _ => null
+            };
+
+            if (dimension is null) continue;
+            if (!double.IsFinite(dimension.Value) || dimension.Value <= 0)
+            {
+                diagnostics.Add($"Projection entity ordinal {index + 1} type {entity.Type} was retained as drawing geometry but omitted as a dimension because its measurement is invalid.");
+                continue;
+            }
+
+            dimensions.Add(dimension);
+        }
+
+        return dimensions;
+    }
+
+    private static double LinearMeasurement(double startX, double startY, double endX, double endY)
+    {
+        var deltaX = Math.Abs(endX - startX);
+        var deltaY = Math.Abs(endY - startY);
+        var scale = Math.Max(deltaX, deltaY);
+        if (scale == 0) return 0;
+        return scale * Math.Sqrt(Math.Pow(deltaX / scale, 2) + Math.Pow(deltaY / scale, 2));
+    }
     private static bool Finite(params double[] values) => values.All(double.IsFinite);
 
     private static bool ValuesAreFinite(OcctBoundingBox box) =>

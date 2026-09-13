@@ -8,7 +8,7 @@ namespace DrawVerify.App.Views;
 public partial class DxfUploadView : UserControl
 {
     public event Action? BackRequested;
-    public DxfUploadView() { InitializeComponent(); Loaded += AttachDirtyTracking; Measure(new System.Windows.Size(1200, 800)); Arrange(new System.Windows.Rect(0, 0, 1200, 800)); }
+    public DxfUploadView() { InitializeComponent(); Loaded += AttachDirtyTracking; }
 
     public void AttachFilePicker(DxfUploadViewModel model) => model.SelectRequested += () =>
     {

@@ -22,6 +22,9 @@ public static class DxfFileWriter
 
     private static void WriteDimension(StringBuilder builder, ProjectionDrawingDimension dimension)
     {
+        if (!double.IsFinite(dimension.Value) || dimension.Value <= 0)
+            throw new InvalidDataException("Generated dimensions must have a finite positive measurement.");
+
         var radial = string.Equals(dimension.Type, "Radius", StringComparison.OrdinalIgnoreCase) || string.Equals(dimension.Type, "Diameter", StringComparison.OrdinalIgnoreCase);
         var flags = string.Equals(dimension.Type, "Radius", StringComparison.OrdinalIgnoreCase) ? 4 : radial ? 3 : 0;
         Add(builder, "DIMENSION", 8, "GENERATED", 70, flags, 42, dimension.Value, 10, dimension.X, 20, dimension.Y, 13, dimension.X, 23, dimension.Y, 14, dimension.X + dimension.Value, 24, dimension.Y, 1, dimension.Value.ToString("G17", CultureInfo.InvariantCulture));

@@ -1,4 +1,5 @@
 using System.Text;
+using DrawVerify.Application.DxfDimensionExtraction;
 using DrawVerify.Application.DxfUpload;
 using DrawVerify.Application.Services;
 using DrawVerify.Geometry.Models;
@@ -80,6 +81,58 @@ public sealed class Kan125DxfGenerationServiceTests
         Assert.Equal(1, Count(text, "\nLWPOLYLINE\n"));
         Assert.Equal(1, Count(text, "\nDIMENSION\n"));
         Assert.Contains("\n1\n6\n", text);
+    }
+
+    [Fact(DisplayName = "TD-04 writes a structurally valid visual-only DXF when no dimensions are supplied")]
+    public async Task Writer_visual_only_output_is_valid_and_has_no_dimensions()
+    {
+        var drawing = new ProjectionDrawing(
+            ProjectionDrawingView.Front,
+            new[] { new ProjectionDrawingEntity(ProjectionDrawingEntityType.Polyline, new[] { 0d, 0d, 1d, 1d, 2d, 0d }) },
+            Array.Empty<ProjectionDrawingDimension>(),
+            0.001d,
+            Array.Empty<string>());
+
+        await using var stream = new MemoryStream(DxfFileWriter.Write(new[] { drawing }));
+        var result = await new DxfDimensionParser().ParseAsync(stream, Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.True(result.Succeeded);
+        Assert.Empty(result.Dimensions);
+    }
+
+    [Fact(DisplayName = "TD-04 writes dimensions accepted by the canonical parser")]
+    public async Task Writer_dimension_output_is_accepted_by_the_canonical_parser()
+    {
+        var drawing = new ProjectionDrawing(
+            ProjectionDrawingView.Front,
+            Array.Empty<ProjectionDrawingEntity>(),
+            new[]
+            {
+                new ProjectionDrawingDimension("Linear", 10d, 0d, 0d),
+                new ProjectionDrawingDimension("Diameter", 8d, 5d, 5d),
+                new ProjectionDrawingDimension("Radius", 4d, 10d, 10d)
+            },
+            0.001d,
+            Array.Empty<string>());
+
+        await using var stream = new MemoryStream(DxfFileWriter.Write(new[] { drawing }));
+        var result = await new DxfDimensionParser().ParseAsync(stream, Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Warnings));
+        Assert.Equal(3, result.Dimensions.Count);
+    }
+
+    [Fact(DisplayName = "TD-04 rejects invalid generated dimension measurements")]
+    public void Writer_rejects_non_finite_dimension_measurements()
+    {
+        var drawing = new ProjectionDrawing(
+            ProjectionDrawingView.Front,
+            Array.Empty<ProjectionDrawingEntity>(),
+            new[] { new ProjectionDrawingDimension("Linear", double.PositiveInfinity, 0d, 0d) },
+            0.001d,
+            Array.Empty<string>());
+
+        Assert.Throws<InvalidDataException>(() => DxfFileWriter.Write(new[] { drawing }));
     }
 
     private static string Read(params string[] parts)
