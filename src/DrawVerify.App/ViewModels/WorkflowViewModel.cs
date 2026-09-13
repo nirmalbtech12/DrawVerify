@@ -4,6 +4,7 @@ using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
 using DrawVerify.Core.Authorization;
 using DrawVerify.Core.Enums;
+using DrawVerify.Application.Services;
 
 namespace DrawVerify.App.ViewModels;
 
@@ -79,7 +80,7 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
         if (ReviewPackage is null || _service is null) return;
         if (RequireSectionConfirmation && !HasViewedKeySections && !_decisionConfirmed) { _pendingDecision = type; DecisionConfirmationRequested?.Invoke(); ReviewError = "Review the Documents and Verification sections, then confirm the decision."; return; }
         try { await _service.DecideAsync(ReviewPackage.PackageId, ReviewPackage.Revision, type, ReviewComment); ReviewError = string.Empty; await LoadQueueAsync(); }
-        catch (Exception exception) { _logger?.Log(exception, "WPF review decision", $"Unable to complete review decision notification for packageId={ReviewPackage.PackageId}, revision={ReviewPackage.Revision}."); ReviewError = exception is ArgumentException ? exception.Message : "The decision was saved, but Maker notification delivery failed."; }
+        catch (Exception exception) { _logger?.Log(exception, "WPF review decision", $"Unable to complete review decision for packageId={ReviewPackage.PackageId}, revision={ReviewPackage.Revision}."); ReviewError = exception switch { NotificationDeliveryException => "The decision was saved, but Maker notification delivery failed.", ReviewDecisionConflictException or UnauthorizedAccessException or ArgumentException => exception.Message, _ => "The decision was not saved. Please try again or contact support." }; }
     }
     public void MarkSectionViewed(string section) { if (!string.IsNullOrWhiteSpace(section)) _viewedSections.Add(section); RaisePropertyChanged(nameof(HasViewedKeySections)); }
     public void ConfirmDecision() { _decisionConfirmed = true; var pending = _pendingDecision; _pendingDecision = null; if (pending is not null) _ = DecideAsync(pending.Value); }

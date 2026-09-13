@@ -81,12 +81,43 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository
         await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(token); await using var t = (SqliteTransaction)await c.BeginTransactionAsync(token);
         try
         {
-            await using var state = c.CreateCommand(); state.Transaction=t; state.CommandText="UPDATE WorkflowState SET Status=$status,UpdatedUtc=$updated WHERE PackageId=$package AND Status IN ($submitted,$underReview) AND Revision=$revision"; state.Parameters.AddWithValue("$status",(int)resultingStatus); state.Parameters.AddWithValue("$updated",decision.DecidedUtc.ToString("O",CultureInfo.InvariantCulture)); state.Parameters.AddWithValue("$package",decision.PackageId.ToString()); state.Parameters.AddWithValue("$submitted",(int)WorkflowStatus.SubmittedForReview); state.Parameters.AddWithValue("$underReview",(int)WorkflowStatus.UnderReview); state.Parameters.AddWithValue("$revision",decision.Revision); if (await state.ExecuteNonQueryAsync(token) != 1) throw new InvalidOperationException("The review package is stale, already decided, or not available for review.");
+            await using var state = c.CreateCommand(); state.Transaction=t; state.CommandText="UPDATE WorkflowState SET Status=$status,UpdatedUtc=$updated WHERE PackageId=$package AND Status IN ($submitted,$underReview) AND Revision=$revision"; state.Parameters.AddWithValue("$status",(int)resultingStatus); state.Parameters.AddWithValue("$updated",decision.DecidedUtc.ToString("O",CultureInfo.InvariantCulture)); state.Parameters.AddWithValue("$package",decision.PackageId.ToString()); state.Parameters.AddWithValue("$submitted",(int)WorkflowStatus.SubmittedForReview); state.Parameters.AddWithValue("$underReview",(int)WorkflowStatus.UnderReview); state.Parameters.AddWithValue("$revision",decision.Revision); if (await state.ExecuteNonQueryAsync(token) != 1) throw await CreateDecisionConflictAsync(c, t, decision.PackageId, decision.Revision, token);
             await Exec(c,t,"UPDATE ReviewSubmission SET Status=$status WHERE PackageId=$package AND Revision=$revision",token,("$status",(int)resultingStatus),("$package",decision.PackageId.ToString()),("$revision",decision.Revision));
             await Exec(c,t,"INSERT INTO ReviewDecision VALUES($id,$package,$revision,$user,$display,$time,$type,$comments,$reference,$snapshot)",token,("$id",decision.DecisionId.ToString()),("$package",decision.PackageId.ToString()),("$revision",decision.Revision),("$user",decision.CheckerUserId),("$display",decision.CheckerDisplayName),("$time",decision.DecidedUtc.ToString("O",CultureInfo.InvariantCulture)),("$type",(int)decision.DecisionType),("$comments",(object?)decision.Comments??DBNull.Value),("$reference",decision.SnapshotReference),("$snapshot",decision.SnapshotJson));
             await InsertAudit(c,t,auditEntry,token); await t.CommitAsync(token); return decision;
         }
+        catch (SqliteException exception) when (exception.SqliteErrorCode == 19)
+        {
+            await t.RollbackAsync(token);
+            throw await CreateDecisionConflictAsync(null, null, decision.PackageId, decision.Revision, token);
+        }
         catch { await t.RollbackAsync(token); throw; }
+    }
+
+    private async Task<ReviewDecisionConflictException> CreateDecisionConflictAsync(SqliteConnection? transactionConnection, SqliteTransaction? transaction, Guid packageId, int requestedRevision, CancellationToken token)
+    {
+        if (transactionConnection is not null)
+            return await ReadDecisionConflictAsync(transactionConnection, transaction, packageId, requestedRevision, token);
+        await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(token);
+        return await ReadDecisionConflictAsync(c, null, packageId, requestedRevision, token);
+    }
+
+    private static async Task<ReviewDecisionConflictException> ReadDecisionConflictAsync(SqliteConnection c, SqliteTransaction? transaction, Guid packageId, int requestedRevision, CancellationToken token)
+    {
+        WorkflowStatus status = WorkflowStatus.Draft; var revision = 0;
+        await using (var state = c.CreateCommand())
+        {
+            state.Transaction = transaction; state.CommandText = "SELECT Status,Revision FROM WorkflowState WHERE PackageId=$package"; state.Parameters.AddWithValue("$package", packageId.ToString());
+            await using var reader = await state.ExecuteReaderAsync(token); if (await reader.ReadAsync(token)) { status = (WorkflowStatus)reader.GetInt32(0); revision = reader.GetInt32(1); }
+        }
+        ReviewDecision? prior = null;
+        await using (var decision = c.CreateCommand())
+        {
+            decision.Transaction = transaction; decision.CommandText = "SELECT DecisionId,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson FROM ReviewDecision WHERE PackageId=$package AND Revision=$revision"; decision.Parameters.AddWithValue("$package", packageId.ToString()); decision.Parameters.AddWithValue("$revision", requestedRevision);
+            await using var reader = await decision.ExecuteReaderAsync(token);
+            if (await reader.ReadAsync(token)) prior = new ReviewDecision { DecisionId=Guid.Parse(reader.GetString(0)), PackageId=packageId, Revision=requestedRevision, CheckerUserId=reader.GetString(1), CheckerDisplayName=reader.GetString(2), DecidedUtc=DateTime.Parse(reader.GetString(3), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), DecisionType=(ReviewDecisionType)reader.GetInt32(4), Comments=reader.IsDBNull(5) ? null : reader.GetString(5), SnapshotReference=reader.GetString(6), SnapshotJson=reader.GetString(7) };
+        }
+        return new ReviewDecisionConflictException(packageId, requestedRevision, status, revision, prior);
     }
 
     private async Task<ReviewDecision?> GetDecisionAsync(Guid packageId, int revision, CancellationToken token)

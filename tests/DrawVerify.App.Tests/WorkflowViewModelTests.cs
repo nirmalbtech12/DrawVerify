@@ -156,7 +156,7 @@ public sealed class WorkflowViewModelTests
         await model.OpenReviewAsync(new WorkflowQueueItem(service.ReviewPackage.PackageId, 7, "Maker One", DateTime.UtcNow, WorkflowStatus.SubmittedForReview, "verified"));
         model.ReviewComment = "looks good"; model.SaveReviewCommentCommand.Execute(null); await WaitForAsync(() => service.CommentCalls == 1, TimeSpan.FromSeconds(5));
         Assert.Equal(WorkflowStatus.SubmittedForReview, service.ReviewPackage.Status); Assert.Equal(0, service.DecisionCalls);
-        service.DecideException = new InvalidOperationException("A decision was already recorded for this package revision"); model.ApproveCommand.Execute(null); await WaitForAsync(() => !string.IsNullOrEmpty(model.ReviewError), TimeSpan.FromSeconds(5)); Assert.Contains("decision was saved", model.ReviewError, StringComparison.OrdinalIgnoreCase); Assert.Contains("notification", model.ReviewError, StringComparison.OrdinalIgnoreCase);
+        service.DecideException = new InvalidOperationException("The review decision was not saved; refresh before deciding."); model.ApproveCommand.Execute(null); await WaitForAsync(() => !string.IsNullOrEmpty(model.ReviewError), TimeSpan.FromSeconds(5)); Assert.Contains("decision was not saved", model.ReviewError, StringComparison.OrdinalIgnoreCase); Assert.Contains("try again", model.ReviewError, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact(DisplayName = "TD-APPUI-049 unauthorized review queue failure is visible")]

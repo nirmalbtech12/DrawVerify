@@ -153,7 +153,13 @@ public sealed class SqliteWorkflowRepositoryTests
             var first = new ReviewDecision { PackageId = package, Revision = 1, CheckerUserId = "checker-1", SnapshotReference = review.SnapshotReference, SnapshotJson = JsonSerializer.Serialize(review), DecisionType = ReviewDecisionType.Approve };
             await repository.SaveReviewDecisionAsync(review, first, WorkflowStatus.Approved, Audit(DocumentAuditAction.Approved, package, "Approve"));
             var second = first with { DecisionId = Guid.NewGuid(), DecisionType = ReviewDecisionType.Reject, Comments = "too late" };
-            await Assert.ThrowsAsync<InvalidOperationException>(() => repository.SaveReviewDecisionAsync(review, second, WorkflowStatus.Rejected, Audit(DocumentAuditAction.Rejected, package, "Reject")));
+            var conflict = await Assert.ThrowsAsync<ReviewDecisionConflictException>(() => repository.SaveReviewDecisionAsync(review, second, WorkflowStatus.Rejected, Audit(DocumentAuditAction.Rejected, package, "Reject")));
+            Assert.Equal(package, conflict.PackageId);
+            Assert.Equal(1, conflict.RequestedRevision);
+            Assert.Equal(WorkflowStatus.Approved, conflict.CurrentStatus);
+            Assert.Equal(1, conflict.CurrentRevision);
+            Assert.Equal(ReviewDecisionType.Approve, conflict.PriorDecision!.DecisionType);
+            Assert.Contains("not saved", conflict.Message, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(WorkflowStatus.Approved, (await repository.GetStateAsync(package))!.Status);
             await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString()); await connection.OpenAsync(); await using var command = connection.CreateCommand(); command.CommandText = "SELECT COUNT(*) FROM ReviewDecision WHERE PackageId=$package AND Revision=1"; command.Parameters.AddWithValue("$package", package.ToString()); Assert.Equal(1L, await command.ExecuteScalarAsync());
         }

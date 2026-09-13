@@ -261,7 +261,7 @@ public sealed class WorkflowService : IWorkflowService
         if (_notifications is not null)
         {
             try { await _notifications.NotifyMakerAsync(packageId, revision, saved, cancellationToken).ConfigureAwait(false); }
-            catch (Exception exception) { _logger?.Log(exception, "Workflow review notification", $"Unable to notify Maker for packageId={packageId}, revision={revision}."); throw; }
+            catch (Exception exception) { _logger?.Log(exception, "Workflow review notification", $"Unable to notify Maker for packageId={packageId}, revision={revision} after decision persistence succeeded."); throw new NotificationDeliveryException(packageId, revision, exception); }
         }
         return saved;
     }
