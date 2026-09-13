@@ -44,6 +44,29 @@ public sealed class SqliteWorkflowRepositoryTests
         finally { Delete(path); }
     }
 
+    [Fact(DisplayName = "TD-INFRA-02 superseding a submitted snapshot preserves its source payload")]
+    public async Task Superseded_snapshot_remains_available_and_is_removed_from_queue()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-workflow-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteWorkflowRepository(path);
+            var package = Guid.NewGuid();
+            var snapshot = Snapshot(package);
+            await repository.SubmitAtomicallyAsync(new WorkflowState { PackageId = package, Status = WorkflowStatus.Draft, Revision = 1 }, snapshot, Audit(DocumentAuditAction.SubmissionSucceeded, package, "Submitted"));
+
+            await repository.MarkSupersededAsync(snapshot.SubmissionId, Audit(DocumentAuditAction.SubmissionSuperseded, package, "Superseded"));
+
+            var loaded = Assert.Single(await repository.GetSubmissionsAsync(package));
+            Assert.Equal(WorkflowStatus.Superseded, loaded.Status);
+            Assert.Equal(snapshot.ExtractionEvidenceJson, loaded.ExtractionEvidenceJson);
+            Assert.Equal(snapshot.VerificationEvidenceJson, loaded.VerificationEvidenceJson);
+            Assert.Empty(await repository.GetCheckerQueueAsync());
+            Assert.Equal(WorkflowStatus.Superseded, (await repository.GetStateAsync(package))!.Status);
+        }
+        finally { Delete(path); }
+    }
+
     [Fact(DisplayName = "TD-INFRA-03 submit, cancel, and invalid audit rows contain safe context")]
     public async Task Audit_rows_round_trip_with_utc_timestamps()
     {
