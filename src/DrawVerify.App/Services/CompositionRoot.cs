@@ -29,6 +29,7 @@ public static class CompositionRoot
     private static readonly AuditLogConfiguration AuditLogConfiguration = LoadAuditLogConfiguration();
     private static readonly DxfDimensionExtractionConfiguration DxfDimensionExtractionConfiguration = LoadDxfDimensionExtractionConfiguration();
     private static readonly DimensionMatchingConfiguration DimensionMatchingConfiguration = LoadDimensionMatchingConfiguration();
+    private static readonly WorkflowConfiguration WorkflowConfiguration = LoadWorkflowConfiguration();
     private static readonly SessionAuthenticationService Session = new();
     private static readonly RoleAuthorization Authorization = new();
     public static void Initialize()
@@ -60,6 +61,11 @@ public static class CompositionRoot
     }
     public static ISessionAuthenticationService SessionAuthentication => Session;
     public static RoleAuthorization RoleAuthorization => Authorization;
+    public static IWorkflowService CreateWorkflowService()
+    {
+        var database = DatabasePath(); var logger = new CentralizedLogger();
+        return new WorkflowService(new SqliteWorkflowRepository(database, logger, WorkflowConfiguration), Session, WorkflowConfiguration, Authorization, logger, new SqliteDocumentRepository(database, logger), new SqliteVerificationSessionRepository(database));
+    }
     public static DimensionMatchingConfiguration ConfiguredDimensionMatching => DimensionMatchingConfiguration;
     public static GdtValidator CreateGdtValidator()
     {
@@ -134,7 +140,9 @@ public static class CompositionRoot
         return new DxfDrawingGenerationService(documents, new DocumentFileStore(AppContext.BaseDirectory, StepUploadConfiguration), dxfFiles, new OcctGeometryService(), new SqliteAuditRepository(database), Session, Authorization, logger, users, extraction);
     }
     public static DocumentDetailViewModel CreateDocumentDetailViewModel(DrawVerify.Core.Models.Document document) =>
-        new(document, CreateDxfDimensionExtractionService());
+        new(document, CreateDxfDimensionExtractionService(), CreateWorkflowService(), null, Session, Authorization);
+    public static DocumentDetailViewModel CreateDocumentDetailViewModel(DrawVerify.Core.Models.Document document, DrawVerify.Core.Models.SubmissionRequest submissionRequest) =>
+        new(document, CreateDxfDimensionExtractionService(), CreateWorkflowService(), submissionRequest, Session, Authorization);
     public static DimensionMatchingService CreateDimensionMatchingService()
     {
         var database = DatabasePath();
@@ -198,6 +206,18 @@ public static class CompositionRoot
         }
     }
     private static string DatabasePath() => Path.Combine(AppContext.BaseDirectory,"drawverify.db");
+    private static WorkflowConfiguration LoadWorkflowConfiguration()
+    {
+        var logger = new CentralizedLogger();
+        try
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, "config", "workflow.default.json");
+            if (!File.Exists(path)) path = Path.Combine(Directory.GetCurrentDirectory(), "config", "workflow.default.json");
+            var configuration = JsonSerializer.Deserialize<WorkflowConfiguration>(File.ReadAllText(path), new JsonSerializerOptions { Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } }) ?? throw new InvalidOperationException("Workflow configuration is empty.");
+            configuration.Validate(); return configuration;
+        }
+        catch (Exception exception) { logger.Log(exception, "Workflow configuration startup", "Unable to load or validate workflow.default.json"); throw; }
+    }
     private static AuthenticationConfiguration LoadAuthenticationConfiguration()
     {
         var logger=new CentralizedLogger(); try { using var document=JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"appsettings.json"))); var section=document.RootElement.GetProperty("Authentication"); var defaults=section.TryGetProperty("DefaultRoles", out var values) ? values.EnumerateArray().Select(x=>x.GetString() ?? string.Empty).ToArray() : Array.Empty<string>(); var config=new AuthenticationConfiguration { PasswordMinimumLength=section.GetProperty("PasswordMinimumLength").GetInt32(), RequireUppercase=section.GetProperty("RequireUppercase").GetBoolean(), RequireLowercase=section.GetProperty("RequireLowercase").GetBoolean(), RequireDigit=section.GetProperty("RequireDigit").GetBoolean(), RequireNonAlphanumeric=section.GetProperty("RequireNonAlphanumeric").GetBoolean(), LockoutThreshold=section.GetProperty("LockoutThreshold").GetInt32(), LockoutDuration=TimeSpan.FromMinutes(section.GetProperty("LockoutDurationMinutes").GetDouble()), DefaultRoles=defaults }; config.Validate(); return config; } catch(Exception ex) { logger.Log(ex,"Authentication configuration startup","Unable to load or validate Authentication settings"); throw; }

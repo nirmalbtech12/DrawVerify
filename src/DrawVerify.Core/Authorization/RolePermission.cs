@@ -7,5 +7,5 @@ public enum RolePermission
     GenerateFinalReports, ReadApprovedDocuments, ReadApprovedReports,
     MatchDimensionsToGeometry, ViewDimensionMatchResults, ManageToleranceComparison,
     ViewMissingDimensions, CommentOnMissingDimensions, ViewExtraDimensions, CommentOnExtraDimensions, FlagExtraDimensions,
-    ViewGdtCannotValidate, ModifyGdtCannotValidate
+    ViewGdtCannotValidate, ModifyGdtCannotValidate, SubmitForReview
 }

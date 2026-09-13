@@ -16,6 +16,7 @@
         <TextBlock Text="{Binding CurrentVersion, StringFormat=Version: {0}}"/>
         <Button Content="Extract Dimensions" Command="{Binding ExtractDimensionsCommand}" Margin="0,16,0,8"/>
         <Button Content="Refresh Dimensions" Command="{Binding LoadDimensionsCommand}" Margin="0,0,0,8"/>
+        <Button Content="Submit for Review" Command="{Binding SubmitForReviewCommand}" Margin="0,0,0,8"/>
         <TextBlock Text="{Binding Message}"/>
         <TextBlock Text="{Binding ErrorMessage}" Foreground="{DynamicResource BrandError}"/>
         <TextBlock Text="{Binding DimensionResultsHeading}" FontWeight="Bold" Margin="0,16,0,8"/>
