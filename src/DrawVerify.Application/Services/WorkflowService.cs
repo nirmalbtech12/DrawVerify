@@ -235,7 +235,7 @@ public sealed class WorkflowService : IWorkflowService
             throw new InvalidOperationException($"The package is currently '{package.Status}' and is not available for review.");
         var user = _authentication.CurrentUser!;
         var now = _clock().ToUniversalTime();
-        await _workflow.RecordReviewStartedAsync(package, CreateAudit(packageId, revision, DocumentAuditAction.ReviewStarted, "ReviewStarted", now, user), cancellationToken).ConfigureAwait(false);
+        await _workflow.RecordReviewStartedAsync(package, CreateAudit(packageId, revision, DocumentAuditAction.ReviewStarted, "ReviewStarted", now, user, snapshotReference: package.SnapshotReference), cancellationToken).ConfigureAwait(false);
         return package;
     }
 
@@ -251,7 +251,7 @@ public sealed class WorkflowService : IWorkflowService
         decision.Validate();
         var status = decisionType switch { ReviewDecisionType.Approve => _machine.ApprovedState, ReviewDecisionType.Reject => _machine.RejectedState, ReviewDecisionType.RequestChanges => _machine.ChangesRequestedState, _ => throw new ArgumentOutOfRangeException(nameof(decisionType)) };
         var action = decisionType switch { ReviewDecisionType.Approve => DocumentAuditAction.Approved, ReviewDecisionType.Reject => DocumentAuditAction.Rejected, _ => DocumentAuditAction.ChangesRequested };
-        var saved = await _workflow.SaveReviewDecisionAsync(package, decision, status, CreateAudit(packageId, revision, action, decisionType.ToString(), decision.DecidedUtc, user, new[] { decision.Comments ?? string.Empty }), cancellationToken).ConfigureAwait(false);
+        var saved = await _workflow.SaveReviewDecisionAsync(package, decision, status, CreateAudit(packageId, revision, action, decisionType.ToString(), decision.DecidedUtc, user, new[] { decision.Comments ?? string.Empty }, decision.SnapshotReference), cancellationToken).ConfigureAwait(false);
         if (_notifications is not null)
         {
             try { await _notifications.NotifyMakerAsync(packageId, revision, saved, cancellationToken).ConfigureAwait(false); }
@@ -269,6 +269,20 @@ public sealed class WorkflowService : IWorkflowService
         return comment;
     }
 
+    public async Task<ReviewPackage?> GetReviewPackageForReaderAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
+    {
+        if (!_authentication.IsAuthenticated) throw new UnauthorizedAccessException("Authentication is required to read review comments.");
+        var package = await _workflow.GetReviewPackageAsync(packageId, revision, cancellationToken).ConfigureAwait(false);
+        if (package is null) return null;
+        var user = _authentication.CurrentUser!;
+        var authorized = _authorization.IsAllowed(user, RolePermission.ReviewVerification) || string.Equals(user.UserId, package.MakerUserId, StringComparison.OrdinalIgnoreCase);
+        if (!authorized) throw new UnauthorizedAccessException("You are not authorized to read this review package.");
+        return package;
+    }
+
+    public async Task<IReadOnlyList<ReviewComment>> GetReviewCommentsAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
+        => (await GetReviewPackageForReaderAsync(packageId, revision, cancellationToken).ConfigureAwait(false))?.Comments ?? Array.Empty<ReviewComment>();
+
     private void RequireReviewPermission()
     {
         if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ReviewVerification))
@@ -284,5 +298,5 @@ public sealed class WorkflowService : IWorkflowService
         try { await RecordAuditAsync(packageId, revision, action, result, failures, cancellationToken).ConfigureAwait(false); }
         catch (Exception exception) { _logger?.Log(exception, "Workflow audit", $"Unable to record action={action} for packageId={packageId}, revision={revision}."); throw; }
     }
-    private static AuditEntry CreateAudit(Guid packageId, int revision, DocumentAuditAction action, string result, DateTime timestamp, AuthenticatedUser? user, IReadOnlyList<string>? failures = null) => new() { DocumentId = packageId, UserId = user?.UserId ?? "Anonymous", Action = action, TimestampUtc = timestamp, DetailsJson = JsonSerializer.Serialize(new { packageId, revision, action = action.ToString(), result, makerUserId = user?.UserId, makerDisplayName = user?.DisplayName, failures }) };
+    private static AuditEntry CreateAudit(Guid packageId, int revision, DocumentAuditAction action, string result, DateTime timestamp, AuthenticatedUser? user, IReadOnlyList<string>? failures = null, string? snapshotReference = null) => new() { DocumentId = packageId, UserId = user?.UserId ?? "Anonymous", Action = action, TimestampUtc = timestamp, DetailsJson = JsonSerializer.Serialize(new { packageId, revision, action = action.ToString(), result, makerUserId = user?.UserId, makerDisplayName = user?.DisplayName, failures, snapshotReference }) };
 }

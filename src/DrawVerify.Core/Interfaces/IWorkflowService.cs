@@ -23,4 +23,8 @@ public interface IWorkflowService
         => throw new NotSupportedException("Review decisions are not supported by this workflow service.");
     Task<ReviewComment> AddReviewCommentAsync(Guid packageId, int revision, string text, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("Review comments are not supported by this workflow service.");
+    Task<ReviewPackage?> GetReviewPackageForReaderAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
+        => Task.FromResult<ReviewPackage?>(null);
+    Task<IReadOnlyList<ReviewComment>> GetReviewCommentsAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<ReviewComment>>(Array.Empty<ReviewComment>());
 }

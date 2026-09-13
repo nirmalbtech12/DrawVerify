@@ -29,7 +29,7 @@ public sealed record ReviewPackage
             foreach (var item in array.EnumerateArray())
             {
                 var identifier = item.TryGetProperty("identifier", out var id) ? id.GetString() : null;
-                if (!string.IsNullOrWhiteSpace(identifier)) findings.Add(new ReviewFinding(identifier, item.TryGetProperty("category", out var category) ? category.GetString() ?? "Verification" : "Verification", item.TryGetProperty("description", out var description) ? description.GetString() : null));
+                if (!string.IsNullOrWhiteSpace(identifier)) findings.Add(new ReviewFinding(identifier, item.TryGetProperty("category", out var category) ? category.GetString() ?? "Verification" : "Verification", item.TryGetProperty("description", out var description) ? description.GetString() : null, item.TryGetProperty("highlightTarget", out var highlight) ? highlight.GetString() : identifier));
             }
         return new()
         {

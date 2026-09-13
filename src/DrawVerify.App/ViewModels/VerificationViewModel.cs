@@ -14,6 +14,8 @@ namespace DrawVerify.App.ViewModels;
 
 public sealed class VerificationViewModel : TaskScreenViewModel, IDisposable
 {
+    public string? HighlightIdentifier { get; private set; }
+    public void SetHighlight(string? identifier) { HighlightIdentifier = identifier; Notify(nameof(HighlightIdentifier)); }
     private readonly ISessionAuthenticationService _session;
     private readonly RoleAuthorization _authorization;
     private readonly DimensionMatchingService? _matching;
