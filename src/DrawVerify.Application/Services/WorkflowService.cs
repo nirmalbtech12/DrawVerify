@@ -6,6 +6,8 @@ using DrawVerify.Core.Enums;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
 using CoreGeometryStatus = DrawVerify.Core.Enums.GeometryStatus;
+using CoreDocumentType = DrawVerify.Core.Enums.DocumentType;
+using CoreUploadStatus = DrawVerify.Core.Enums.UploadStatus;
 
 namespace DrawVerify.Application.Services;
 
@@ -68,7 +70,9 @@ public sealed class WorkflowService : IWorkflowService
         try
         {
         var readiness = await ValidateReadinessAsync(request.PackageId, cancellationToken).ConfigureAwait(false);
-        var failures = new List<string>(readiness.Failures); ValidateRequest(request, failures);
+        var failures = new List<string>(readiness.Failures);
+        await ValidatePersistedPackageAsync(request, failures, cancellationToken).ConfigureAwait(false);
+        ValidateRequestPayload(request, failures);
         if (_documents is not null)
         {
             var document = await _documents.GetAsync(request.PackageId, cancellationToken).ConfigureAwait(false);
@@ -94,13 +98,68 @@ public sealed class WorkflowService : IWorkflowService
         }
     }
 
-    private static void ValidateRequest(SubmissionRequest request, ICollection<string> failures)
+    private async Task ValidatePersistedPackageAsync(SubmissionRequest request, ICollection<string> failures, CancellationToken cancellationToken)
+    {
+        if (_documents is null)
+        {
+            failures.Add("Persisted drawing package records are not available.");
+            return;
+        }
+
+        var step = await _documents.GetAsync(request.PackageId, cancellationToken).ConfigureAwait(false);
+        if (step is null)
+            return;
+
+        if (step.DocumentType != CoreDocumentType.StepModel)
+            failures.Add("The package record is not a STEP model.");
+        if (step.Version is null)
+            failures.Add("STEP file version is not available in the persisted package.");
+        else if (request.StepDocumentVersionId != step.Version.VersionId)
+            failures.Add("The submitted STEP version is stale or does not belong to the persisted package.");
+        else if (step.Version.DocumentId != Guid.Empty && step.Version.DocumentId != step.DocumentId)
+            failures.Add("The persisted STEP version is inconsistent with its document.");
+        if (step.GeometryStatus != CoreGeometryStatus.Processed)
+            failures.Add(step.GeometryStatus == CoreGeometryStatus.Error ? "Processing failed during extraction." : "Extraction is not completed in the persisted package.");
+        if (string.IsNullOrWhiteSpace(step.OriginalFileName) || step.FileSizeBytes <= 0)
+            failures.Add("Required STEP drawing metadata is missing.");
+
+        if (request.DxfDocumentId == Guid.Empty)
+        {
+            failures.Add("DXF drawing record is not available in the persisted package.");
+        }
+        else
+        {
+            var dxf = await _documents.GetAsync(request.DxfDocumentId, cancellationToken).ConfigureAwait(false);
+            if (dxf is null)
+            {
+                failures.Add("DXF drawing record is not available in the persisted package.");
+            }
+            else
+            {
+                if (dxf.DocumentType != CoreDocumentType.DxfDrawing)
+                    failures.Add("The persisted DXF record is not a drawing.");
+                if (dxf.UploadStatus != CoreUploadStatus.Uploaded)
+                    failures.Add("DXF file is not available for review.");
+                if (dxf.Version is null || request.DxfDocumentVersionId != dxf.Version.VersionId)
+                    failures.Add("The submitted DXF version is stale or does not belong to the persisted drawing.");
+                else if (dxf.Version.DocumentId != Guid.Empty && dxf.Version.DocumentId != dxf.DocumentId)
+                    failures.Add("The persisted DXF version is inconsistent with its document.");
+                if (dxf.VerificationStatus == VerificationStatus.Error)
+                    failures.Add("Processing failed during DXF extraction.");
+                else if (dxf.VerificationStatus != VerificationStatus.DimensionsExtracted)
+                    failures.Add("Extraction is not completed for the persisted DXF drawing.");
+                if (string.IsNullOrWhiteSpace(dxf.OriginalFileName) || dxf.FileSizeBytes <= 0)
+                    failures.Add("Required drawing metadata is missing.");
+            }
+        }
+    }
+
+    private static void ValidateRequestPayload(SubmissionRequest request, ICollection<string> failures)
     {
         if (request.StepDocumentVersionId == Guid.Empty) failures.Add("STEP file version is not available.");
-        if (!request.DxfAvailable || request.DxfDocumentVersionId == Guid.Empty) failures.Add("DXF file version is not available.");
-        if (!request.ExtractionCompleted || string.IsNullOrWhiteSpace(request.ExtractionEvidenceJson) || request.ExtractionEvidenceJson == "{}") failures.Add("Extraction is not completed.");
-        if (!request.VerificationCompleted || request.VerificationSessionId == Guid.Empty || string.IsNullOrWhiteSpace(request.VerificationEvidenceJson) || request.VerificationEvidenceJson == "{}") failures.Add("Verification is not completed.");
-        if (!request.RequiredMetadataPresent) failures.Add("Required drawing metadata is missing.");
+        if (request.DxfDocumentVersionId == Guid.Empty) failures.Add("DXF file version is not available.");
+        if (string.IsNullOrWhiteSpace(request.ExtractionEvidenceJson) || request.ExtractionEvidenceJson == "{}") failures.Add("Extraction evidence is not available.");
+        if (request.VerificationSessionId == Guid.Empty || string.IsNullOrWhiteSpace(request.VerificationEvidenceJson) || request.VerificationEvidenceJson == "{}") failures.Add("Verification results are not available.");
         if (!string.IsNullOrWhiteSpace(request.ProcessingError)) failures.Add($"Processing failed: {request.ProcessingError}");
         if (!string.IsNullOrWhiteSpace(request.VerificationError)) failures.Add($"Verification failed: {request.VerificationError}");
     }

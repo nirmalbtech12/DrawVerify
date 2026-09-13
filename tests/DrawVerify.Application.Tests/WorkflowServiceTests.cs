@@ -18,7 +18,7 @@ public sealed class WorkflowServiceTests
     public async Task Maker_can_submit_complete_package()
     {
         var f = Fixture.Create(); var result = await f.Service.SubmitForReviewAsync(f.Request);
-        Assert.True(result.Succeeded); Assert.Equal(WorkflowStatus.SubmittedForReview, result.State!.Status); Assert.Single(f.Workflow.Submissions);
+        Assert.True(result.Succeeded, result.Message); Assert.Equal(WorkflowStatus.SubmittedForReview, result.State!.Status); Assert.Single(f.Workflow.Submissions);
         Assert.Equal(f.Request.StepDocumentVersionId, f.Workflow.Submissions[0].StepDocumentVersionId);
         Assert.Equal(f.Request.DxfDocumentVersionId, f.Workflow.Submissions[0].DxfDocumentVersionId);
         Assert.Equal(f.Request.VerificationSessionId, f.Workflow.Submissions[0].VerificationSessionId);
@@ -29,22 +29,22 @@ public sealed class WorkflowServiceTests
     [Fact(DisplayName = "TD-APP-02 readiness and authorization failures are explicit and non-mutating")]
     public async Task Rejected_cases_do_not_submit_and_are_audited()
     {
-        foreach (var setup in new Action<Fixture>[]
+        foreach (var scenario in new (string Name, Action<Fixture> Setup)[]
         {
-            f => f.Document = null,
-            f => f.Request = f.Request with { StepDocumentVersionId = Guid.Empty },
-            f => f.Request = f.Request with { DxfAvailable = false },
-            f => f.Request = f.Request with { ExtractionCompleted = false },
-            f => f.Request = f.Request with { VerificationCompleted = false },
-            f => f.Request = f.Request with { ProcessingError = "worker failed" },
-            f => f.Request = f.Request with { RequiredMetadataPresent = false },
-            f => f.Document = f.Document! with { GeometryStatus = CoreGeometryStatus.Error },
-            f => f.Auth.User = new AuthenticatedUser("checker", new[] { SystemRoles.Checker }),
-            f => f.WorkflowState = new WorkflowState { PackageId = Package, Status = WorkflowStatus.UnderReview }
+            ("missing package", f => f.Document = null),
+            ("missing STEP version", f => f.Request = f.Request with { StepDocumentVersionId = Guid.Empty }),
+            ("missing DXF", f => f.Request = f.Request with { DxfAvailable = false }),
+            ("incomplete extraction", f => f.Request = f.Request with { ExtractionCompleted = false }),
+            ("incomplete verification", f => f.Request = f.Request with { VerificationCompleted = false }),
+            ("processing failure", f => f.Request = f.Request with { ProcessingError = "worker failed" }),
+            ("missing metadata", f => f.Request = f.Request with { RequiredMetadataPresent = false }),
+            ("persisted extraction error", f => f.Document = f.Document! with { GeometryStatus = CoreGeometryStatus.Error }),
+            ("non-Maker", f => f.Auth.User = new AuthenticatedUser("checker", new[] { SystemRoles.Checker })),
+            ("duplicate workflow state", f => f.WorkflowState = new WorkflowState { PackageId = Package, Status = WorkflowStatus.UnderReview })
         })
         {
-            var f = Fixture.Create(); setup(f); var expectedStatus = f.WorkflowState.Status; var result = await f.Service.SubmitForReviewAsync(f.Request);
-            Assert.False(result.Succeeded); Assert.NotEmpty(result.Errors); Assert.Empty(f.Workflow.Submissions); Assert.Single(f.Workflow.Audits); Assert.Equal(expectedStatus, f.Workflow.InitialStatus);
+            var f = Fixture.Create(); scenario.Setup(f); var expectedStatus = f.WorkflowState.Status; var result = await f.Service.SubmitForReviewAsync(f.Request);
+            Assert.False(result.Succeeded, $"Scenario '{scenario.Name}' unexpectedly succeeded: {result.Message}"); Assert.NotEmpty(result.Errors); Assert.Empty(f.Workflow.Submissions); Assert.Single(f.Workflow.Audits); Assert.Equal(expectedStatus, f.Workflow.InitialStatus);
             Assert.Contains(result.Errors, error => error.Contains("available", StringComparison.OrdinalIgnoreCase) || error.Contains("completed", StringComparison.OrdinalIgnoreCase) || error.Contains("failed", StringComparison.OrdinalIgnoreCase) || error.Contains("missing", StringComparison.OrdinalIgnoreCase) || error.Contains("Maker", StringComparison.OrdinalIgnoreCase) || error.Contains("cannot be submitted", StringComparison.OrdinalIgnoreCase));
         }
     }
@@ -101,7 +101,9 @@ public sealed class WorkflowServiceTests
     [Fact(DisplayName = "TD-APP-03 changed references cannot silently replace submission")]
     public async Task Snapshot_is_captured_once()
     {
-        var f = Fixture.Create(); var saved = (await f.Service.SubmitForReviewAsync(f.Request)).Submission!;
+        var f = Fixture.Create(); var result = await f.Service.SubmitForReviewAsync(f.Request);
+        Assert.True(result.Succeeded, result.Message);
+        var saved = result.Submission!;
         var changedRequest = f.Request with { StepDocumentVersionId = Guid.NewGuid() };
         Assert.NotEqual(changedRequest.StepDocumentVersionId, saved.StepDocumentVersionId); Assert.Equal("{\"extracted\":true}", saved.ExtractionEvidenceJson);
     }
@@ -142,7 +144,7 @@ public sealed class WorkflowServiceTests
 
         var result = await f.Service.SubmitForReviewAsync(f.Request);
 
-        Assert.True(result.Succeeded);
+        Assert.True(result.Succeeded, result.Message);
         Assert.Equal(WorkflowStatus.SubmittedForReview, result.State!.Status);
         Assert.Equal(WorkflowStatus.InPreparation, f.Workflow.InitialStatus);
         Assert.Single(f.Workflow.Submissions);
@@ -152,7 +154,9 @@ public sealed class WorkflowServiceTests
     public async Task Changed_document_reference_supersedes_submission()
     {
         var f = Fixture.Create();
-        var submission = (await f.Service.SubmitForReviewAsync(f.Request)).Submission!;
+        var result = await f.Service.SubmitForReviewAsync(f.Request);
+        Assert.True(result.Succeeded, result.Message);
+        var submission = result.Submission!;
         f.WorkflowState = f.WorkflowState with { Status = WorkflowStatus.SubmittedForReview };
         f.Document = f.Document! with { Version = new DocumentVersion { VersionId = Guid.NewGuid() } };
 
@@ -167,6 +171,7 @@ public sealed class WorkflowServiceTests
     public async Task Details_are_trimmed_and_original_exception_is_preserved()
     {
         var f = Fixture.Create(); f.Request = f.Request with { Note = "  Please review hole tolerances  " }; var result = await f.Service.SubmitForReviewAsync(f.Request);
+        Assert.True(result.Succeeded, result.Message);
         Assert.Equal("Please review hole tolerances", result.Submission!.Note); Assert.Equal("maker-001", result.Submission.MakerUserId); Assert.Equal("Maker One", result.Submission.MakerDisplayName); Assert.Equal(Now, result.Submission.SubmittedUtc); Assert.Equal(1, result.Submission.Revision);
         f = Fixture.Create(); f.Workflow.ThrowOnSubmit = true; var error = await Assert.ThrowsAsync<InvalidOperationException>(() => f.Service.SubmitForReviewAsync(f.Request)); Assert.Equal("persist failed", error.Message); Assert.Contains("packageId=", f.Logger.Context);
     }
@@ -179,7 +184,7 @@ public sealed class WorkflowServiceTests
         var result = await f.Service.SubmitForReviewAsync(f.Request);
         var audit = Assert.Single(f.Workflow.Audits);
 
-        Assert.True(result.Succeeded);
+        Assert.True(result.Succeeded, result.Message);
         Assert.Equal(DocumentAuditAction.SubmissionSucceeded, audit.Action);
         Assert.Equal("maker-001", audit.UserId);
         Assert.Equal(Now, audit.TimestampUtc);
@@ -214,13 +219,39 @@ public sealed class WorkflowServiceTests
 
     private sealed class Fixture
     {
+        private static readonly Guid DxfDocument = Guid.Parse("00000000-0000-0000-0000-000000000002");
+        private static readonly Guid DxfVersion = Guid.Parse("00000000-0000-0000-0000-000000000012");
         public FakeWorkflow Workflow { get; } = new(); public FakeAuth Auth { get; } = new(); public FakeLogger Logger { get; } = new();
-        public Document? Document { get; set; } = new() { DocumentId = Package, GeometryStatus = CoreGeometryStatus.Processed, Version = new DocumentVersion { VersionId = Guid.Parse("00000000-0000-0000-0000-000000000011") } };
+        public Document? Document { get; set; } = new() { DocumentId = Package, DocumentType = DrawVerify.Core.Enums.DocumentType.StepModel, OriginalFileName = "package.step", FileSizeBytes = 1024, GeometryStatus = CoreGeometryStatus.Processed, Version = new DocumentVersion { VersionId = Guid.Parse("00000000-0000-0000-0000-000000000011"), DocumentId = Package } };
+        public Document DxfDocumentRecord { get; } = new() { DocumentId = DxfDocument, DocumentType = DrawVerify.Core.Enums.DocumentType.DxfDrawing, OriginalFileName = "drawing.dxf", FileSizeBytes = 1024, UploadStatus = DrawVerify.Core.Enums.UploadStatus.Uploaded, VerificationStatus = VerificationStatus.DimensionsExtracted, Version = new DocumentVersion { VersionId = DxfVersion, DocumentId = DxfDocument } };
         public WorkflowState WorkflowState { get => _state; set { _state = value; Workflow.InitialStatus = value.Status; } } private WorkflowState _state = new() { PackageId = Package, Status = WorkflowStatus.Draft, Revision = 1 };
-        public SubmissionRequest Request { get; set; } = new(Package) { StepDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000011"), DxfDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000012"), VerificationSessionId = Guid.Parse("00000000-0000-0000-0000-000000000013"), ExtractionEvidenceJson = "{\"extracted\":true}", VerificationEvidenceJson = "{\"verified\":true}" };
+        public SubmissionRequest Request { get; set; } = new(Package) { DxfDocumentId = DxfDocument, StepDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000011"), DxfDocumentVersionId = DxfVersion, VerificationSessionId = Guid.Parse("00000000-0000-0000-0000-000000000013"), ExtractionEvidenceJson = "{\"extracted\":true}", VerificationEvidenceJson = "{\"verified\":true}" };
         public WorkflowService Service => new(Workflow, Auth, new WorkflowConfiguration { PermittedInitialStates = new[] { WorkflowStatus.Draft, WorkflowStatus.InPreparation }, DuplicateSubmissionStates = new[] { WorkflowStatus.SubmittedForReview, WorkflowStatus.UnderReview, WorkflowStatus.Approved } }, new RoleAuthorization(), Logger, new FakeDocuments(this), null, () => Now);
         public static Fixture Create() { var f = new Fixture(); f.Workflow.StateProvider = () => f._state; return f; }
-        private sealed class FakeDocuments(Fixture owner) : IDocumentRepository { public Task<Document?> GetAsync(Guid id, CancellationToken ct = default) => Task.FromResult(owner.Document); }
+        private sealed class FakeDocuments(Fixture owner) : IDocumentRepository
+        {
+            public Task<Document?> GetAsync(Guid id, CancellationToken ct = default)
+            {
+                if (id == DxfDocument)
+                    return Task.FromResult<Document?>(owner.Request.DxfAvailable ? owner.DxfDocumentRecord with
+                    {
+                        UploadStatus = owner.Request.DxfAvailable ? DrawVerify.Core.Enums.UploadStatus.Uploaded : DrawVerify.Core.Enums.UploadStatus.Failed,
+                        VerificationStatus = owner.Request.VerificationCompleted ? VerificationStatus.DimensionsExtracted : VerificationStatus.Unknown,
+                        OriginalFileName = owner.Request.RequiredMetadataPresent ? "drawing.dxf" : string.Empty,
+                        FileSizeBytes = owner.Request.RequiredMetadataPresent ? 1024 : 0
+                    } : null);
+
+                if (id != Package || owner.Document is null)
+                    return Task.FromResult<Document?>(null);
+
+                return Task.FromResult<Document?>(owner.Document with
+                {
+                    GeometryStatus = owner.Document.GeometryStatus == CoreGeometryStatus.Error || owner.Request.ProcessingError is not null ? CoreGeometryStatus.Error : owner.Request.ExtractionCompleted ? CoreGeometryStatus.Processed : CoreGeometryStatus.NotExtracted,
+                    OriginalFileName = owner.Request.RequiredMetadataPresent ? "package.step" : string.Empty,
+                    FileSizeBytes = owner.Request.RequiredMetadataPresent ? 1024 : 0
+                });
+            }
+        }
     }
     private sealed class FakeAuth : ISessionAuthenticationService { public AuthenticatedUser? User { get; set; } = CreateMaker(); private static AuthenticatedUser CreateMaker() => new AuthenticatedUser("maker", new[] { SystemRoles.Maker }) { UserId = "maker-001", DisplayName = "Maker One" }; public AuthenticatedUser? CurrentUser => User; public bool IsAuthenticated => User is not null; public void SignIn(AuthenticatedUser user) => User = user; public void SignOut() => User = null; }
     private sealed class FakeLogger : ICentralizedLogger { public string Context { get; private set; } = ""; public void Log(Exception exception, string operation, string context) => Context = context; }
