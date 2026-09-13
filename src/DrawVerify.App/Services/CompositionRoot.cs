@@ -8,6 +8,7 @@ using DrawVerify.Core.Authorization;
 using DrawVerify.Infrastructure.FileStorage;
 using DrawVerify.Infrastructure.Persistence;
 using DrawVerify.Infrastructure.Logging;
+using DrawVerify.Infrastructure.Notifications;
 using DrawVerify.App.ViewModels;
 using DrawVerify.OcctService;
 using DrawVerify.Application.Verification;
@@ -64,7 +65,7 @@ public static class CompositionRoot
     public static IWorkflowService CreateWorkflowService()
     {
         var database = DatabasePath(); var logger = new CentralizedLogger();
-        return new WorkflowService(new SqliteWorkflowRepository(database, logger, WorkflowConfiguration), Session, WorkflowConfiguration, Authorization, logger, new SqliteDocumentRepository(database, logger), new SqliteVerificationSessionRepository(database));
+        return new WorkflowService(new SqliteWorkflowRepository(database, logger, WorkflowConfiguration), Session, WorkflowConfiguration, Authorization, logger, new SqliteDocumentRepository(database, logger), new SqliteVerificationSessionRepository(database), notifications: new InAppNotificationService(database));
     }
     public static DimensionMatchingConfiguration ConfiguredDimensionMatching => DimensionMatchingConfiguration;
     public static GdtValidator CreateGdtValidator()

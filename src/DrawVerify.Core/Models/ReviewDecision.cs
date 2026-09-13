@@ -1,0 +1,26 @@
+using DrawVerify.Core.Enums;
+
+namespace DrawVerify.Core.Models;
+
+public sealed record ReviewDecision
+{
+    public Guid DecisionId { get; init; } = Guid.NewGuid();
+    public Guid PackageId { get; init; }
+    public int Revision { get; init; }
+    public string CheckerUserId { get; init; } = string.Empty;
+    public string CheckerDisplayName { get; init; } = string.Empty;
+    public DateTime DecidedUtc { get; init; } = DateTime.UtcNow;
+    public ReviewDecisionType DecisionType { get; init; }
+    public string? Comments { get; init; }
+    public string SnapshotReference { get; init; } = string.Empty;
+    public string SnapshotJson { get; init; } = "{}";
+
+    public void Validate()
+    {
+        if (PackageId == Guid.Empty) throw new ArgumentException("Package identifier is required.", nameof(PackageId));
+        if (Revision < 1) throw new ArgumentOutOfRangeException(nameof(Revision));
+        if (string.IsNullOrWhiteSpace(CheckerUserId)) throw new ArgumentException("Checker identity is required.", nameof(CheckerUserId));
+        if (DecisionType is ReviewDecisionType.Reject or ReviewDecisionType.RequestChanges && string.IsNullOrWhiteSpace(Comments))
+            throw new ArgumentException("Comments are required for rejection or requested changes.", nameof(Comments));
+    }
+}

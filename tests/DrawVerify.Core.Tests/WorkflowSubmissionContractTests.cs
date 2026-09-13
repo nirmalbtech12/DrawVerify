@@ -1,6 +1,7 @@
 using DrawVerify.Core.Configuration;
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Models;
+using System.Text.Json;
 using Xunit;
 
 namespace DrawVerify.Core.Tests;
@@ -88,6 +89,44 @@ public sealed class WorkflowSubmissionContractTests
         Assert.Equal(32, (int)DocumentAuditAction.SubmissionSucceeded);
         Assert.Equal(33, (int)DocumentAuditAction.SubmissionCancelled);
         Assert.Equal(34, (int)DocumentAuditAction.SubmissionRejected);
+    }
+
+    [Fact(DisplayName = "TD-CORE-049 review contracts validate, serialize, and preserve snapshots")]
+    public void Review_contracts_validate_required_fields_and_round_trip_exact_evidence()
+    {
+        var packageId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+        var step = Guid.Parse("00000000-0000-0000-0000-000000000011");
+        var dxf = Guid.Parse("00000000-0000-0000-0000-000000000012");
+        var submission = new ReviewSubmission
+        {
+            PackageId = packageId, StepDocumentVersionId = step, DxfDocumentVersionId = dxf,
+            ExtractionEvidenceJson = "{\"dimensions\":[10]}", VerificationEvidenceJson = "{\"missing\":[\"D1\"]}",
+            MakerUserId = "maker-1", MakerDisplayName = "Maker One", Revision = 7,
+            SubmittedUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+        };
+        var package = ReviewPackage.FromSubmission(submission);
+        var decision = new ReviewDecision
+        {
+            PackageId = packageId, Revision = 7, CheckerUserId = "checker-1", CheckerDisplayName = "Checker One",
+            DecisionType = ReviewDecisionType.Approve, SnapshotReference = package.SnapshotReference,
+            SnapshotJson = JsonSerializer.Serialize(package)
+        };
+
+        decision.Validate();
+        var roundTrip = JsonSerializer.Deserialize<ReviewDecision>(JsonSerializer.Serialize(decision));
+        Assert.NotNull(roundTrip);
+        Assert.Equal(decision, roundTrip);
+        Assert.Equal(step, package.StepDocumentVersionId);
+        Assert.Equal(dxf, package.DxfDocumentVersionId);
+        Assert.Equal(submission.ExtractionEvidenceJson, package.ExtractionEvidenceJson);
+        Assert.Equal(submission.VerificationEvidenceJson, package.VerificationEvidenceJson);
+        Assert.Throws<ArgumentException>(() => (decision with { DecisionType = ReviewDecisionType.Reject, Comments = " " }).Validate());
+        Assert.Throws<ArgumentException>(() => (decision with { DecisionType = ReviewDecisionType.RequestChanges, Comments = null }).Validate());
+        Assert.Throws<ArgumentOutOfRangeException>(() => (decision with { Revision = 0 }).Validate());
+        Assert.Equal(36, (int)DocumentAuditAction.ReviewStarted);
+        Assert.Equal(37, (int)DocumentAuditAction.Approved);
+        Assert.Equal(38, (int)DocumentAuditAction.Rejected);
+        Assert.Equal(39, (int)DocumentAuditAction.ChangesRequested);
     }
 
 }

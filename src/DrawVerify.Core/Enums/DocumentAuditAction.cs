@@ -20,5 +20,10 @@ public enum DocumentAuditAction
     DxfGenerationStarted = 26, DxfGenerationCompleted = 27, DxfGenerationFailed = 28,
     DxfValidationCompleted = 29, DxfDownloaded = 30, DxfReplaced = 31,
     SubmissionSucceeded = 32, SubmissionCancelled = 33, SubmissionRejected = 34,
-    SubmissionSuperseded = 35
+    SubmissionSuperseded = 35,
+    ReviewStarted = 36,
+    Approved = 37,
+    Rejected = 38,
+    ChangesRequested = 39,
+    ReviewCommentAdded = 40
 }

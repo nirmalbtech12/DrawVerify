@@ -13,6 +13,9 @@ public sealed class WorkflowStateMachine
         _configuration.Validate();
     }
     public bool CanSubmit(WorkflowStatus status) => _configuration.PermittedInitialStates.Contains(status);
+    public WorkflowStatus ApprovedState => _configuration.ApprovedReviewState;
+    public WorkflowStatus RejectedState => _configuration.RejectedReviewState;
+    public WorkflowStatus ChangesRequestedState => _configuration.ChangesRequestedReviewState;
     public SubmissionReadiness ValidateState(WorkflowStatus status) => CanSubmit(status) ? SubmissionReadiness.Ready : new(false, new[] { $"The package is in '{status}', and cannot be submitted for review." });
     public WorkflowState Submit(WorkflowState state)
     {

@@ -19,6 +19,8 @@ public sealed record ReviewSubmission
     public string? Note { get; init; }
     public WorkflowStatus Status { get; init; } = WorkflowStatus.SubmittedForReview;
     public bool MakerAuthorized { get; init; } = true;
+    public string? AssignedCheckerUserId { get; init; }
+    public bool AvailableToCheckers { get; init; } = true;
 }
 
 public sealed record SubmissionReadiness(bool IsReady, IReadOnlyList<string> Failures)
@@ -45,4 +47,8 @@ public sealed record SubmissionResult(bool Succeeded, string Message, WorkflowSt
 {
     public IReadOnlyList<string> Errors => Failures ?? Array.Empty<string>();
 }
-public sealed record WorkflowQueueItem(Guid PackageId, int Revision, string MakerDisplayName, DateTime SubmittedUtc, WorkflowStatus Status, string VerificationSummary);
+public sealed record WorkflowQueueItem(Guid PackageId, int Revision, string MakerDisplayName, DateTime SubmittedUtc, WorkflowStatus Status, string VerificationSummary)
+{
+    public string? AssignedCheckerUserId { get; init; }
+    public bool AvailableToCheckers { get; init; } = true;
+}

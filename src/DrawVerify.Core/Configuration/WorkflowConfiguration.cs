@@ -12,6 +12,9 @@ public sealed class WorkflowConfiguration
     public WorkflowStatus SubmittedForReviewState { get; init; } = WorkflowStatus.SubmittedForReview;
     public IReadOnlyList<WorkflowStatus> DuplicateSubmissionStates { get; init; } = Array.Empty<WorkflowStatus>();
     public bool MarkChangedPackagesSuperseded { get; init; } = true;
+    public WorkflowStatus ApprovedReviewState { get; init; } = WorkflowStatus.Approved;
+    public WorkflowStatus RejectedReviewState { get; init; } = WorkflowStatus.Rejected;
+    public WorkflowStatus ChangesRequestedReviewState { get; init; } = WorkflowStatus.ChangesRequested;
     public void Validate()
     {
         if (PermittedInitialStates.Count == 0) throw new InvalidOperationException("Workflow configuration must define permitted initial states.");

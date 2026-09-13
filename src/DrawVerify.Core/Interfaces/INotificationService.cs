@@ -1,3 +1,5 @@
+using DrawVerify.Core.Models;
+
 namespace DrawVerify.Core.Interfaces;
 
 /// <summary>
@@ -5,4 +7,6 @@ namespace DrawVerify.Core.Interfaces;
 /// </summary>
 public interface INotificationService
 {
+    Task NotifyMakerAsync(Guid packageId, int revision, ReviewDecision decision, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
 }

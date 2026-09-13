@@ -106,6 +106,43 @@ public sealed class WorkflowViewModelTests
         Assert.Equal(1, service.SubmissionCalls);
     }
 
+    [Fact(DisplayName = "TD-APPUI-049 Checker can open the complete review package")]
+    public async Task Checker_review_projection_contains_all_submission_sections()
+    {
+        var service = new FakeWorkflowService { ReviewPackage = ReviewFixture() };
+        var checker = new AuthenticatedUser("checker", new[] { SystemRoles.Checker });
+        var model = new WorkflowViewModel(service, new FakeAuthentication(checker), new RoleAuthorization());
+        await model.OpenReviewAsync(new WorkflowQueueItem(service.ReviewPackage.PackageId, 7, "Maker One", service.ReviewPackage.SubmittedUtc, WorkflowStatus.SubmittedForReview, "missing D1"));
+        Assert.True(model.IsReviewMode); Assert.Equal(service.ReviewPackage.StepDocumentVersionId, model.ReviewPackage!.StepDocumentVersionId); Assert.Equal(service.ReviewPackage.DxfDocumentVersionId, model.ReviewPackage.DxfDocumentVersionId); Assert.Equal("{\"dimensions\":[10]}", model.ReviewPackage.ExtractionEvidenceJson); Assert.Equal("Maker One", model.ReviewPackage.MakerDisplayName);
+    }
+
+    [Fact(DisplayName = "TD-APPUI-050 review commands require comments and navigate findings")]
+    public async Task Review_commands_validate_comments_and_execute_decision()
+    {
+        var service = new FakeWorkflowService { ReviewPackage = ReviewFixture() }; var model = new WorkflowViewModel(service);
+        await model.OpenReviewAsync(new WorkflowQueueItem(service.ReviewPackage.PackageId, 7, "Maker One", DateTime.UtcNow, WorkflowStatus.SubmittedForReview, "missing"));
+        Assert.True(model.ApproveCommand.CanExecute(null)); Assert.False(model.RejectCommand.CanExecute(null)); Assert.False(model.RequestChangesCommand.CanExecute(null));
+        model.ReviewComment = "  fix control D1  "; Assert.True(model.RejectCommand.CanExecute(null)); model.RejectCommand.Execute(null); await WaitForAsync(() => service.DecisionCalls == 1, TimeSpan.FromSeconds(5));
+        Assert.Equal(ReviewDecisionType.Reject, service.LastDecisionType); Assert.Equal("fix control D1", service.LastComments);
+    }
+
+    [Fact(DisplayName = "TD-APPUI-051 comment-only save and duplicate feedback remain visible")]
+    public async Task Comment_save_does_not_change_review_status_and_duplicate_is_visible()
+    {
+        var service = new FakeWorkflowService { ReviewPackage = ReviewFixture() }; var model = new WorkflowViewModel(service);
+        await model.OpenReviewAsync(new WorkflowQueueItem(service.ReviewPackage.PackageId, 7, "Maker One", DateTime.UtcNow, WorkflowStatus.SubmittedForReview, "verified"));
+        model.ReviewComment = "looks good"; model.SaveReviewCommentCommand.Execute(null); await WaitForAsync(() => service.CommentCalls == 1, TimeSpan.FromSeconds(5));
+        Assert.Equal(WorkflowStatus.SubmittedForReview, service.ReviewPackage.Status); Assert.Equal(0, service.DecisionCalls);
+        service.DecideException = new InvalidOperationException("A decision was already recorded for this package revision"); model.ApproveCommand.Execute(null); await WaitForAsync(() => !string.IsNullOrEmpty(model.ReviewError), TimeSpan.FromSeconds(5)); Assert.Contains("could not be saved", model.ReviewError);
+    }
+
+    private static ReviewPackage ReviewFixture() => ReviewPackage.FromSubmission(new ReviewSubmission
+    {
+        PackageId = Guid.Parse("00000000-0000-0000-0000-000000000001"), Revision = 7,
+        StepDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000011"), DxfDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000012"),
+        ExtractionEvidenceJson = "{\"dimensions\":[10]}", VerificationEvidenceJson = "{\"missing\":[\"D1\"]}", MakerUserId = "maker-1", MakerDisplayName = "Maker One", SubmittedUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+    });
+
     private static async Task WaitForAsync(Func<bool> condition, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;
@@ -123,12 +160,21 @@ file sealed class FakeWorkflowService : IWorkflowService
     public int SubmissionCalls { get; private set; }
     public SubmissionResult Result { get; set; } = new(true, "The drawing was submitted for review.");
     public bool ThrowOnSubmit { get; set; }
+    public ReviewPackage? ReviewPackage { get; set; }
+    public int DecisionCalls { get; private set; }
+    public int CommentCalls { get; private set; }
+    public ReviewDecisionType LastDecisionType { get; private set; }
+    public string? LastComments { get; private set; }
+    public Exception? DecideException { get; set; }
     public Task<SubmissionReadiness> ValidateReadinessAsync(Guid packageId, CancellationToken cancellationToken = default) => Task.FromResult(SubmissionReadiness.Ready);
     public Task<SubmissionResult> SubmitForReviewAsync(SubmissionRequest request, CancellationToken cancellationToken = default) { SubmissionCalls++; if (ThrowOnSubmit) throw new InvalidOperationException("persist failed"); return Task.FromResult(Result); }
     public Task RecordCancellationAsync(Guid packageId, int revision, string? note, CancellationToken cancellationToken = default) { CancellationCalls++; return Task.CompletedTask; }
     public Task<WorkflowState?> GetPackageAsync(Guid packageId, CancellationToken cancellationToken = default) => Task.FromResult<WorkflowState?>(null);
     public Task<IReadOnlyList<ReviewSubmission>> GetSubmittedPackagesAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ReviewSubmission>>(Array.Empty<ReviewSubmission>());
     public Task<IReadOnlyList<WorkflowQueueItem>> GetCheckerQueueAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<WorkflowQueueItem>>(Array.Empty<WorkflowQueueItem>());
+    public Task<ReviewPackage?> OpenReviewPackageAsync(Guid packageId, int revision, CancellationToken cancellationToken = default) => Task.FromResult(ReviewPackage);
+    public Task<ReviewDecision> DecideAsync(Guid packageId, int revision, ReviewDecisionType decisionType, string? comments, CancellationToken cancellationToken = default) { DecisionCalls++; if (DecideException is not null) return Task.FromException<ReviewDecision>(DecideException); LastDecisionType = decisionType; LastComments = comments?.Trim(); return Task.FromResult(new ReviewDecision { PackageId = packageId, Revision = revision, DecisionType = decisionType, CheckerUserId = "checker-1" }); }
+    public Task<ReviewComment> AddReviewCommentAsync(Guid packageId, int revision, string text, CancellationToken cancellationToken = default) { CommentCalls++; return Task.FromResult(new ReviewComment { PackageId = packageId, Revision = revision, AuthorUserId = "checker-1", Text = text.Trim() }); }
 }
 
 file sealed class FakeAuthentication(AuthenticatedUser? user) : ISessionAuthenticationService
