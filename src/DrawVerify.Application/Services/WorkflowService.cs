@@ -86,6 +86,8 @@ public sealed class WorkflowService : IWorkflowService
             {
                 if (session.Status == VerificationSessionStatus.Error || !string.IsNullOrWhiteSpace(session.ErrorMessage)) failures.Add("Verification processing failed.");
                 if (session.Status != VerificationSessionStatus.DimensionsMatched) failures.Add("Verification is not completed.");
+                if (session.StepDocumentId != request.PackageId) failures.Add("The verification results do not belong to the submitted STEP package.");
+                if (session.DxfDocumentId != request.DxfDocumentId) failures.Add("The verification results do not belong to the submitted DXF drawing.");
                 if (session.StepDocumentVersionId != request.StepDocumentVersionId || session.DxfDocumentVersionId != request.DxfDocumentVersionId) failures.Add("The verification results reference stale document versions.");
             }
         }
@@ -112,6 +114,8 @@ public sealed class WorkflowService : IWorkflowService
 
         if (step.DocumentType != CoreDocumentType.StepModel)
             failures.Add("The package record is not a STEP model.");
+        if (step.UploadStatus != CoreUploadStatus.Uploaded)
+            failures.Add("STEP file is not available for review because its persisted upload did not complete.");
         if (step.Version is null)
             failures.Add("STEP file version is not available in the persisted package.");
         else if (request.StepDocumentVersionId != step.Version.VersionId)
