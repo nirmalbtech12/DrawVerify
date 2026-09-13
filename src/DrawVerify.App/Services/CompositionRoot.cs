@@ -140,7 +140,7 @@ public static class CompositionRoot
         return new DxfDrawingGenerationService(documents, new DocumentFileStore(AppContext.BaseDirectory, StepUploadConfiguration), dxfFiles, new OcctGeometryService(), new SqliteAuditRepository(database), Session, Authorization, logger, users, extraction);
     }
     public static DocumentDetailViewModel CreateDocumentDetailViewModel(DrawVerify.Core.Models.Document document) =>
-        new(document, CreateDxfDimensionExtractionService());
+        new(document, CreateDxfDimensionExtractionService(), CreateWorkflowService());
     public static DimensionMatchingService CreateDimensionMatchingService()
     {
         var database = DatabasePath();

@@ -9,6 +9,8 @@ namespace DrawVerify.Core.Interfaces;
 public interface IWorkflowService
 {
     Task<SubmissionReadiness> ValidateReadinessAsync(Guid packageId, CancellationToken cancellationToken = default);
+    Task<SubmissionReadiness> ValidateReadinessAsync(SubmissionRequest request, CancellationToken cancellationToken = default)
+        => ValidateReadinessAsync(request.PackageId, cancellationToken);
     Task<SubmissionResult> SubmitForReviewAsync(SubmissionRequest request, CancellationToken cancellationToken = default);
     Task RecordCancellationAsync(Guid packageId, int revision, string? note, CancellationToken cancellationToken = default);
     Task<WorkflowState?> GetPackageAsync(Guid packageId, CancellationToken cancellationToken = default);

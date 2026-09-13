@@ -4,6 +4,7 @@ using System.Windows.Input;
 using DrawVerify.Application.Services;
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Models;
+using DrawVerify.Core.Interfaces;
 using CoreDocumentType = DrawVerify.Core.Enums.DocumentType;
 using CoreUploadStatus = DrawVerify.Core.Enums.UploadStatus;
 
@@ -17,6 +18,7 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     private string _message = string.Empty;
     private string _errorMessage = string.Empty;
     private bool _isBusy;
+    private readonly IWorkflowService? _workflowService;
 
     public DocumentDetailViewModel()
     {
@@ -26,13 +28,17 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
 
     public DocumentDetailViewModel(Document document) : this(document, null) { }
 
-    public DocumentDetailViewModel(Document document, DxfDimensionExtractionService? dimensionService) : this()
+    public DocumentDetailViewModel(Document document, DxfDimensionExtractionService? dimensionService, IWorkflowService? workflowService = null) : this()
     {
-        _dimensionService = dimensionService;
+        _dimensionService = dimensionService; _workflowService = workflowService;
+        SubmitForReviewCommand = new RelayCommand(_ => SubmitRequested?.Invoke(_document!.DocumentId), _ => CanSubmitForReview);
         Load(document);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+    public event Action<Guid>? SubmitRequested;
+    public ICommand SubmitForReviewCommand { get; private set; } = new RelayCommand(_ => { }, _ => false);
+    public bool CanSubmitForReview => _workflowService is not null && _document is not null;
     public Document? Document => _document;
     public string OriginalFileName => _document?.OriginalFileName ?? string.Empty;
     public long FileSizeBytes => _document?.FileSizeBytes ?? 0;
@@ -82,8 +88,10 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
         Changed(nameof(VerificationStatusDisplay)); Changed(nameof(GeometryStatus)); Changed(nameof(GeometryError)); Changed(nameof(CurrentVersion));
         Changed(nameof(CanExtractDimensions)); Changed(nameof(IsAuthorized)); Changed(nameof(Dimensions));
         Changed(nameof(DimensionResults)); Changed(nameof(ExtractedDimensions));
+        Changed(nameof(CanSubmitForReview));
         ((RelayCommand)ExtractDimensionsCommand).Raise();
         ((RelayCommand)LoadDimensionsCommand).Raise();
+        ((RelayCommand)SubmitForReviewCommand).Raise();
     }
 
     public async Task LoadDimensionsAsync()

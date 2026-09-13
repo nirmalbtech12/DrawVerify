@@ -17,6 +17,7 @@ public sealed record ReviewSubmission
     public DateTime SubmittedUtc { get; init; } = DateTime.UtcNow;
     public string? Note { get; init; }
     public WorkflowStatus Status { get; init; } = WorkflowStatus.SubmittedForReview;
+    public bool MakerAuthorized { get; init; } = true;
 }
 
 public sealed record SubmissionReadiness(bool IsReady, IReadOnlyList<string> Failures)
@@ -31,6 +32,12 @@ public sealed record SubmissionRequest(Guid PackageId, string? Note = null)
     public Guid VerificationSessionId { get; init; }
     public string ExtractionEvidenceJson { get; init; } = "{}";
     public string VerificationEvidenceJson { get; init; } = "{}";
+    public bool DxfAvailable { get; init; } = true;
+    public bool ExtractionCompleted { get; init; } = true;
+    public bool VerificationCompleted { get; init; } = true;
+    public bool RequiredMetadataPresent { get; init; } = true;
+    public string? ProcessingError { get; init; }
+    public string? VerificationError { get; init; }
 }
 public sealed record SubmissionResult(bool Succeeded, string Message, WorkflowState? State = null, ReviewSubmission? Submission = null, IReadOnlyList<string>? Failures = null)
 {
