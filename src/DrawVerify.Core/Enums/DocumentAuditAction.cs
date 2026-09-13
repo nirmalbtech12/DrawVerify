@@ -18,5 +18,7 @@ public enum DocumentAuditAction
     GdtValidationCompleted = 22, GdtReviewChanged = 23,
     FlaggedCannotValidate = 24, DispositionChanged = 25,
     DxfGenerationStarted = 26, DxfGenerationCompleted = 27, DxfGenerationFailed = 28,
-    DxfValidationCompleted = 29, DxfDownloaded = 30, DxfReplaced = 31
+    DxfValidationCompleted = 29, DxfDownloaded = 30, DxfReplaced = 31,
+    SubmissionSucceeded = 32, SubmissionCancelled = 33, SubmissionRejected = 34,
+    SubmissionSuperseded = 35
 }

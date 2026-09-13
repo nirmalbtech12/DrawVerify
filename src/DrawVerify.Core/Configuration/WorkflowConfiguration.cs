@@ -1,3 +1,5 @@
+using DrawVerify.Core.Enums;
+
 namespace DrawVerify.Core.Configuration;
 
 /// <summary>
@@ -6,4 +8,15 @@ namespace DrawVerify.Core.Configuration;
 /// </summary>
 public sealed class WorkflowConfiguration
 {
+    public IReadOnlyList<WorkflowStatus> PermittedInitialStates { get; init; } = Array.Empty<WorkflowStatus>();
+    public WorkflowStatus SubmittedForReviewState { get; init; } = WorkflowStatus.SubmittedForReview;
+    public IReadOnlyList<WorkflowStatus> DuplicateSubmissionStates { get; init; } = Array.Empty<WorkflowStatus>();
+    public bool MarkChangedPackagesSuperseded { get; init; } = true;
+    public void Validate()
+    {
+        if (PermittedInitialStates.Count == 0) throw new InvalidOperationException("Workflow configuration must define permitted initial states.");
+        if (!PermittedInitialStates.Contains(WorkflowStatus.Draft) || !PermittedInitialStates.Contains(WorkflowStatus.InPreparation)) throw new InvalidOperationException("Workflow configuration must permit Draft and InPreparation submissions.");
+        if (SubmittedForReviewState != WorkflowStatus.SubmittedForReview) throw new InvalidOperationException("Workflow target must be SubmittedForReview.");
+        if (!DuplicateSubmissionStates.Contains(WorkflowStatus.SubmittedForReview) || !DuplicateSubmissionStates.Contains(WorkflowStatus.UnderReview) || !DuplicateSubmissionStates.Contains(WorkflowStatus.Approved)) throw new InvalidOperationException("Workflow configuration must define all duplicate submission states.");
+    }
 }

@@ -1,8 +1,10 @@
+using DrawVerify.Core.Models;
+
 namespace DrawVerify.Application.Workflow;
 
-/// <summary>
-/// Drives workflow progression through the state machine using config-loaded rules.
-/// </summary>
 public sealed class WorkflowEngine
 {
+    private readonly WorkflowStateMachine _machine;
+    public WorkflowEngine(WorkflowStateMachine machine) => _machine = machine ?? throw new ArgumentNullException(nameof(machine));
+    public WorkflowState Submit(WorkflowState state) => _machine.Submit(state);
 }
