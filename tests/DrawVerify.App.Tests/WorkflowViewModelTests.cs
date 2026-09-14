@@ -171,6 +171,27 @@ public sealed class WorkflowViewModelTests
         Assert.Contains("Only authorized reviewers", model.ReviewError);
     }
 
+    [Fact(DisplayName = "TD-07 Maker rejection view exposes metadata and correction responses")]
+    public async Task Maker_rejection_context_exposes_all_required_fields()
+    {
+        var packageId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+        var prior = new ReviewComment { PackageId = packageId, Revision = 1, AuthorUserId = "checker-001", AuthorDisplayName = "Checker One", Text = "Fix dimension 4", ReferenceType = "dimension", ReferenceId = "DIM-4", IsDraft = false };
+        var response = new ReviewComment { PackageId = packageId, Revision = 2, AuthorUserId = "maker-001", AuthorDisplayName = "Maker One", Text = "Corrected dimension 4", PriorCommentId = prior.CommentId, CorrectionResponse = "Tolerance corrected", IsDraft = false };
+        var rejected = ReviewPackage.FromSubmission(new ReviewSubmission { PackageId = packageId, Revision = 1, MakerUserId = "maker-001", MakerDisplayName = "Maker One", Status = WorkflowStatus.Rejected, SubmittedUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) }, new ReviewDecision { PackageId = packageId, Revision = 1, CheckerUserId = "checker-001", CheckerDisplayName = "Checker One", DecidedUtc = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc), DecisionType = ReviewDecisionType.Reject, Comments = "Dimension 4 is outside tolerance", OverallReason = "Dimension 4 is outside tolerance", CorrectionAction = "Correct dimension 4 and resubmit" }, new[] { prior });
+        var resubmitted = ReviewPackage.FromSubmission(new ReviewSubmission { PackageId = packageId, Revision = 2, MakerUserId = "maker-001", MakerDisplayName = "Maker One", Status = WorkflowStatus.SubmittedForReview }, rejected.PriorDecision, new[] { prior, response });
+        var service = new FakeWorkflowService { ReviewPackage = resubmitted };
+        var model = new WorkflowViewModel(service, new FakeAuthentication(new AuthenticatedUser("maker", new[] { SystemRoles.Maker })));
+        await model.OpenReviewAsync(new WorkflowQueueItem(packageId, 2, "Maker One", DateTime.UtcNow, WorkflowStatus.SubmittedForReview, "corrected"));
+        Assert.NotNull(model.ReviewPackage);
+        var loaded = model.ReviewPackage!;
+        Assert.Equal(WorkflowStatus.SubmittedForReview, loaded.Status);
+        Assert.Equal("Checker One", loaded.PriorDecision!.CheckerDisplayName);
+        Assert.Equal("Dimension 4 is outside tolerance", loaded.RejectionReason);
+        Assert.Equal("Correct dimension 4 and resubmit", loaded.CorrectionAction);
+        Assert.Equal("dimension", loaded.Comments.Single(x => x.PriorCommentId is null).ReferenceType);
+        Assert.Equal("Tolerance corrected", loaded.Comments.Single(x => x.PriorCommentId == prior.CommentId).CorrectionResponse);
+    }
+
     private static ReviewPackage ReviewFixture() => ReviewPackage.FromSubmission(new ReviewSubmission
     {
         PackageId = Guid.Parse("00000000-0000-0000-0000-000000000001"), Revision = 7,

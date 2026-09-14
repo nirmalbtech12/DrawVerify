@@ -182,6 +182,74 @@ public sealed class SqliteWorkflowRepositoryTests
         finally { Delete(path); }
     }
 
+    [Fact(DisplayName = "TD-04 issue references and draft comment edits round-trip transactionally")]
+    public async Task Review_comments_round_trip_references_edit_and_discard()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-comments-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteWorkflowRepository(path); var package = Guid.NewGuid(); var snapshot = Snapshot(package);
+            await repository.SubmitAtomicallyAsync(new WorkflowState { PackageId = package, Status = WorkflowStatus.Draft, Revision = 1 }, snapshot, Audit(DocumentAuditAction.SubmissionSucceeded, package, "Submitted"));
+            var types = new[] { ("drawing", "SHEET-1"), ("model", "FACE-7"), ("dimension", "DIM-4"), ("gdt", "GDT-A") };
+            foreach (var (type, reference) in types)
+            {
+                var comment = new ReviewComment { PackageId = package, Revision = 1, AuthorUserId = "checker-001", AuthorDisplayName = "Checker", Text = $"Issue {reference}", ReferenceType = type, ReferenceId = reference, IsDraft = true };
+                await repository.SaveReviewCommentAsync(comment, Audit(DocumentAuditAction.ReviewCommentDraftSaved, package, "CommentDraftSaved"));
+            }
+            var saved = (await repository.GetReviewCommentsAsync(package, 1)).ToArray();
+            Assert.Equal(4, saved.Length); Assert.All(saved, x => Assert.True(x.IsDraft));
+            var edited = saved[0] with { Text = "Updated sheet issue" };
+            await repository.UpdateReviewCommentAsync(edited, Audit(DocumentAuditAction.ReviewCommentEdited, package, "CommentEdited"));
+            await repository.DiscardReviewCommentAsync(saved[1].CommentId, Audit(DocumentAuditAction.ReviewCommentDiscarded, package, "CommentDiscarded"));
+            var remaining = await repository.GetReviewCommentsAsync(package, 1);
+            Assert.Equal(3, remaining.Count); Assert.Contains(remaining, x => x.Text == "Updated sheet issue"); Assert.DoesNotContain(remaining, x => x.CommentId == saved[1].CommentId);
+            await Assert.ThrowsAsync<ArgumentException>(() => repository.SaveReviewCommentAsync(saved[0] with { ReferenceType = "bad", ReferenceId = "x" }, Audit(DocumentAuditAction.ReviewCommentDraftSaved, package, "invalid")));
+            Assert.Equal(WorkflowStatus.SubmittedForReview, (await repository.GetStateAsync(package))!.Status);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TD-05 rejection preserves immutable snapshot and commits audit")]
+    public async Task Rejection_preserves_snapshot_and_returns_maker_context()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-rejection-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteWorkflowRepository(path); var package = Guid.Parse("00000000-0000-0000-0000-000000000001"); var snapshot = Snapshot(package) with { Revision = 1 };
+            await repository.SubmitAtomicallyAsync(new WorkflowState { PackageId = package, Status = WorkflowStatus.Draft, Revision = 1 }, snapshot, Audit(DocumentAuditAction.SubmissionSucceeded, package, "Submitted"));
+            var review = (await repository.GetReviewPackageAsync(package, 1))!;
+            var decision = new ReviewDecision { PackageId = package, Revision = 1, CheckerUserId = "checker-001", CheckerDisplayName = "Checker One", DecisionType = ReviewDecisionType.Reject, Comments = "Dimension 4 is outside tolerance", OverallReason = "Dimension 4 is outside tolerance", CorrectionAction = "Correct dimension 4 and resubmit", SnapshotReference = review.SnapshotReference, SnapshotJson = JsonSerializer.Serialize(review) };
+            var saved = await repository.SaveReviewDecisionAsync(review, decision, WorkflowStatus.Rejected, new AuditEntry { DocumentId = package, UserId = "checker-001", Action = DocumentAuditAction.Rejected, TimestampUtc = decision.DecidedUtc, DetailsJson = "{\"packageId\":\"" + package + "\",\"revision\":1,\"status\":\"Rejected\",\"commentReference\":\"DIM-4\"}" });
+            var reopened = (await repository.GetReviewPackageAsync(package, 1))!;
+            Assert.Equal(snapshot.ExtractionEvidenceJson, reopened.Submission.ExtractionEvidenceJson);
+            Assert.Equal(snapshot.VerificationEvidenceJson, reopened.Submission.VerificationEvidenceJson);
+            Assert.Equal(decision.SnapshotJson, saved.SnapshotJson);
+            Assert.Equal(WorkflowStatus.Rejected, reopened.Submission.Status);
+            Assert.Equal("Correct dimension 4 and resubmit", reopened.PriorDecision!.CorrectionAction);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TD-08 rejection notification contains revision and comments navigation")]
+    public async Task Rejection_notification_contains_required_navigation_payload()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-notification-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteWorkflowRepository(path); var package = Guid.NewGuid(); var snapshot = Snapshot(package);
+            await repository.SubmitAtomicallyAsync(new WorkflowState { PackageId = package, Status = WorkflowStatus.Draft, Revision = 1 }, snapshot, Audit(DocumentAuditAction.SubmissionSucceeded, package, "Submitted"));
+            var review = (await repository.GetReviewPackageAsync(package, 1))!;
+            var decision = new ReviewDecision { PackageId = package, Revision = 1, CheckerUserId = "checker-001", DecisionType = ReviewDecisionType.Reject, Comments = "Fix dimension 4", OverallReason = "Fix dimension 4", SnapshotReference = review.SnapshotReference, SnapshotJson = JsonSerializer.Serialize(review) };
+            var saved = await repository.SaveReviewDecisionAsync(review, decision, WorkflowStatus.Rejected, Audit(DocumentAuditAction.Rejected, package, "Rejected"));
+            await new DrawVerify.Infrastructure.Notifications.InAppNotificationService(path).NotifyMakerAsync(package, 1, saved);
+            await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString()); await connection.OpenAsync();
+            await using var command = connection.CreateCommand(); command.CommandText = "SELECT Message FROM InAppNotification WHERE PackageId=$package"; command.Parameters.AddWithValue("$package", package.ToString());
+            var message = (string?)await command.ExecuteScalarAsync();
+            Assert.NotNull(message); Assert.Contains(package.ToString(), message); Assert.Contains("revision 1", message); Assert.Contains("Rejected", message); Assert.Contains("/comments", message);
+        }
+        finally { Delete(path); }
+    }
+
     private static ReviewSubmission Snapshot(Guid package) => new() { SubmissionId = Guid.NewGuid(), PackageId = package, DxfDocumentId = Guid.Parse("00000000-0000-0000-0000-000000000010"), StepDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000011"), DxfDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000012"), VerificationSessionId = Guid.Parse("00000000-0000-0000-0000-000000000013"), ExtractionEvidenceJson = "{\"extracted\":true}", VerificationEvidenceJson = "{\"verified\":true}", MakerUserId = "maker-001", MakerDisplayName = "Maker One", SubmittedUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), Note = "Please review hole tolerances", Revision = 1 };
     private static AuditEntry Audit(DocumentAuditAction action, Guid package, string result) => new() { DocumentId = package, UserId = "maker-001", Action = action, TimestampUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), DetailsJson = $"{{\"packageId\":\"{package}\",\"revision\":1,\"result\":\"{result}\",\"maker\":\"Maker One\"}}" };
     private static void Delete(string path)

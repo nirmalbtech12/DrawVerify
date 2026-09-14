@@ -17,6 +17,9 @@ public sealed record ReviewDecision
     public string ApproverUserId { get; init; } = string.Empty;
     public string ApproverDisplayName { get; init; } = string.Empty;
     public bool IsFinalApproval { get; init; }
+    public string? OverallReason { get; init; }
+    public string? CorrectionAction { get; init; }
+    public Guid? PriorDecisionId { get; init; }
 
     public void Validate()
     {
@@ -25,5 +28,7 @@ public sealed record ReviewDecision
         if (string.IsNullOrWhiteSpace(CheckerUserId) && string.IsNullOrWhiteSpace(ApproverUserId)) throw new ArgumentException("Decision identity is required.", nameof(CheckerUserId));
         if (DecisionType is ReviewDecisionType.Reject or ReviewDecisionType.RequestChanges or ReviewDecisionType.Return && string.IsNullOrWhiteSpace(Comments))
             throw new ArgumentException("Comments are required for rejection or requested changes.", nameof(Comments));
+        if (DecisionType is ReviewDecisionType.Reject or ReviewDecisionType.RequestChanges or ReviewDecisionType.Return && string.IsNullOrWhiteSpace(OverallReason ?? Comments))
+            throw new ArgumentException("An overall rejection reason is required.", nameof(OverallReason));
     }
 }

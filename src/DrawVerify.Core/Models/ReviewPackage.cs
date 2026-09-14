@@ -24,6 +24,9 @@ public sealed record ReviewPackage
     public ReviewDecision? PriorDecision { get; init; }
     public IReadOnlyList<ReviewComment> Comments { get; init; } = Array.Empty<ReviewComment>();
     public IReadOnlyList<ReviewFinding> VerificationFindings { get; init; } = Array.Empty<ReviewFinding>();
+    public string? RejectionReason => PriorDecision?.OverallReason ?? PriorDecision?.Comments;
+    public string? CorrectionAction => PriorDecision?.CorrectionAction;
+    public IReadOnlyList<ReviewComment> PriorComments => Comments.Where(x => x.PriorCommentId is null).ToArray();
     public static ReviewPackage FromSubmission(ReviewSubmission submission, ReviewDecision? priorDecision = null, IReadOnlyList<ReviewComment>? comments = null)
     {
         var findings = new List<ReviewFinding>();

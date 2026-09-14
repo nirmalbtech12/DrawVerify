@@ -26,6 +26,7 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     private bool _decisionConfirmed;
     private ReviewDecisionType? _pendingDecision;
     private ReviewFinding? _selectedFinding;
+    private ReviewComment? _selectedReviewComment;
     public WorkflowViewModel() { SubmitCommand = new Command(async _ => await SubmitAsync(), _ => false); CancelCommand = new Command(async _ => await CancelAsync(true), _ => IsConfirmationVisible); InitializeReviewCommands(); }
     public WorkflowViewModel(IWorkflowService service, ISessionAuthenticationService? authentication = null, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null)
     {
@@ -48,6 +49,7 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     public bool RequireSectionConfirmation { get; set; }
     public bool HasViewedKeySections => _viewedSections.Contains("Verification") && _viewedSections.Contains("Documents");
     public ReviewFinding? SelectedVerificationFinding { get => _selectedFinding; private set { _selectedFinding = value; RaisePropertyChanged(nameof(SelectedVerificationFinding)); } }
+    public ReviewComment? SelectedReviewComment { get => _selectedReviewComment; set { _selectedReviewComment = value; RaiseReviewCommands(); RaisePropertyChanged(nameof(SelectedReviewComment)); } }
     public Guid PackageId { get; set; }
     public bool IsConfirmationVisible { get; private set; }
     public event Action<string>? NavigationRequested;
@@ -62,6 +64,8 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     public ICommand RequestChangesCommand { get; private set; } = null!;
     public ICommand ReturnForReworkCommand { get; private set; } = null!;
     public ICommand SaveReviewCommentCommand { get; private set; } = null!;
+    public ICommand EditReviewCommentCommand { get; private set; } = null!;
+    public ICommand DiscardReviewCommentCommand { get; private set; } = null!;
     public ICommand MarkDocumentsViewedCommand { get; private set; } = null!;
     public ICommand MarkVerificationViewedCommand { get; private set; } = null!;
     private void InitializeReviewCommands()
@@ -69,12 +73,14 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
         ApproveCommand = new Command(async _ => await DecideAsync(ReviewDecisionType.Approve), _ => ReviewPackage is not null);
         RejectCommand = new Command(async _ => await DecideAsync(ReviewDecisionType.Reject), _ => ReviewPackage is not null && !string.IsNullOrWhiteSpace(ReviewComment));
         RequestChangesCommand = new Command(async _ => await DecideAsync(ReviewDecisionType.RequestChanges), _ => ReviewPackage is not null && !string.IsNullOrWhiteSpace(ReviewComment));
-        ReturnForReworkCommand = new Command(async _ => await FinalDecideAsync(ReviewDecisionType.Return), _ => ReviewPackage is not null && !string.IsNullOrWhiteSpace(ReviewComment));
+        ReturnForReworkCommand = new Command(async _ => await DecideAsync(ReviewDecisionType.Return), _ => ReviewPackage is not null && !string.IsNullOrWhiteSpace(ReviewComment));
         SaveReviewCommentCommand = new Command(async _ => await SaveReviewCommentAsync(), _ => ReviewPackage is not null && !string.IsNullOrWhiteSpace(ReviewComment));
+        EditReviewCommentCommand = new Command(async _ => await EditReviewCommentAsync(), _ => SelectedReviewComment is not null && !string.IsNullOrWhiteSpace(ReviewComment));
+        DiscardReviewCommentCommand = new Command(async _ => await DiscardReviewCommentAsync(), _ => SelectedReviewComment is not null);
         MarkDocumentsViewedCommand = new Command(_ => MarkSectionViewed("Documents"), _ => ReviewPackage is not null);
         MarkVerificationViewedCommand = new Command(_ => MarkSectionViewed("Verification"), _ => ReviewPackage is not null);
     }
-    private void RaiseReviewCommands() { ((Command)ApproveCommand).Raise(); ((Command)RejectCommand).Raise(); ((Command)RequestChangesCommand).Raise(); ((Command)ReturnForReworkCommand).Raise(); ((Command)SaveReviewCommentCommand).Raise(); }
+    private void RaiseReviewCommands() { ((Command)ApproveCommand).Raise(); ((Command)RejectCommand).Raise(); ((Command)RequestChangesCommand).Raise(); ((Command)ReturnForReworkCommand).Raise(); ((Command)SaveReviewCommentCommand).Raise(); ((Command)EditReviewCommentCommand).Raise(); ((Command)DiscardReviewCommentCommand).Raise(); }
     private async Task FinalDecideAsync(ReviewDecisionType type)
     {
         if (ReviewPackage is null || _service is null) return;
@@ -124,6 +130,18 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
         if (ReviewPackage is null || _service is null) return;
         try { await _service.AddReviewCommentAsync(ReviewPackage.PackageId, ReviewPackage.Revision, ReviewComment); ReviewComment = string.Empty; ReviewError = string.Empty; }
         catch (Exception exception) { _logger?.Log(exception, "WPF review comment", $"Unable to save review comment for packageId={ReviewPackage.PackageId}, revision={ReviewPackage.Revision}."); ReviewError = exception is ArgumentException ? exception.Message : "The review comment could not be saved."; }
+    }
+    private async Task EditReviewCommentAsync()
+    {
+        if (ReviewPackage is null || SelectedReviewComment is null || _service is null) return;
+        try { await _service.UpdateReviewCommentAsync(SelectedReviewComment with { Text = ReviewComment }); ReviewComment = string.Empty; SelectedReviewComment = null; ReviewError = string.Empty; }
+        catch (Exception exception) { _logger?.Log(exception, "WPF review comment edit", $"Unable to edit review comment for packageId={ReviewPackage.PackageId}, revision={ReviewPackage.Revision}."); ReviewError = exception is ArgumentException ? exception.Message : "The review comment could not be edited."; }
+    }
+    private async Task DiscardReviewCommentAsync()
+    {
+        if (ReviewPackage is null || SelectedReviewComment is null || _service is null) return;
+        try { await _service.DiscardReviewCommentAsync(ReviewPackage.PackageId, ReviewPackage.Revision, SelectedReviewComment.CommentId); SelectedReviewComment = null; ReviewError = string.Empty; }
+        catch (Exception exception) { _logger?.Log(exception, "WPF review comment discard", $"Unable to discard review comment for packageId={ReviewPackage.PackageId}, revision={ReviewPackage.Revision}."); ReviewError = "The review comment could not be discarded."; }
     }
     public async void BeginSubmission(Guid packageId)
     {
