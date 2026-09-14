@@ -92,9 +92,25 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository
         var submissions = await GetSubmissionsAsync(packageId, token).ConfigureAwait(false);
         var submission = submissions.FirstOrDefault(x => x.Revision == revision);
         if (submission is null) return null;
-        var decision = await GetDecisionAsync(packageId, revision, token).ConfigureAwait(false);
+        var decision = await GetDecisionAsync(packageId, revision, token).ConfigureAwait(false) ?? await GetLatestPriorDecisionAsync(packageId, revision, token).ConfigureAwait(false);
         var comments = await GetReviewCommentsAsync(packageId, revision, token).ConfigureAwait(false);
+        if (revision > 1)
+        {
+            var priorComments = await GetReviewCommentsAsync(packageId, revision - 1, token).ConfigureAwait(false);
+            var priorByReference = priorComments.Where(x => !string.IsNullOrWhiteSpace(x.ReferenceId)).GroupBy(x => x.ReferenceId!, StringComparer.OrdinalIgnoreCase).ToDictionary(x => x.Key, x => x.First(), StringComparer.OrdinalIgnoreCase);
+            comments = comments.Select(comment => comment.PriorCommentId is null && !string.IsNullOrWhiteSpace(comment.ReferenceId) && priorByReference.TryGetValue(comment.ReferenceId, out var prior) ? comment with { PriorCommentId = prior.CommentId } : comment).ToArray();
+            comments = priorComments.Concat(comments).GroupBy(x => x.CommentId).Select(x => x.First()).ToArray();
+        }
         return ReviewPackage.FromSubmission(submission, decision, comments);
+    }
+
+    private async Task<ReviewDecision?> GetLatestPriorDecisionAsync(Guid packageId, int revision, CancellationToken token)
+    {
+        await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(token); await using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT DecisionId,Revision,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId FROM (SELECT DecisionId,Revision,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId FROM ReviewDecision WHERE PackageId=$package AND Revision<$revision UNION ALL SELECT DecisionId,Revision,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId FROM FinalApprovalDecision WHERE PackageId=$package AND Revision<$revision) ORDER BY Revision DESC, DecidedUtc DESC LIMIT 1";
+        cmd.Parameters.AddWithValue("$package", packageId.ToString()); cmd.Parameters.AddWithValue("$revision", revision);
+        await using var r = await cmd.ExecuteReaderAsync(token); if (!await r.ReadAsync(token)) return null;
+        return new ReviewDecision { DecisionId=Guid.Parse(r.GetString(0)), PackageId=packageId, Revision=r.GetInt32(1), CheckerUserId=r.GetString(2), CheckerDisplayName=r.GetString(3), DecidedUtc=DateTime.Parse(r.GetString(4), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), DecisionType=(ReviewDecisionType)r.GetInt32(5), Comments=r.IsDBNull(6) ? null : r.GetString(6), SnapshotReference=r.GetString(7), SnapshotJson=r.GetString(8), ApproverUserId=r.IsDBNull(9) ? string.Empty : r.GetString(9), ApproverDisplayName=r.IsDBNull(10) ? string.Empty : r.GetString(10), IsFinalApproval=!r.IsDBNull(11) && r.GetInt32(11) != 0, OverallReason=r.IsDBNull(12) ? null : r.GetString(12), CorrectionAction=r.IsDBNull(13) ? null : r.GetString(13), PriorDecisionId=r.IsDBNull(14) ? null : Guid.Parse(r.GetString(14)) };
     }
 
     public async Task RecordReviewStartedAsync(ReviewPackage package, AuditEntry auditEntry, CancellationToken token = default)
