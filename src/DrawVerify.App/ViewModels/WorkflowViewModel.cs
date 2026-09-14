@@ -140,7 +140,7 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     private async Task SaveReviewCommentAsync()
     {
         if (ReviewPackage is null || _service is null) return;
-        try { await _service.SaveReviewCommentDraftAsync(ReviewPackage.PackageId, ReviewPackage.Revision, ReviewComment, string.IsNullOrWhiteSpace(ReferenceType) ? null : ReferenceType, string.IsNullOrWhiteSpace(ReferenceId) ? null : ReferenceId, string.IsNullOrWhiteSpace(ReferenceLocation) ? null : ReferenceLocation); ReviewComment = string.Empty; ReferenceType = string.Empty; ReferenceId = string.Empty; ReferenceLocation = string.Empty; ReviewError = string.Empty; }
+        try { await _service.SaveReviewCommentDraftAsync(ReviewPackage.PackageId, ReviewPackage.Revision, ReviewComment, string.IsNullOrWhiteSpace(ReferenceType) ? null : ReferenceType.Trim(), string.IsNullOrWhiteSpace(ReferenceId) ? null : ReferenceId.Trim(), string.IsNullOrWhiteSpace(ReferenceLocation) ? null : ReferenceLocation.Trim()); ReviewComment = string.Empty; ReferenceType = string.Empty; ReferenceId = string.Empty; ReferenceLocation = string.Empty; ReviewError = string.Empty; }
         catch (Exception exception) { _logger?.Log(exception, "WPF review comment", $"Unable to save review comment for packageId={ReviewPackage.PackageId}, revision={ReviewPackage.Revision}."); ReviewError = exception is ArgumentException ? exception.Message : "The review comment could not be saved."; }
     }
     private async Task EditReviewCommentAsync()

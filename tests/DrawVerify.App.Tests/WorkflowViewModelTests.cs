@@ -154,9 +154,29 @@ public sealed class WorkflowViewModelTests
     {
         var service = new FakeWorkflowService { ReviewPackage = ReviewFixture() }; var model = new WorkflowViewModel(service);
         await model.OpenReviewAsync(new WorkflowQueueItem(service.ReviewPackage.PackageId, 7, "Maker One", DateTime.UtcNow, WorkflowStatus.SubmittedForReview, "verified"));
-        model.ReviewComment = "looks good"; model.SaveReviewCommentCommand.Execute(null); await WaitForAsync(() => service.CommentCalls == 1, TimeSpan.FromSeconds(5));
+        model.ReviewComment = "looks good"; model.SaveReviewCommentCommand.Execute(null); await WaitForAsync(() => service.DraftCalls == 1, TimeSpan.FromSeconds(5));
         Assert.Equal(WorkflowStatus.SubmittedForReview, service.ReviewPackage.Status); Assert.Equal(0, service.DecisionCalls);
         service.DecideException = new InvalidOperationException("The review decision was not saved; refresh before deciding."); model.ApproveCommand.Execute(null); await WaitForAsync(() => !string.IsNullOrEmpty(model.ReviewError), TimeSpan.FromSeconds(5)); Assert.Contains("decision was not saved", model.ReviewError, StringComparison.OrdinalIgnoreCase); Assert.Contains("try again", model.ReviewError, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact(DisplayName = "TD-UI-03 draft save routes references through the draft service")]
+    public async Task Draft_save_passes_trimmed_reference_context_to_service()
+    {
+        var service = new FakeWorkflowService { ReviewPackage = ReviewFixture() };
+        var model = new WorkflowViewModel(service);
+        await model.OpenReviewAsync(new WorkflowQueueItem(service.ReviewPackage!.PackageId, 7, "Maker One", DateTime.UtcNow, WorkflowStatus.SubmittedForReview, "verified"));
+
+        model.ReviewComment = "  inspect D1  ";
+        model.ReferenceType = "  dimension ";
+        model.ReferenceId = "  DIM-4 ";
+        model.ReferenceLocation = "  sheet 2  ";
+        model.SaveReviewCommentCommand.Execute(null);
+
+        await WaitForAsync(() => service.DraftCalls == 1, TimeSpan.FromSeconds(5));
+        Assert.Equal("inspect D1", service.LastDraftText);
+        Assert.Equal("dimension", service.LastReferenceType);
+        Assert.Equal("DIM-4", service.LastReferenceId);
+        Assert.Equal("sheet 2", service.LastReferenceLocation);
     }
 
     [Fact(DisplayName = "TD-APPUI-049 unauthorized review queue failure is visible")]
@@ -219,6 +239,11 @@ file sealed class FakeWorkflowService : IWorkflowService
     public ReviewPackage? ReviewPackage { get; set; }
     public int DecisionCalls { get; private set; }
     public int CommentCalls { get; private set; }
+    public int DraftCalls { get; private set; }
+    public string? LastDraftText { get; private set; }
+    public string? LastReferenceType { get; private set; }
+    public string? LastReferenceId { get; private set; }
+    public string? LastReferenceLocation { get; private set; }
     public ReviewDecisionType LastDecisionType { get; private set; }
     public string? LastComments { get; private set; }
     public Exception? DecideException { get; set; }
@@ -232,6 +257,7 @@ file sealed class FakeWorkflowService : IWorkflowService
     public Task<ReviewPackage?> OpenReviewPackageAsync(Guid packageId, int revision, CancellationToken cancellationToken = default) => Task.FromResult(ReviewPackage);
     public Task<ReviewDecision> DecideAsync(Guid packageId, int revision, ReviewDecisionType decisionType, string? comments, CancellationToken cancellationToken = default) { DecisionCalls++; if (DecideException is not null) return Task.FromException<ReviewDecision>(DecideException); LastDecisionType = decisionType; LastComments = comments?.Trim(); return Task.FromResult(new ReviewDecision { PackageId = packageId, Revision = revision, DecisionType = decisionType, CheckerUserId = "checker-1" }); }
     public Task<ReviewComment> AddReviewCommentAsync(Guid packageId, int revision, string text, CancellationToken cancellationToken = default) { CommentCalls++; return Task.FromResult(new ReviewComment { PackageId = packageId, Revision = revision, AuthorUserId = "checker-1", Text = text.Trim() }); }
+    public Task<ReviewComment> SaveReviewCommentDraftAsync(Guid packageId, int revision, string text, string? referenceType = null, string? referenceId = null, string? location = null, CancellationToken cancellationToken = default) { DraftCalls++; LastDraftText = text.Trim(); LastReferenceType = referenceType; LastReferenceId = referenceId; LastReferenceLocation = location; return Task.FromResult(new ReviewComment { PackageId = packageId, Revision = revision, AuthorUserId = "checker-1", Text = LastDraftText, ReferenceType = referenceType, ReferenceId = referenceId, Location = location }); }
 }
 
 file sealed class FakeAuthentication(AuthenticatedUser? user) : ISessionAuthenticationService

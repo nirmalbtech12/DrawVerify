@@ -397,7 +397,8 @@ public sealed class WorkflowService : IWorkflowService
         var package = await _workflow.GetReviewPackageAsync(packageId, revision, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException("The review package was not found.");
         if (package.Status is not (WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview)) throw new ReviewDecisionConflictException(packageId, revision, package.Status, revision, package.PriorDecision);
         var user = _authentication.CurrentUser!;
-        var comment = new ReviewComment { PackageId = packageId, Revision = revision, AuthorUserId = user.UserId, AuthorDisplayName = user.DisplayName, CreatedUtc = _clock().ToUniversalTime(), Text = text.Trim(), IsDraft = true, ReferenceType = referenceType, ReferenceId = referenceId, Location = location };
+        var comment = new ReviewComment { PackageId = packageId, Revision = revision, AuthorUserId = user.UserId, AuthorDisplayName = user.DisplayName, CreatedUtc = _clock().ToUniversalTime(), Text = text.Trim(), IsDraft = true, ReferenceType = string.IsNullOrWhiteSpace(referenceType) ? null : referenceType.Trim(), ReferenceId = string.IsNullOrWhiteSpace(referenceId) ? null : referenceId.Trim(), Location = string.IsNullOrWhiteSpace(location) ? null : location.Trim() };
+        comment.Validate();
         await _workflow.SaveReviewCommentAsync(comment, CreateAudit(packageId, revision, DocumentAuditAction.ReviewCommentDraftSaved, "CommentDraftSaved", comment.CreatedUtc, user, comment: comment, workflowStatus: package.Status), cancellationToken).ConfigureAwait(false);
         return comment;
     }
