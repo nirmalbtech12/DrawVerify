@@ -59,7 +59,23 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     public bool RequireSectionConfirmation { get; set; }
     public bool HasViewedKeySections => _viewedSections.Contains("Verification") && _viewedSections.Contains("Documents");
     public ReviewFinding? SelectedVerificationFinding { get => _selectedFinding; private set { _selectedFinding = value; RaisePropertyChanged(nameof(SelectedVerificationFinding)); } }
-    public ReviewComment? SelectedReviewComment { get => _selectedReviewComment; set { _selectedReviewComment = value; RaiseReviewCommands(); RaisePropertyChanged(nameof(SelectedReviewComment)); } }
+    public ReviewComment? SelectedReviewComment
+    {
+        get => _selectedReviewComment;
+        set
+        {
+            _selectedReviewComment = value;
+            if (value is not null)
+            {
+                ReviewComment = value.Text;
+                ReferenceType = value.ReferenceType ?? string.Empty;
+                ReferenceId = value.ReferenceId ?? string.Empty;
+                ReferenceLocation = value.Location ?? string.Empty;
+            }
+            RaiseReviewCommands();
+            RaisePropertyChanged(nameof(SelectedReviewComment));
+        }
+    }
     public Guid PackageId { get; set; }
     public bool IsConfirmationVisible { get; private set; }
     public event Action<string>? NavigationRequested;
@@ -146,7 +162,23 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     private async Task EditReviewCommentAsync()
     {
         if (ReviewPackage is null || SelectedReviewComment is null || _service is null) return;
-        try { await _service.UpdateReviewCommentAsync(SelectedReviewComment with { Text = ReviewComment }); ReviewComment = string.Empty; SelectedReviewComment = null; ReviewError = string.Empty; }
+        try
+        {
+            var updated = SelectedReviewComment with
+            {
+                Text = ReviewComment.Trim(),
+                ReferenceType = string.IsNullOrWhiteSpace(ReferenceType) ? null : ReferenceType.Trim(),
+                ReferenceId = string.IsNullOrWhiteSpace(ReferenceId) ? null : ReferenceId.Trim(),
+                Location = string.IsNullOrWhiteSpace(ReferenceLocation) ? null : ReferenceLocation.Trim()
+            };
+            await _service.UpdateReviewCommentAsync(updated);
+            ReviewComment = string.Empty;
+            ReferenceType = string.Empty;
+            ReferenceId = string.Empty;
+            ReferenceLocation = string.Empty;
+            SelectedReviewComment = null;
+            ReviewError = string.Empty;
+        }
         catch (Exception exception) { _logger?.Log(exception, "WPF review comment edit", $"Unable to edit review comment for packageId={ReviewPackage.PackageId}, revision={ReviewPackage.Revision}."); ReviewError = exception is ArgumentException ? exception.Message : "The review comment could not be edited."; }
     }
     private async Task DiscardReviewCommentAsync()
