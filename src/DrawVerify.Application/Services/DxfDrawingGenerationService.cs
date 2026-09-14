@@ -135,26 +135,25 @@ public sealed class DxfDrawingGenerationService : IDxfDrawingGenerationService
         await RefreshAuthorizationAsync(cancellationToken).ConfigureAwait(false);
         if (!_session.IsAuthenticated) throw new UnauthorizedAccessException("Authentication is required to download drawing files.");
         var document = await _documents.GetAsync(documentId, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException("The drawing document was not found.");
-        if (!await EnsureDownloadAccessAsync(documentId, cancellationToken).ConfigureAwait(false) && !CanGenerate) throw new UnauthorizedAccessException("Only an authorized workflow role can download this drawing.");
+        await EnsureDownloadAccessAsync(documentId, cancellationToken).ConfigureAwait(false);
         var version = document.Versions.FirstOrDefault(candidate => candidate.VersionId == versionId) ?? throw new InvalidOperationException("The selected drawing version was not found.");
         var stream = await _dxfFiles.OpenReadAsync(version.StoredRelativePath, cancellationToken).ConfigureAwait(false);
         try { await WriteAuditAsync(documentId, DocumentAuditAction.DxfDownloaded, new { versionId }, cancellationToken).ConfigureAwait(false); return stream; }
         catch { await stream.DisposeAsync().ConfigureAwait(false); throw; }
     }
-    private async Task<bool> EnsureDownloadAccessAsync(Guid documentId, CancellationToken cancellationToken)
+    private async Task EnsureDownloadAccessAsync(Guid documentId, CancellationToken cancellationToken)
     {
         if (_workflow is null) throw new NotSupportedException("DXF download access evaluation requires workflow status persistence.");
         var submission = (await _workflow.GetSubmissionsAsync(Guid.Empty, cancellationToken).ConfigureAwait(false)).Where(item => item.DxfDocumentId == documentId).OrderByDescending(item => item.Revision).FirstOrDefault();
-        if (submission is null) return false;
+        if (submission is null) throw new UnauthorizedAccessException("The drawing is not linked to a workflow package and cannot be downloaded.");
         var state = await _workflow.GetStateAsync(submission.PackageId, cancellationToken).ConfigureAwait(false);
         var user = _session.CurrentUser;
         if (state?.Status is WorkflowStatus.FinallyApproved or WorkflowStatus.Released)
         {
             if (!_authorization.IsAllowed(user, RolePermission.ReadApprovedDocuments) && !_authorization.IsAllowed(user, RolePermission.FinalApproval) && !_authorization.IsAllowed(user, RolePermission.Upload) && !_authorization.IsAllowed(user, RolePermission.ReviewVerification)) throw new UnauthorizedAccessException("You are not authorized to download this approved document.");
-            return true;
+            return;
         }
         if (user is null || (!user.HasRole(SystemRoles.Maker) && !user.HasRole(SystemRoles.Checker) && !user.HasRole(SystemRoles.Approver))) throw new UnauthorizedAccessException("You are not authorized to download this unapproved document.");
-        return true;
     }
     private async Task RefreshAuthorizationAsync(CancellationToken cancellationToken)
     {
