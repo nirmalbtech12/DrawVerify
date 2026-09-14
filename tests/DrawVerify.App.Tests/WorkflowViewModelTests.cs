@@ -9,6 +9,20 @@ namespace DrawVerify.App.Tests;
 
 public sealed class WorkflowViewModelTests
 {
+    [Fact(DisplayName = "TD-12 authorized history renders ordered Checker and Approver rejection context")]
+    public async Task Td12_authorized_history_renders_ordered_rejection_context()
+    {
+        var package = ReviewFixture();
+        var checker = new ReviewDecision { PackageId = package.PackageId, Revision = 7, CheckerDisplayName = "Checker Three", DecisionType = ReviewDecisionType.Return, Comments = "Needs correction", DecidedUtc = new DateTime(2026, 9, 14, 9, 0, 0, DateTimeKind.Utc) };
+        var approver = new ReviewDecision { PackageId = package.PackageId, Revision = 7, ApproverDisplayName = "Approver Seventeen", IsFinalApproval = true, DecisionType = ReviewDecisionType.Return, Route = ReviewDecisionRoute.ToChecker, Comments = "Correct datum callout", OverallReason = "Dimension mismatch", SnapshotReference = "snapshot-r7", DecidedUtc = new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc) };
+        var service = new FakeWorkflowService { ReviewPackage = package, ApprovalHistory = new[] { checker, approver } };
+        var model = new WorkflowViewModel(service, new FakeAuthentication(new AuthenticatedUser("approver", new[] { SystemRoles.Approver })), new RoleAuthorization());
+        await model.OpenReviewAsync(new WorkflowQueueItem(package.PackageId, 7, "Maker One", DateTime.UtcNow, WorkflowStatus.PendingFinalApproval, "verified"));
+        Assert.Equal(new[] { checker, approver }, model.ApprovalHistory);
+        Assert.Equal("Approver Seventeen", model.ApprovalHistory[1].ApproverDisplayName);
+        Assert.Equal("snapshot-r7", model.ApprovalHistory[1].SnapshotReference);
+        Assert.Equal(ReviewDecisionRoute.ToChecker, model.ApprovalHistory[1].Route);
+    }
     [Fact(DisplayName = "TD-UI-01 Maker confirmation preserves note and exposes status")]
     public void Confirmation_state_preserves_note_and_status_projection()
     {
@@ -230,8 +244,9 @@ public sealed class WorkflowViewModelTests
     }
 }
 
-file sealed class FakeWorkflowService : IWorkflowService
+sealed class FakeWorkflowService : IWorkflowService
 {
+    public IReadOnlyList<ReviewDecision> ApprovalHistory { get; set; } = Array.Empty<ReviewDecision>();
     public int CancellationCalls { get; private set; }
     public int SubmissionCalls { get; private set; }
     public SubmissionResult Result { get; set; } = new(true, "The drawing was submitted for review.");
@@ -255,6 +270,8 @@ file sealed class FakeWorkflowService : IWorkflowService
     public Task<IReadOnlyList<ReviewSubmission>> GetSubmittedPackagesAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ReviewSubmission>>(Array.Empty<ReviewSubmission>());
     public Task<IReadOnlyList<WorkflowQueueItem>> GetCheckerQueueAsync(CancellationToken cancellationToken = default) => ThrowOnQueue ? Task.FromException<IReadOnlyList<WorkflowQueueItem>>(new UnauthorizedAccessException()) : Task.FromResult<IReadOnlyList<WorkflowQueueItem>>(Array.Empty<WorkflowQueueItem>());
     public Task<ReviewPackage?> OpenReviewPackageAsync(Guid packageId, int revision, CancellationToken cancellationToken = default) => Task.FromResult(ReviewPackage);
+    public Task<IReadOnlyList<ReviewDecision>> GetApprovalHistoryAsync(Guid packageId, int revision, CancellationToken cancellationToken = default) => Task.FromResult(ApprovalHistory);
+    public Task<ReviewDecision> RejectToCheckerAsync(Guid packageId, int revision, string reason, string comments, CancellationToken cancellationToken = default) => Task.FromResult(new ReviewDecision { PackageId = packageId, Revision = revision, Route = ReviewDecisionRoute.ToChecker, OverallReason = reason, Comments = comments });
     public Task<ReviewDecision> DecideAsync(Guid packageId, int revision, ReviewDecisionType decisionType, string? comments, CancellationToken cancellationToken = default) { DecisionCalls++; if (DecideException is not null) return Task.FromException<ReviewDecision>(DecideException); LastDecisionType = decisionType; LastComments = comments?.Trim(); return Task.FromResult(new ReviewDecision { PackageId = packageId, Revision = revision, DecisionType = decisionType, CheckerUserId = "checker-1" }); }
     public Task<ReviewComment> AddReviewCommentAsync(Guid packageId, int revision, string text, CancellationToken cancellationToken = default) { CommentCalls++; return Task.FromResult(new ReviewComment { PackageId = packageId, Revision = revision, AuthorUserId = "checker-1", Text = text.Trim() }); }
     public Task<ReviewComment> SaveReviewCommentDraftAsync(Guid packageId, int revision, string text, string? referenceType = null, string? referenceId = null, string? location = null, CancellationToken cancellationToken = default) { DraftCalls++; LastDraftText = text.Trim(); LastReferenceType = referenceType; LastReferenceId = referenceId; LastReferenceLocation = location; return Task.FromResult(new ReviewComment { PackageId = packageId, Revision = revision, AuthorUserId = "checker-1", Text = LastDraftText, ReferenceType = referenceType, ReferenceId = referenceId, Location = location }); }

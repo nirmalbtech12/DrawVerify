@@ -236,6 +236,17 @@ public sealed class WorkflowService : IWorkflowService
     }
 
     public async Task<ReviewDecision> FinalDecideAsync(Guid packageId, int revision, ReviewDecisionType decisionType, string? comments, CancellationToken cancellationToken = default)
+        => await FinalDecideCoreAsync(packageId, revision, decisionType, null, comments, ReviewDecisionRoute.None, cancellationToken).ConfigureAwait(false);
+
+    public async Task<ReviewDecision> RejectToCheckerAsync(Guid packageId, int revision, string reason, string comments, CancellationToken cancellationToken = default)
+    {
+        RequireFinalApprovalPermission();
+        if (string.IsNullOrWhiteSpace(reason)) throw new ArgumentException("A rejection reason is required.", nameof(reason));
+        if (string.IsNullOrWhiteSpace(comments)) throw new ArgumentException("Rejection comments are required.", nameof(comments));
+        return await FinalDecideCoreAsync(packageId, revision, ReviewDecisionType.Return, reason.Trim(), comments.Trim(), ReviewDecisionRoute.ToChecker, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<ReviewDecision> FinalDecideCoreAsync(Guid packageId, int revision, ReviewDecisionType decisionType, string? reason, string? comments, ReviewDecisionRoute route, CancellationToken cancellationToken)
     {
         RequireFinalApprovalPermission();
         if (decisionType is not (ReviewDecisionType.Approve or ReviewDecisionType.Reject or ReviewDecisionType.Return))
@@ -274,12 +285,17 @@ public sealed class WorkflowService : IWorkflowService
             ApproverUserId = user.UserId, ApproverDisplayName = user.DisplayName, IsFinalApproval = true,
             DecidedUtc = _clock().ToUniversalTime(), DecisionType = decisionType,
             Comments = string.IsNullOrWhiteSpace(comments) ? null : comments.Trim(),
+            OverallReason = string.IsNullOrWhiteSpace(reason) ? (string.IsNullOrWhiteSpace(comments) ? null : comments.Trim()) : reason.Trim(),
+            Route = route,
+            DestinationRole = route == ReviewDecisionRoute.ToChecker ? "Checker" : null,
+            DestinationQueue = route == ReviewDecisionRoute.ToChecker ? "Checker" : null,
             SnapshotReference = persistedSnapshot.SnapshotId.ToString("D"), SnapshotJson = snapshotPayload
         };
         decision.Validate();
         var resultingStatus = decisionType switch
         {
             ReviewDecisionType.Approve => WorkflowStatus.FinallyApproved,
+            ReviewDecisionType.Reject when route == ReviewDecisionRoute.ToChecker => WorkflowStatus.ReturnedForRework,
             ReviewDecisionType.Reject => WorkflowStatus.Rejected,
             ReviewDecisionType.Return => WorkflowStatus.ReturnedForRework,
             _ => throw new ArgumentOutOfRangeException(nameof(decisionType))
@@ -287,7 +303,9 @@ public sealed class WorkflowService : IWorkflowService
         var action = decisionType switch
         {
             ReviewDecisionType.Approve => DocumentAuditAction.FinalApproved,
+            ReviewDecisionType.Reject when route == ReviewDecisionRoute.ToChecker => DocumentAuditAction.RejectedToChecker,
             ReviewDecisionType.Reject => DocumentAuditAction.Rejected,
+            ReviewDecisionType.Return when route == ReviewDecisionRoute.ToChecker => DocumentAuditAction.RejectedToChecker,
             _ => DocumentAuditAction.ReturnedForRework
         };
         ReviewDecision saved;
@@ -295,7 +313,7 @@ public sealed class WorkflowService : IWorkflowService
         {
             saved = await _workflow.SaveReviewDecisionAsync(package, decision, resultingStatus,
                 CreateAudit(packageId, revision, action, decisionType.ToString(), decision.DecidedUtc, user,
-                    new[] { decision.Comments ?? string.Empty }, decision.SnapshotReference), cancellationToken).ConfigureAwait(false);
+                    new[] { decision.Comments ?? string.Empty }, decision.SnapshotReference, decision: decision), cancellationToken).ConfigureAwait(false);
         }
         catch
         {
@@ -305,10 +323,18 @@ public sealed class WorkflowService : IWorkflowService
         }
         if (_notifications is not null)
         {
-            try { await _notifications.NotifyMakerAsync(packageId, revision, saved, cancellationToken).ConfigureAwait(false); }
-            catch (Exception exception) { _logger?.Log(exception, "Final approval notification", $"Unable to notify stakeholders for packageId={packageId}, revision={revision}."); throw new NotificationDeliveryException(packageId, revision, exception); }
-            try { await _notifications.NotifyCheckerAsync(packageId, revision, saved, cancellationToken).ConfigureAwait(false); }
-            catch (Exception exception) { _logger?.Log(exception, "Final approval notification", $"Unable to notify Checker for packageId={packageId}, revision={revision}."); throw new NotificationDeliveryException(packageId, revision, exception); }
+            if (route == ReviewDecisionRoute.ToChecker)
+            {
+                try { await _notifications.NotifyCheckerAsync(packageId, revision, saved, cancellationToken).ConfigureAwait(false); }
+                catch (Exception exception) { _logger?.Log(exception, "Approver rejection notification", $"Unable to notify Checker for packageId={packageId}, revision={revision}."); throw new NotificationDeliveryException(packageId, revision, exception); }
+            }
+            else
+            {
+                try { await _notifications.NotifyMakerAsync(packageId, revision, saved, cancellationToken).ConfigureAwait(false); }
+                catch (Exception exception) { _logger?.Log(exception, "Final approval notification", $"Unable to notify Maker for packageId={packageId}, revision={revision}."); throw new NotificationDeliveryException(packageId, revision, exception); }
+                try { await _notifications.NotifyCheckerAsync(packageId, revision, saved, cancellationToken).ConfigureAwait(false); }
+                catch (Exception exception) { _logger?.Log(exception, "Final approval notification", $"Unable to notify Checker for packageId={packageId}, revision={revision}."); throw new NotificationDeliveryException(packageId, revision, exception); }
+            }
         }
         return saved;
     }
@@ -340,7 +366,11 @@ public sealed class WorkflowService : IWorkflowService
                 ?? throw new KeyNotFoundException($"Verification session '{package.VerificationSessionId}' was not found for review package '{packageId}'.");
             package = package with { StepDocumentId = session.StepDocumentId, DxfDocumentId = session.DxfDocumentId };
         }
-        if (package.Status is not (WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview or WorkflowStatus.ApprovedByChecker or WorkflowStatus.PendingFinalApproval))
+        var returnedFromApprover = package.Status == WorkflowStatus.ReturnedForRework
+            && package.PriorDecision?.IsFinalApproval == true
+            && package.PriorDecision.Route == ReviewDecisionRoute.ToChecker;
+        if (package.Status is not (WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview or WorkflowStatus.ApprovedByChecker or WorkflowStatus.PendingFinalApproval)
+            && !returnedFromApprover)
             throw new InvalidOperationException($"The package is currently '{package.Status}' and is not available for review.");
         var user = _authentication.CurrentUser!;
         var now = _clock().ToUniversalTime();
@@ -360,9 +390,12 @@ public sealed class WorkflowService : IWorkflowService
         RequireReviewPermission();
         var package = await _workflow.GetReviewPackageAsync(packageId, revision, cancellationToken).ConfigureAwait(false)
             ?? throw new KeyNotFoundException($"Review package '{packageId}' revision {revision} was not found.");
-        if (package.Status is not (WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview))
+        var returnedFromApprover = package.Status == WorkflowStatus.ReturnedForRework
+            && package.PriorDecision?.IsFinalApproval == true
+            && package.PriorDecision.Route == ReviewDecisionRoute.ToChecker;
+        if (package.Status is not (WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview) && !returnedFromApprover)
             throw new ReviewDecisionConflictException(packageId, revision, package.Status, revision, package.PriorDecision);
-        if (package.PriorDecision is not null && package.PriorDecision.Revision == revision)
+        if (package.PriorDecision is not null && package.PriorDecision.Revision == revision && !returnedFromApprover)
             throw new InvalidOperationException($"A decision was already recorded for this package revision: {package.PriorDecision.DecisionType} at {package.PriorDecision.DecidedUtc:O}.");
         if (decisionType is not (ReviewDecisionType.Approve or ReviewDecisionType.Reject or ReviewDecisionType.RequestChanges or ReviewDecisionType.Return))
             throw new ArgumentOutOfRangeException(nameof(decisionType), "Only Approve, Reject, Request Changes, or Return to Maker are valid review decisions.");
@@ -370,7 +403,7 @@ public sealed class WorkflowService : IWorkflowService
         var reason = string.IsNullOrWhiteSpace(comments) ? null : comments.Trim();
         var decision = new ReviewDecision { PackageId = packageId, Revision = revision, CheckerUserId = user.UserId, CheckerDisplayName = user.DisplayName, DecidedUtc = _clock().ToUniversalTime(), DecisionType = decisionType, Comments = reason, OverallReason = reason, CorrectionAction = string.IsNullOrWhiteSpace(correctionAction) ? null : correctionAction.Trim(), PriorDecisionId = package.PriorDecision?.DecisionId, SnapshotReference = package.SnapshotReference, SnapshotJson = JsonSerializer.Serialize(package) };
         decision.Validate(requireCorrectionAction);
-        var status = decisionType switch { ReviewDecisionType.Approve => _machine.ApprovedState, ReviewDecisionType.Reject => _machine.RejectedState, ReviewDecisionType.RequestChanges => _machine.ChangesRequestedState, ReviewDecisionType.Return => WorkflowStatus.ReturnedForRework, _ => throw new ArgumentOutOfRangeException(nameof(decisionType)) };
+        var status = decisionType switch { ReviewDecisionType.Approve => _machine.ApprovedState, ReviewDecisionType.Reject => _machine.RejectedState, ReviewDecisionType.RequestChanges => _machine.ChangesRequestedState, ReviewDecisionType.Return when package.Status == WorkflowStatus.ReturnedForRework => WorkflowStatus.ReturnedToMaker, ReviewDecisionType.Return => WorkflowStatus.ReturnedForRework, _ => throw new ArgumentOutOfRangeException(nameof(decisionType)) };
         var action = decisionType switch { ReviewDecisionType.Approve => DocumentAuditAction.Approved, ReviewDecisionType.Reject => DocumentAuditAction.Rejected, ReviewDecisionType.Return => DocumentAuditAction.ReturnedForRework, _ => DocumentAuditAction.ChangesRequested };
         var saved = await _workflow.SaveReviewDecisionAsync(package, decision, status, CreateAudit(packageId, revision, action, decisionType.ToString(), decision.DecidedUtc, user, new[] { decision.Comments ?? string.Empty }, decision.SnapshotReference, commentReferences: package.Comments, workflowStatus: status, decision: decision), cancellationToken).ConfigureAwait(false);
         if (_notifications is not null)
@@ -475,5 +508,5 @@ public sealed class WorkflowService : IWorkflowService
         try { await RecordAuditAsync(packageId, revision, action, result, failures, cancellationToken).ConfigureAwait(false); }
         catch (Exception exception) { _logger?.Log(exception, "Workflow audit", $"Unable to record action={action} for packageId={packageId}, revision={revision}."); throw; }
     }
-    private static AuditEntry CreateAudit(Guid packageId, int revision, DocumentAuditAction action, string result, DateTime timestamp, AuthenticatedUser? user, IReadOnlyList<string>? failures = null, string? snapshotReference = null, ReviewComment? comment = null, Guid? commentId = null, WorkflowStatus? workflowStatus = null, IReadOnlyList<ReviewComment>? commentReferences = null, ReviewDecision? decision = null) => new() { DocumentId = packageId, UserId = user?.UserId ?? "Anonymous", Action = action, TimestampUtc = timestamp, DetailsJson = JsonSerializer.Serialize(new { packageId, revision, action = action.ToString(), result, checkerUserId = user?.UserId, checkerDisplayName = user?.DisplayName, workflowStatus = workflowStatus?.ToString(), rejectionStatus = decision is null ? null : action is DocumentAuditAction.Rejected or DocumentAuditAction.ReturnedForRework or DocumentAuditAction.ChangesRequested ? workflowStatus?.ToString() : null, failures, snapshotReference, commentId = comment?.CommentId ?? commentId, referenceType = comment?.ReferenceType, referenceId = comment?.ReferenceId, location = comment?.Location, commentReferences = commentReferences?.Select(x => new { id = x.CommentId, x.ReferenceType, x.ReferenceId, x.Location }).ToArray(), correctionAction = decision?.CorrectionAction }) };
+    private static AuditEntry CreateAudit(Guid packageId, int revision, DocumentAuditAction action, string result, DateTime timestamp, AuthenticatedUser? user, IReadOnlyList<string>? failures = null, string? snapshotReference = null, ReviewComment? comment = null, Guid? commentId = null, WorkflowStatus? workflowStatus = null, IReadOnlyList<ReviewComment>? commentReferences = null, ReviewDecision? decision = null) => new() { DocumentId = packageId, UserId = user?.UserId ?? "Anonymous", Action = action, TimestampUtc = timestamp, DetailsJson = JsonSerializer.Serialize(new { packageId, revision, action = action.ToString(), result, checkerUserId = user?.UserId, checkerDisplayName = user?.DisplayName, approverUserId = decision?.ApproverUserId, approverDisplayName = decision?.ApproverDisplayName, workflowStatus = workflowStatus?.ToString(), rejectionStatus = decision is null ? null : action is DocumentAuditAction.Rejected or DocumentAuditAction.RejectedToChecker or DocumentAuditAction.RejectedToMaker or DocumentAuditAction.ReturnedForRework or DocumentAuditAction.ChangesRequested ? workflowStatus?.ToString() : null, route = decision?.Route.ToString(), destinationRole = decision?.DestinationRole, destinationQueue = decision?.DestinationQueue, reason = decision?.OverallReason, comments = decision?.Comments, failures, snapshotReference, commentId = comment?.CommentId ?? commentId, referenceType = comment?.ReferenceType, referenceId = comment?.ReferenceId, location = comment?.Location, commentReferences = commentReferences?.Select(x => new { id = x.CommentId, x.ReferenceType, x.ReferenceId, x.Location }).ToArray(), correctionAction = decision?.CorrectionAction }) };
 }

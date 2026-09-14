@@ -10,6 +10,78 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class FinalApprovalWorkflowServiceTests
 {
+    [Fact(DisplayName = "TD-02 authorized Approver rejection routes to Checker with complete metadata")]
+    public async Task Td02_authorized_approver_rejection_routes_to_checker()
+    {
+        var f = Fixture.Create();
+        var result = await f.Service.RejectToCheckerAsync(f.Package, 1, "Dimension mismatch", "Correct datum callout and resubmit.");
+        Assert.Equal(ReviewDecisionRoute.ToChecker, result.Route);
+        Assert.Equal("approver-1", result.ApproverUserId);
+        Assert.Equal("Dimension mismatch", result.OverallReason);
+        Assert.Equal(WorkflowStatus.ReturnedForRework, f.Repository.SavedStatus);
+        Assert.Equal(DocumentAuditAction.RejectedToChecker, Assert.Single(f.Repository.Audits).Action);
+    }
+
+    [Theory(DisplayName = "TD-02 rejects incomplete Approver rejection input without persistence")]
+    [InlineData("", "comments")]
+    [InlineData("reason", "")]
+    public async Task Td02_incomplete_rejection_is_non_mutating(string reason, string comments)
+    {
+        var f = Fixture.Create();
+        await Assert.ThrowsAsync<ArgumentException>(() => f.Service.RejectToCheckerAsync(f.Package, 1, reason, comments));
+        Assert.Equal(0, f.Repository.DecisionCalls);
+    }
+
+    [Fact(DisplayName = "TD-03 duplicate final decision exposes prior decision details")]
+    public async Task Td03_duplicate_decision_exposes_prior_details()
+    {
+        var f = Fixture.Create();
+        var prior = new ReviewDecision { PackageId = f.Package, Revision = 1, ApproverUserId = "approver-17", IsFinalApproval = true, DecisionType = ReviewDecisionType.Approve, Comments = "approved" };
+        f.Repository.Package = f.Repository.Package! with { PriorDecision = prior };
+        var exception = await Assert.ThrowsAsync<ReviewDecisionConflictException>(() => f.Service.RejectToCheckerAsync(f.Package, 1, "reason", "comments"));
+        Assert.Same(prior, exception.PriorDecision);
+        Assert.Equal(0, f.Repository.DecisionCalls);
+    }
+
+    [Fact(DisplayName = "TD-05 rejection persists canonical returned status and Checker destination")]
+    public async Task Td05_rejection_persists_checker_destination()
+    {
+        var f = Fixture.Create();
+        var decision = await f.Service.RejectToCheckerAsync(f.Package, 1, "Dimension mismatch", "Correct datum callout and resubmit.");
+        Assert.Equal(WorkflowStatus.ReturnedForRework, f.Repository.SavedStatus);
+        Assert.Equal("Checker", decision.DestinationQueue);
+        Assert.Equal(1, f.Repository.DecisionCalls);
+    }
+
+    [Fact(DisplayName = "TD-07 rejection history retains immutable Approver metadata")]
+    public async Task Td07_rejection_metadata_is_immutable_in_saved_decision()
+    {
+        var f = Fixture.Create();
+        var decision = await f.Service.RejectToCheckerAsync(f.Package, 1, "Dimension mismatch", "Correct datum callout and resubmit.");
+        Assert.NotEmpty(decision.SnapshotReference);
+        Assert.Equal(1, decision.Revision);
+        Assert.Equal("approver-1", decision.ApproverUserId);
+    }
+
+    [Fact(DisplayName = "TD-08 failure validation does not emit notification or partial decision")]
+    public async Task Td08_failed_validation_has_no_partial_decision()
+    {
+        var f = Fixture.Create();
+        await Assert.ThrowsAsync<ArgumentException>(() => f.Service.RejectToCheckerAsync(f.Package, 1, " ", "comments"));
+        Assert.Equal(0, f.Repository.DecisionCalls);
+        Assert.Empty(f.Repository.Audits);
+    }
+
+    [Fact(DisplayName = "TD-11 reload-compatible rejection carries exact revision and snapshot")]
+    public async Task Td11_rejection_is_reload_compatible()
+    {
+        var f = Fixture.Create();
+        var decision = await f.Service.RejectToCheckerAsync(f.Package, 1, "Dimension mismatch", "Correct datum callout and resubmit.");
+        Assert.Equal(f.Package, decision.PackageId);
+        Assert.Equal(1, decision.Revision);
+        Assert.NotEmpty(decision.SnapshotReference);
+        Assert.NotEmpty(decision.SnapshotJson);
+    }
     [Fact(DisplayName = "T03 final decision persists details and audit context")]
     public async Task T03_final_decision_persists_actor_revision_snapshot_and_audit()
     {
