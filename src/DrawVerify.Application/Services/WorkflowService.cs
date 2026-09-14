@@ -313,10 +313,17 @@ public sealed class WorkflowService : IWorkflowService
         return saved;
     }
 
-    public Task<IReadOnlyList<ReviewDecision>> GetApprovalHistoryAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ReviewDecision>> GetApprovalHistoryAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
     {
         if (!_authentication.IsAuthenticated) throw new UnauthorizedAccessException("Authentication is required to read approval history.");
-        return _workflow.GetDecisionHistoryAsync(packageId, revision, cancellationToken);
+        var package = await _workflow.GetReviewPackageAsync(packageId, revision, cancellationToken).ConfigureAwait(false);
+        if (package is null) return Array.Empty<ReviewDecision>();
+        var user = _authentication.CurrentUser!;
+        var authorized = _authorization.IsAllowed(user, RolePermission.ReviewVerification)
+            || _authorization.IsAllowed(user, RolePermission.FinalApproval)
+            || string.Equals(user.UserId, package.MakerUserId, StringComparison.OrdinalIgnoreCase);
+        if (!authorized) throw new UnauthorizedAccessException("You are not authorized to read approval history for this package.");
+        return await _workflow.GetDecisionHistoryAsync(packageId, revision, cancellationToken).ConfigureAwait(false);
     }
     public bool SupportsAccessRuleConfiguration => false;
     public Task ConfigureAccessRulesAsync(Guid packageId, int revision, IReadOnlyCollection<string> roles, CancellationToken cancellationToken = default)
