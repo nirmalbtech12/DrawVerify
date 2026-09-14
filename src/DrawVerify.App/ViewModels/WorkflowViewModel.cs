@@ -40,6 +40,7 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     public ObservableCollection<WorkflowQueueItem> Queue { get; } = new();
     public ObservableCollection<ReviewPackage> MakerPackages { get; } = new();
     public ObservableCollection<ReviewComment> MakerReviewComments { get; } = new();
+    public ObservableCollection<ReviewDecision> ApprovalHistory { get; } = new();
     public ReviewPackage? ReviewPackage { get => _reviewPackage; private set { _reviewPackage = value; RaisePropertyChanged(nameof(ReviewPackage)); RaiseReviewCommands(); } }
     public string ReviewComment { get => _reviewComment; set { _reviewComment = value ?? string.Empty; RaisePropertyChanged(nameof(ReviewComment)); RaiseReviewCommands(); } }
     public string ReviewError { get => _reviewError; private set { _reviewError = value; RaisePropertyChanged(nameof(ReviewError)); } }
@@ -82,7 +83,17 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     }
     public async Task OpenReviewAsync(WorkflowQueueItem item)
     {
-        try { ReviewPackage = await _service!.OpenReviewPackageAsync(item.PackageId, item.Revision); RaisePropertyChanged(nameof(IsReviewMode)); ReviewError = ReviewPackage is null ? "The review package was not found or is no longer available." : string.Empty; }
+        try
+        {
+            ReviewPackage = await _service!.OpenReviewPackageAsync(item.PackageId, item.Revision);
+            ApprovalHistory.Clear();
+            if (ReviewPackage is not null)
+                foreach (var decision in await _service.GetApprovalHistoryAsync(ReviewPackage.PackageId, ReviewPackage.Revision))
+                    ApprovalHistory.Add(decision);
+            RaisePropertyChanged(nameof(IsReviewMode));
+            RaisePropertyChanged(nameof(ApprovalHistory));
+            ReviewError = ReviewPackage is null ? "The review package was not found or is no longer available." : string.Empty;
+        }
         catch (Exception exception) { _logger?.Log(exception, "WPF review open", $"Unable to open packageId={item.PackageId}, revision={item.Revision}."); ReviewError = exception is UnauthorizedAccessException ? "You are not authorized to review this package." : "Unable to open the review package."; }
     }
     private async Task DecideAsync(ReviewDecisionType type)
