@@ -156,7 +156,16 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     private async Task SaveReviewCommentAsync()
     {
         if (ReviewPackage is null || _service is null) return;
-        try { await _service.SaveReviewCommentDraftAsync(ReviewPackage.PackageId, ReviewPackage.Revision, ReviewComment, string.IsNullOrWhiteSpace(ReferenceType) ? null : ReferenceType.Trim(), string.IsNullOrWhiteSpace(ReferenceId) ? null : ReferenceId.Trim(), string.IsNullOrWhiteSpace(ReferenceLocation) ? null : ReferenceLocation.Trim()); ReviewComment = string.Empty; ReferenceType = string.Empty; ReferenceId = string.Empty; ReferenceLocation = string.Empty; ReviewError = string.Empty; }
+        try
+        {
+            var saved = await _service.SaveReviewCommentDraftAsync(ReviewPackage.PackageId, ReviewPackage.Revision, ReviewComment, string.IsNullOrWhiteSpace(ReferenceType) ? null : ReferenceType.Trim(), string.IsNullOrWhiteSpace(ReferenceId) ? null : ReferenceId.Trim(), string.IsNullOrWhiteSpace(ReferenceLocation) ? null : ReferenceLocation.Trim());
+            ReviewPackage = ReviewPackage with { Comments = ReviewPackage.Comments.Append(saved).ToArray() };
+            ReviewComment = string.Empty;
+            ReferenceType = string.Empty;
+            ReferenceId = string.Empty;
+            ReferenceLocation = string.Empty;
+            ReviewError = string.Empty;
+        }
         catch (Exception exception) { _logger?.Log(exception, "WPF review comment", $"Unable to save review comment for packageId={ReviewPackage.PackageId}, revision={ReviewPackage.Revision}."); ReviewError = exception is ArgumentException ? exception.Message : "The review comment could not be saved."; }
     }
     private async Task EditReviewCommentAsync()
@@ -171,7 +180,8 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
                 ReferenceId = string.IsNullOrWhiteSpace(ReferenceId) ? null : ReferenceId.Trim(),
                 Location = string.IsNullOrWhiteSpace(ReferenceLocation) ? null : ReferenceLocation.Trim()
             };
-            await _service.UpdateReviewCommentAsync(updated);
+            var saved = await _service.UpdateReviewCommentAsync(updated);
+            ReviewPackage = ReviewPackage with { Comments = ReviewPackage.Comments.Select(comment => comment.CommentId == saved.CommentId ? saved : comment).ToArray() };
             ReviewComment = string.Empty;
             ReferenceType = string.Empty;
             ReferenceId = string.Empty;
