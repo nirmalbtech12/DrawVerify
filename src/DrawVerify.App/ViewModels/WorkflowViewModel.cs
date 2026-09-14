@@ -28,6 +28,9 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     private ReviewFinding? _selectedFinding;
     private ReviewComment? _selectedReviewComment;
     private string _correctionAction = string.Empty;
+    private string _referenceType = string.Empty;
+    private string _referenceId = string.Empty;
+    private string _referenceLocation = string.Empty;
     private ReviewPackage? _selectedMakerPackage;
     public WorkflowViewModel() { SubmitCommand = new Command(async _ => await SubmitAsync(), _ => false); CancelCommand = new Command(async _ => await CancelAsync(true), _ => IsConfirmationVisible); InitializeReviewCommands(); }
     public WorkflowViewModel(IWorkflowService service, ISessionAuthenticationService? authentication = null, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null)
@@ -48,6 +51,9 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     public ReviewPackage? SelectedMakerPackage { get => _selectedMakerPackage; private set { _selectedMakerPackage = value; RaisePropertyChanged(nameof(SelectedMakerPackage)); } }
     public string ReviewComment { get => _reviewComment; set { _reviewComment = value ?? string.Empty; RaisePropertyChanged(nameof(ReviewComment)); RaiseReviewCommands(); } }
     public string CorrectionAction { get => _correctionAction; set { _correctionAction = value ?? string.Empty; RaisePropertyChanged(nameof(CorrectionAction)); RaiseReviewCommands(); } }
+    public string ReferenceType { get => _referenceType; set { _referenceType = value ?? string.Empty; RaisePropertyChanged(nameof(ReferenceType)); } }
+    public string ReferenceId { get => _referenceId; set { _referenceId = value ?? string.Empty; RaisePropertyChanged(nameof(ReferenceId)); } }
+    public string ReferenceLocation { get => _referenceLocation; set { _referenceLocation = value ?? string.Empty; RaisePropertyChanged(nameof(ReferenceLocation)); } }
     public string ReviewError { get => _reviewError; private set { _reviewError = value; RaisePropertyChanged(nameof(ReviewError)); } }
     public bool IsReviewMode => _reviewPackage is not null;
     public bool RequireSectionConfirmation { get; set; }
@@ -134,7 +140,7 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     private async Task SaveReviewCommentAsync()
     {
         if (ReviewPackage is null || _service is null) return;
-        try { await _service.AddReviewCommentAsync(ReviewPackage.PackageId, ReviewPackage.Revision, ReviewComment); ReviewComment = string.Empty; ReviewError = string.Empty; }
+        try { await _service.SaveReviewCommentDraftAsync(ReviewPackage.PackageId, ReviewPackage.Revision, ReviewComment, string.IsNullOrWhiteSpace(ReferenceType) ? null : ReferenceType, string.IsNullOrWhiteSpace(ReferenceId) ? null : ReferenceId, string.IsNullOrWhiteSpace(ReferenceLocation) ? null : ReferenceLocation); ReviewComment = string.Empty; ReferenceType = string.Empty; ReferenceId = string.Empty; ReferenceLocation = string.Empty; ReviewError = string.Empty; }
         catch (Exception exception) { _logger?.Log(exception, "WPF review comment", $"Unable to save review comment for packageId={ReviewPackage.PackageId}, revision={ReviewPackage.Revision}."); ReviewError = exception is ArgumentException ? exception.Message : "The review comment could not be saved."; }
     }
     private async Task EditReviewCommentAsync()
@@ -153,6 +159,9 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     {
         ReviewComment = string.Empty;
         CorrectionAction = string.Empty;
+        ReferenceType = string.Empty;
+        ReferenceId = string.Empty;
+        ReferenceLocation = string.Empty;
         SelectedReviewComment = null;
         ReviewError = string.Empty;
     }
