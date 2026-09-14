@@ -138,7 +138,7 @@ public static class CompositionRoot
     {
         var database = DatabasePath(); var logger = new CentralizedLogger(); var documents = new SqliteDocumentRepository(database, logger); var users = new SqliteUserRepository(database, logger); var dxfFiles = new DxfDocumentFileStore(AppContext.BaseDirectory, DxfUploadConfiguration);
         var extraction = new DxfDimensionExtractionService(documents, dxfFiles, new DxfDimensionParser(), DxfDimensionExtractionConfiguration, Session, users, logger, Authorization);
-        return new DxfDrawingGenerationService(documents, new DocumentFileStore(AppContext.BaseDirectory, StepUploadConfiguration), dxfFiles, new OcctGeometryService(), new SqliteAuditRepository(database), Session, Authorization, logger, users, extraction);
+        return new DxfDrawingGenerationService(documents, new DocumentFileStore(AppContext.BaseDirectory, StepUploadConfiguration), dxfFiles, new OcctGeometryService(), new SqliteAuditRepository(database), Session, Authorization, logger, users, extraction, new SqliteWorkflowRepository(database, logger, WorkflowConfiguration));
     }
     public static DocumentDetailViewModel CreateDocumentDetailViewModel(DrawVerify.Core.Models.Document document) =>
         new(document, CreateDxfDimensionExtractionService(), CreateWorkflowService(), null, Session, Authorization);
