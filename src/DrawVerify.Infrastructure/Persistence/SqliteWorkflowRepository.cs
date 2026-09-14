@@ -27,11 +27,11 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository
     {
         using var c = new SqliteConnection(_connectionString); c.Open();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = "PRAGMA foreign_keys=ON; CREATE TABLE IF NOT EXISTS WorkflowState (PackageId TEXT PRIMARY KEY, Status INTEGER NOT NULL, Revision INTEGER NOT NULL, UpdatedUtc TEXT NOT NULL); CREATE TABLE IF NOT EXISTS ReviewSubmission (SubmissionId TEXT PRIMARY KEY, PackageId TEXT NOT NULL, DxfDocumentId TEXT NOT NULL DEFAULT '', StepDocumentVersionId TEXT NOT NULL, DxfDocumentVersionId TEXT NOT NULL, VerificationSessionId TEXT NOT NULL, ExtractionEvidenceJson TEXT NOT NULL, VerificationEvidenceJson TEXT NOT NULL, Revision INTEGER NOT NULL, MakerUserId TEXT NOT NULL, MakerDisplayName TEXT NOT NULL, SubmittedUtc TEXT NOT NULL, Note TEXT NULL, Status INTEGER NOT NULL); CREATE INDEX IF NOT EXISTS IX_ReviewSubmission_Package ON ReviewSubmission(PackageId); CREATE TABLE IF NOT EXISTS DocumentAuditLog (AuditId TEXT PRIMARY KEY, DocumentId TEXT NULL, Action INTEGER NOT NULL, UserId TEXT NULL, TimestampUtc TEXT NOT NULL, DetailsJson TEXT NOT NULL); CREATE TABLE IF NOT EXISTS ReviewDecision (DecisionId TEXT PRIMARY KEY, PackageId TEXT NOT NULL, Revision INTEGER NOT NULL, CheckerUserId TEXT NOT NULL, CheckerDisplayName TEXT NOT NULL, DecidedUtc TEXT NOT NULL, DecisionType INTEGER NOT NULL, Comments TEXT NULL, SnapshotReference TEXT NOT NULL, SnapshotJson TEXT NOT NULL, ApproverUserId TEXT NULL, ApproverDisplayName TEXT NULL, IsFinalApproval INTEGER NOT NULL DEFAULT 0, UNIQUE(PackageId,Revision)); CREATE TABLE IF NOT EXISTS ReviewComment (CommentId TEXT PRIMARY KEY, PackageId TEXT NOT NULL, Revision INTEGER NOT NULL, AuthorUserId TEXT NOT NULL, AuthorDisplayName TEXT NOT NULL, CreatedUtc TEXT NOT NULL, Text TEXT NOT NULL); CREATE TABLE IF NOT EXISTS InAppNotification (NotificationId TEXT PRIMARY KEY, UserId TEXT NOT NULL, PackageId TEXT NOT NULL, Revision INTEGER NOT NULL, Message TEXT NOT NULL, CreatedUtc TEXT NOT NULL, IsRead INTEGER NOT NULL DEFAULT 0); CREATE TABLE IF NOT EXISTS RevisionLock (PackageId TEXT NOT NULL, Revision INTEGER NOT NULL, LockedUtc TEXT NOT NULL, PRIMARY KEY(PackageId,Revision));";
+        cmd.CommandText = "PRAGMA foreign_keys=ON; CREATE TABLE IF NOT EXISTS WorkflowState (PackageId TEXT PRIMARY KEY, Status INTEGER NOT NULL, Revision INTEGER NOT NULL, UpdatedUtc TEXT NOT NULL); CREATE TABLE IF NOT EXISTS ReviewSubmission (SubmissionId TEXT PRIMARY KEY, PackageId TEXT NOT NULL, DxfDocumentId TEXT NOT NULL DEFAULT '', StepDocumentVersionId TEXT NOT NULL, DxfDocumentVersionId TEXT NOT NULL, VerificationSessionId TEXT NOT NULL, ExtractionEvidenceJson TEXT NOT NULL, VerificationEvidenceJson TEXT NOT NULL, Revision INTEGER NOT NULL, MakerUserId TEXT NOT NULL, MakerDisplayName TEXT NOT NULL, SubmittedUtc TEXT NOT NULL, Note TEXT NULL, Status INTEGER NOT NULL); CREATE INDEX IF NOT EXISTS IX_ReviewSubmission_Package ON ReviewSubmission(PackageId); CREATE TABLE IF NOT EXISTS DocumentAuditLog (AuditId TEXT PRIMARY KEY, DocumentId TEXT NULL, Action INTEGER NOT NULL, UserId TEXT NULL, TimestampUtc TEXT NOT NULL, DetailsJson TEXT NOT NULL); CREATE TABLE IF NOT EXISTS ReviewDecision (DecisionId TEXT PRIMARY KEY, PackageId TEXT NOT NULL, Revision INTEGER NOT NULL, CheckerUserId TEXT NOT NULL, CheckerDisplayName TEXT NOT NULL, DecidedUtc TEXT NOT NULL, DecisionType INTEGER NOT NULL, Comments TEXT NULL, SnapshotReference TEXT NOT NULL, SnapshotJson TEXT NOT NULL, ApproverUserId TEXT NULL, ApproverDisplayName TEXT NULL, IsFinalApproval INTEGER NOT NULL DEFAULT 0, OverallReason TEXT NULL, CorrectionAction TEXT NULL, PriorDecisionId TEXT NULL, Route INTEGER NOT NULL DEFAULT 0, DestinationRole TEXT NULL, DestinationQueue TEXT NULL); CREATE TABLE IF NOT EXISTS ReviewComment (CommentId TEXT PRIMARY KEY, PackageId TEXT NOT NULL, Revision INTEGER NOT NULL, AuthorUserId TEXT NOT NULL, AuthorDisplayName TEXT NOT NULL, CreatedUtc TEXT NOT NULL, Text TEXT NOT NULL); CREATE TABLE IF NOT EXISTS InAppNotification (NotificationId TEXT PRIMARY KEY, UserId TEXT NOT NULL, PackageId TEXT NOT NULL, Revision INTEGER NOT NULL, Message TEXT NOT NULL, CreatedUtc TEXT NOT NULL, IsRead INTEGER NOT NULL DEFAULT 0); CREATE TABLE IF NOT EXISTS RevisionLock (PackageId TEXT NOT NULL, Revision INTEGER NOT NULL, LockedUtc TEXT NOT NULL, PRIMARY KEY(PackageId,Revision));";
         cmd.ExecuteNonQuery();
         using (var finalTable = c.CreateCommand())
         {
-            finalTable.CommandText = "CREATE TABLE IF NOT EXISTS FinalApprovalDecision (DecisionId TEXT PRIMARY KEY, PackageId TEXT NOT NULL, Revision INTEGER NOT NULL, CheckerUserId TEXT NOT NULL, CheckerDisplayName TEXT NOT NULL, DecidedUtc TEXT NOT NULL, DecisionType INTEGER NOT NULL, Comments TEXT NULL, SnapshotReference TEXT NOT NULL, SnapshotJson TEXT NOT NULL, ApproverUserId TEXT NULL, ApproverDisplayName TEXT NULL, IsFinalApproval INTEGER NOT NULL DEFAULT 1, UNIQUE(PackageId,Revision));";
+            finalTable.CommandText = "CREATE TABLE IF NOT EXISTS FinalApprovalDecision (DecisionId TEXT PRIMARY KEY, PackageId TEXT NOT NULL, Revision INTEGER NOT NULL, CheckerUserId TEXT NOT NULL, CheckerDisplayName TEXT NOT NULL, DecidedUtc TEXT NOT NULL, DecisionType INTEGER NOT NULL, Comments TEXT NULL, SnapshotReference TEXT NOT NULL, SnapshotJson TEXT NOT NULL, ApproverUserId TEXT NULL, ApproverDisplayName TEXT NULL, IsFinalApproval INTEGER NOT NULL DEFAULT 1, OverallReason TEXT NULL, CorrectionAction TEXT NULL, PriorDecisionId TEXT NULL, Route INTEGER NOT NULL DEFAULT 0, DestinationRole TEXT NULL, DestinationQueue TEXT NULL, UNIQUE(PackageId,Revision));";
             finalTable.ExecuteNonQuery();
         }
         foreach (var column in new[] { "DxfDocumentId TEXT NOT NULL DEFAULT ''", "AssignedCheckerUserId TEXT NULL", "AvailableToCheckers INTEGER NOT NULL DEFAULT 1", "AssignedApproverUserId TEXT NULL", "AvailableToApprovers INTEGER NOT NULL DEFAULT 1" })
@@ -42,6 +42,10 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository
         foreach (var table in new[] { "ReviewDecision", "FinalApprovalDecision" })
         foreach (var column in new[] { "OverallReason TEXT NULL", "CorrectionAction TEXT NULL", "PriorDecisionId TEXT NULL" })
         { try { using var alter = c.CreateCommand(); alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column};"; alter.ExecuteNonQuery(); } catch (SqliteException exception) when (exception.SqliteErrorCode == 1 && exception.Message.Contains("duplicate column", StringComparison.OrdinalIgnoreCase)) { } }
+        foreach (var table in new[] { "ReviewDecision", "FinalApprovalDecision" })
+        foreach (var column in new[] { "Route INTEGER NOT NULL DEFAULT 0", "DestinationRole TEXT NULL", "DestinationQueue TEXT NULL" })
+        { try { using var alter = c.CreateCommand(); alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column};"; alter.ExecuteNonQuery(); } catch (SqliteException exception) when (exception.SqliteErrorCode == 1 && exception.Message.Contains("duplicate column", StringComparison.OrdinalIgnoreCase)) { } }
+        MigrateCheckerDecisionUniqueness(c);
         foreach (var column in new[] { "IsDraft INTEGER NOT NULL DEFAULT 1", "ReferenceType TEXT NULL", "ReferenceId TEXT NULL", "Location TEXT NULL", "CorrectionResponse TEXT NULL", "PriorCommentId TEXT NULL" })
         { try { using var alter = c.CreateCommand(); alter.CommandText = $"ALTER TABLE ReviewComment ADD COLUMN {column};"; alter.ExecuteNonQuery(); } catch (SqliteException exception) when (exception.SqliteErrorCode == 1 && exception.Message.Contains("duplicate column", StringComparison.OrdinalIgnoreCase)) { } }
     }
@@ -59,7 +63,7 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository
     }
     public async Task<IReadOnlyList<WorkflowQueueItem>> GetCheckerQueueAsync(string? reviewerUserId, CancellationToken token = default)
     {
-        var submissions = await GetSubmissionsAsync(Guid.Empty, token).ConfigureAwait(false); return submissions.Where(x => x.Status is WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview).Where(x => x.AvailableToCheckers || string.Equals(x.AssignedCheckerUserId, reviewerUserId, StringComparison.OrdinalIgnoreCase)).Select(x => new WorkflowQueueItem(x.PackageId, x.Revision, x.MakerDisplayName, x.SubmittedUtc, x.Status, x.VerificationEvidenceJson) { AssignedCheckerUserId = x.AssignedCheckerUserId, AvailableToCheckers = x.AvailableToCheckers }).ToArray();
+        var submissions = await GetSubmissionsAsync(Guid.Empty, token).ConfigureAwait(false); return submissions.Where(x => x.Status is WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview or WorkflowStatus.ReturnedForRework).Where(x => x.AvailableToCheckers || string.Equals(x.AssignedCheckerUserId, reviewerUserId, StringComparison.OrdinalIgnoreCase)).Select(x => new WorkflowQueueItem(x.PackageId, x.Revision, x.MakerDisplayName, x.SubmittedUtc, x.Status, x.VerificationEvidenceJson) { AssignedCheckerUserId = x.AssignedCheckerUserId, AvailableToCheckers = x.AvailableToCheckers }).ToArray();
     }
     public Task<IReadOnlyList<WorkflowQueueItem>> GetCheckerQueueAsync(CancellationToken token = default) => GetCheckerQueueAsync(null, token);
     public async Task<IReadOnlyList<WorkflowQueueItem>> GetApproverQueueAsync(string? approverUserId, CancellationToken token = default)
@@ -80,10 +84,10 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository
     {
         await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(token);
         await using var cmd = c.CreateCommand();
-        cmd.CommandText = "SELECT DecisionId,PackageId,Revision,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId FROM (SELECT DecisionId,PackageId,Revision,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId FROM ReviewDecision WHERE PackageId=$package AND Revision=$revision UNION ALL SELECT DecisionId,PackageId,Revision,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId FROM FinalApprovalDecision WHERE PackageId=$package AND Revision=$revision) ORDER BY DecidedUtc";
+        cmd.CommandText = "SELECT DecisionId,PackageId,Revision,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId,Route,DestinationRole,DestinationQueue FROM (SELECT DecisionId,PackageId,Revision,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId,Route,DestinationRole,DestinationQueue FROM ReviewDecision WHERE PackageId=$package AND Revision=$revision UNION ALL SELECT DecisionId,PackageId,Revision,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId,Route,DestinationRole,DestinationQueue FROM FinalApprovalDecision WHERE PackageId=$package AND Revision=$revision) ORDER BY DecidedUtc";
         cmd.Parameters.AddWithValue("$package", packageId.ToString()); cmd.Parameters.AddWithValue("$revision", revision);
         await using var reader = await cmd.ExecuteReaderAsync(token); var result = new List<ReviewDecision>();
-        while (await reader.ReadAsync(token)) result.Add(new ReviewDecision { DecisionId = Guid.Parse(reader.GetString(0)), PackageId = Guid.Parse(reader.GetString(1)), Revision = reader.GetInt32(2), CheckerUserId = reader.GetString(3), CheckerDisplayName = reader.GetString(4), DecidedUtc = DateTime.Parse(reader.GetString(5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), DecisionType = (ReviewDecisionType)reader.GetInt32(6), Comments = reader.IsDBNull(7) ? null : reader.GetString(7), SnapshotReference = reader.GetString(8), SnapshotJson = reader.GetString(9), ApproverUserId = reader.IsDBNull(10) ? string.Empty : reader.GetString(10), ApproverDisplayName = reader.IsDBNull(11) ? string.Empty : reader.GetString(11), IsFinalApproval = !reader.IsDBNull(12) && reader.GetInt32(12) != 0, OverallReason = reader.IsDBNull(13) ? null : reader.GetString(13), CorrectionAction = reader.IsDBNull(14) ? null : reader.GetString(14), PriorDecisionId = reader.IsDBNull(15) ? null : Guid.Parse(reader.GetString(15)) });
+        while (await reader.ReadAsync(token)) result.Add(MapDecision(reader, packageId, includePackageId: true));
         return result;
     }
 
@@ -110,7 +114,7 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository
         cmd.CommandText = "SELECT DecisionId,Revision,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId FROM (SELECT DecisionId,Revision,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId FROM ReviewDecision WHERE PackageId=$package AND Revision<$revision UNION ALL SELECT DecisionId,Revision,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId FROM FinalApprovalDecision WHERE PackageId=$package AND Revision<$revision) ORDER BY Revision DESC, DecidedUtc DESC LIMIT 1";
         cmd.Parameters.AddWithValue("$package", packageId.ToString()); cmd.Parameters.AddWithValue("$revision", revision);
         await using var r = await cmd.ExecuteReaderAsync(token); if (!await r.ReadAsync(token)) return null;
-        return new ReviewDecision { DecisionId=Guid.Parse(r.GetString(0)), PackageId=packageId, Revision=r.GetInt32(1), CheckerUserId=r.GetString(2), CheckerDisplayName=r.GetString(3), DecidedUtc=DateTime.Parse(r.GetString(4), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), DecisionType=(ReviewDecisionType)r.GetInt32(5), Comments=r.IsDBNull(6) ? null : r.GetString(6), SnapshotReference=r.GetString(7), SnapshotJson=r.GetString(8), ApproverUserId=r.IsDBNull(9) ? string.Empty : r.GetString(9), ApproverDisplayName=r.IsDBNull(10) ? string.Empty : r.GetString(10), IsFinalApproval=!r.IsDBNull(11) && r.GetInt32(11) != 0, OverallReason=r.IsDBNull(12) ? null : r.GetString(12), CorrectionAction=r.IsDBNull(13) ? null : r.GetString(13), PriorDecisionId=r.IsDBNull(14) ? null : Guid.Parse(r.GetString(14)) };
+        return MapDecision(r, packageId, includePackageId: false);
     }
 
     public async Task RecordReviewStartedAsync(ReviewPackage package, AuditEntry auditEntry, CancellationToken token = default)
@@ -151,12 +155,13 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository
         await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(token); await using var t = (SqliteTransaction)await c.BeginTransactionAsync(token);
         try
         {
-            await using var state = c.CreateCommand(); state.Transaction=t; state.CommandText="UPDATE WorkflowState SET Status=$status,UpdatedUtc=$updated WHERE PackageId=$package AND Status IN ($submitted,$underReview,$approvedByChecker,$pendingFinal) AND Revision=$revision"; state.Parameters.AddWithValue("$status",(int)resultingStatus); state.Parameters.AddWithValue("$updated",decision.DecidedUtc.ToString("O",CultureInfo.InvariantCulture)); state.Parameters.AddWithValue("$package",decision.PackageId.ToString()); state.Parameters.AddWithValue("$submitted",(int)WorkflowStatus.SubmittedForReview); state.Parameters.AddWithValue("$underReview",(int)WorkflowStatus.UnderReview); state.Parameters.AddWithValue("$approvedByChecker",(int)WorkflowStatus.ApprovedByChecker); state.Parameters.AddWithValue("$pendingFinal",(int)WorkflowStatus.PendingFinalApproval); state.Parameters.AddWithValue("$revision",decision.Revision); if (await state.ExecuteNonQueryAsync(token) != 1) throw await CreateDecisionConflictAsync(c, t, decision.PackageId, decision.Revision, token);
+            await using var state = c.CreateCommand(); state.Transaction=t; state.CommandText="UPDATE WorkflowState SET Status=$status,UpdatedUtc=$updated WHERE PackageId=$package AND Status IN ($submitted,$underReview,$returnedForRework,$approvedByChecker,$pendingFinal) AND Revision=$revision"; state.Parameters.AddWithValue("$status",(int)resultingStatus); state.Parameters.AddWithValue("$updated",decision.DecidedUtc.ToString("O",CultureInfo.InvariantCulture)); state.Parameters.AddWithValue("$package",decision.PackageId.ToString()); state.Parameters.AddWithValue("$submitted",(int)WorkflowStatus.SubmittedForReview); state.Parameters.AddWithValue("$underReview",(int)WorkflowStatus.UnderReview); state.Parameters.AddWithValue("$returnedForRework",(int)WorkflowStatus.ReturnedForRework); state.Parameters.AddWithValue("$approvedByChecker",(int)WorkflowStatus.ApprovedByChecker); state.Parameters.AddWithValue("$pendingFinal",(int)WorkflowStatus.PendingFinalApproval); state.Parameters.AddWithValue("$revision",decision.Revision); if (await state.ExecuteNonQueryAsync(token) != 1) throw await CreateDecisionConflictAsync(c, t, decision.PackageId, decision.Revision, token);
             await Exec(c,t,"UPDATE ReviewSubmission SET Status=$status WHERE PackageId=$package AND Revision=$revision",token,("$status",(int)resultingStatus),("$package",decision.PackageId.ToString()),("$revision",decision.Revision));
             try
             {
                 var table = decision.IsFinalApproval ? "FinalApprovalDecision" : "ReviewDecision";
                 await Exec(c,t,$"INSERT INTO {table}(DecisionId,PackageId,Revision,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId) VALUES($id,$package,$revision,$user,$display,$time,$type,$comments,$reference,$snapshot,$approver,$approverDisplay,$final,$reason,$correction,$prior)",token,("$id",decision.DecisionId.ToString()),("$package",decision.PackageId.ToString()),("$revision",decision.Revision),("$user",decision.CheckerUserId),("$display",decision.CheckerDisplayName),("$time",decision.DecidedUtc.ToString("O",CultureInfo.InvariantCulture)),("$type",(int)decision.DecisionType),("$comments",(object?)decision.Comments??DBNull.Value),("$reference",decision.SnapshotReference),("$snapshot",decision.SnapshotJson),("$approver",(object?)decision.ApproverUserId??DBNull.Value),("$approverDisplay",(object?)decision.ApproverDisplayName??DBNull.Value),("$final",decision.IsFinalApproval ? 1 : 0),("$reason",(object?)decision.OverallReason??DBNull.Value),("$correction",(object?)decision.CorrectionAction??DBNull.Value),("$prior",(object?)decision.PriorDecisionId?.ToString()??DBNull.Value));
+                await Exec(c,t,$"UPDATE {table} SET Route=$route,DestinationRole=$destinationRole,DestinationQueue=$destinationQueue WHERE DecisionId=$id",token,("$route",(int)decision.Route),("$destinationRole",(object?)decision.DestinationRole??DBNull.Value),("$destinationQueue",(object?)decision.DestinationQueue??DBNull.Value),("$id",decision.DecisionId.ToString()));
             }
             catch (SqliteException exception) when (IsReviewDecisionConflict(exception))
             {
@@ -171,7 +176,61 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository
     }
 
     private static bool IsReviewDecisionConflict(SqliteException exception)
-        => exception.SqliteErrorCode == 19 && exception.Message.Contains("ReviewDecision.PackageId", StringComparison.OrdinalIgnoreCase) && exception.Message.Contains("ReviewDecision.Revision", StringComparison.OrdinalIgnoreCase);
+        => exception.SqliteErrorCode == 19 && (exception.Message.Contains("ReviewDecision.PackageId", StringComparison.OrdinalIgnoreCase) || exception.Message.Contains("FinalApprovalDecision.PackageId", StringComparison.OrdinalIgnoreCase)) && (exception.Message.Contains("ReviewDecision.Revision", StringComparison.OrdinalIgnoreCase) || exception.Message.Contains("FinalApprovalDecision.Revision", StringComparison.OrdinalIgnoreCase));
+
+    private static void MigrateCheckerDecisionUniqueness(SqliteConnection c)
+    {
+        var hasCheckerRevisionUniqueIndex = false;
+        var uniqueIndexes = new List<string>();
+        using (var indexes = c.CreateCommand())
+        {
+            indexes.CommandText = "PRAGMA index_list('ReviewDecision');";
+            using var reader = indexes.ExecuteReader();
+            while (reader.Read())
+            {
+                if (reader.GetInt32(2) == 0) continue;
+                uniqueIndexes.Add(reader.GetString(1));
+            }
+        }
+        foreach (var uniqueIndex in uniqueIndexes)
+        {
+                var indexName = uniqueIndex.Replace("'", "''", StringComparison.Ordinal);
+                using var columns = c.CreateCommand();
+                columns.CommandText = $"PRAGMA index_info('{indexName}');";
+                using var columnReader = columns.ExecuteReader();
+                var names = new List<string>();
+                while (columnReader.Read()) names.Add(columnReader.GetString(2));
+                if (names.SequenceEqual(new[] { "PackageId", "Revision" }, StringComparer.OrdinalIgnoreCase))
+                {
+                    hasCheckerRevisionUniqueIndex = true;
+                    break;
+                }
+        }
+        if (!hasCheckerRevisionUniqueIndex) return;
+
+        using var transaction = c.BeginTransaction();
+        try
+        {
+            ExecuteSchemaCommand(c, transaction, "ALTER TABLE ReviewDecision RENAME TO ReviewDecision_Legacy;");
+            ExecuteSchemaCommand(c, transaction, "CREATE TABLE ReviewDecision (DecisionId TEXT PRIMARY KEY, PackageId TEXT NOT NULL, Revision INTEGER NOT NULL, CheckerUserId TEXT NOT NULL, CheckerDisplayName TEXT NOT NULL, DecidedUtc TEXT NOT NULL, DecisionType INTEGER NOT NULL, Comments TEXT NULL, SnapshotReference TEXT NOT NULL, SnapshotJson TEXT NOT NULL, ApproverUserId TEXT NULL, ApproverDisplayName TEXT NULL, IsFinalApproval INTEGER NOT NULL DEFAULT 0, OverallReason TEXT NULL, CorrectionAction TEXT NULL, PriorDecisionId TEXT NULL, Route INTEGER NOT NULL DEFAULT 0, DestinationRole TEXT NULL, DestinationQueue TEXT NULL);");
+            ExecuteSchemaCommand(c, transaction, "INSERT INTO ReviewDecision(DecisionId,PackageId,Revision,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId,Route,DestinationRole,DestinationQueue) SELECT DecisionId,PackageId,Revision,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId,Route,DestinationRole,DestinationQueue FROM ReviewDecision_Legacy;");
+            ExecuteSchemaCommand(c, transaction, "DROP TABLE ReviewDecision_Legacy;");
+            transaction.Commit();
+        }
+        catch
+        {
+            transaction.Rollback();
+            throw;
+        }
+    }
+
+    private static void ExecuteSchemaCommand(SqliteConnection connection, SqliteTransaction transaction, string commandText)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = commandText;
+        command.ExecuteNonQuery();
+    }
 
     private async Task<ReviewDecisionConflictException> CreateDecisionConflictAsync(SqliteConnection? transactionConnection, SqliteTransaction? transaction, Guid packageId, int requestedRevision, CancellationToken token)
     {
@@ -192,16 +251,16 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository
         ReviewDecision? prior = null;
         await using (var decision = c.CreateCommand())
         {
-            decision.Transaction = transaction; decision.CommandText = "SELECT DecisionId,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId FROM FinalApprovalDecision WHERE PackageId=$package AND Revision=$revision UNION ALL SELECT DecisionId,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId FROM ReviewDecision WHERE PackageId=$package AND Revision=$revision LIMIT 1"; decision.Parameters.AddWithValue("$package", packageId.ToString()); decision.Parameters.AddWithValue("$revision", requestedRevision);
+            decision.Transaction = transaction; decision.CommandText = "SELECT DecisionId,Revision,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId,Route,DestinationRole,DestinationQueue FROM (SELECT DecisionId,Revision,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId,Route,DestinationRole,DestinationQueue FROM FinalApprovalDecision WHERE PackageId=$package AND Revision=$revision UNION ALL SELECT DecisionId,Revision,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId,Route,DestinationRole,DestinationQueue FROM ReviewDecision WHERE PackageId=$package AND Revision=$revision) LIMIT 1"; decision.Parameters.AddWithValue("$package", packageId.ToString()); decision.Parameters.AddWithValue("$revision", requestedRevision);
             await using var reader = await decision.ExecuteReaderAsync(token);
-            if (await reader.ReadAsync(token)) prior = new ReviewDecision { DecisionId=Guid.Parse(reader.GetString(0)), PackageId=packageId, Revision=requestedRevision, CheckerUserId=reader.GetString(1), CheckerDisplayName=reader.GetString(2), DecidedUtc=DateTime.Parse(reader.GetString(3), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), DecisionType=(ReviewDecisionType)reader.GetInt32(4), Comments=reader.IsDBNull(5) ? null : reader.GetString(5), SnapshotReference=reader.GetString(6), SnapshotJson=reader.GetString(7), ApproverUserId=reader.IsDBNull(8) ? string.Empty : reader.GetString(8), ApproverDisplayName=reader.IsDBNull(9) ? string.Empty : reader.GetString(9), IsFinalApproval=!reader.IsDBNull(10) && reader.GetInt32(10) != 0, OverallReason=reader.IsDBNull(11) ? null : reader.GetString(11), CorrectionAction=reader.IsDBNull(12) ? null : reader.GetString(12), PriorDecisionId=reader.IsDBNull(13) ? null : Guid.Parse(reader.GetString(13)) };
+            if (await reader.ReadAsync(token)) prior = MapDecision(reader, packageId, includePackageId: false);
         }
         return new ReviewDecisionConflictException(packageId, requestedRevision, status, revision, prior);
     }
 
     private async Task<ReviewDecision?> GetDecisionAsync(Guid packageId, int revision, CancellationToken token)
     {
-        await using var c=new SqliteConnection(_connectionString); await c.OpenAsync(token); await using var cmd=c.CreateCommand(); cmd.CommandText="SELECT DecisionId,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId FROM FinalApprovalDecision WHERE PackageId=$package AND Revision=$revision UNION ALL SELECT DecisionId,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId FROM ReviewDecision WHERE PackageId=$package AND Revision=$revision LIMIT 1"; cmd.Parameters.AddWithValue("$package",packageId.ToString()); cmd.Parameters.AddWithValue("$revision",revision); await using var r=await cmd.ExecuteReaderAsync(token); if(!await r.ReadAsync(token)) return null; return new ReviewDecision { DecisionId=Guid.Parse(r.GetString(0)),PackageId=packageId,Revision=revision,CheckerUserId=r.GetString(1),CheckerDisplayName=r.GetString(2),DecidedUtc=DateTime.Parse(r.GetString(3),CultureInfo.InvariantCulture,DateTimeStyles.RoundtripKind),DecisionType=(ReviewDecisionType)r.GetInt32(4),Comments=r.IsDBNull(5)?null:r.GetString(5),SnapshotReference=r.GetString(6),SnapshotJson=r.GetString(7),ApproverUserId=r.IsDBNull(8)?string.Empty:r.GetString(8),ApproverDisplayName=r.IsDBNull(9)?string.Empty:r.GetString(9),IsFinalApproval=!r.IsDBNull(10)&&r.GetInt32(10)!=0,OverallReason=r.IsDBNull(11)?null:r.GetString(11),CorrectionAction=r.IsDBNull(12)?null:r.GetString(12),PriorDecisionId=r.IsDBNull(13)?null:Guid.Parse(r.GetString(13)) };
+        await using var c=new SqliteConnection(_connectionString); await c.OpenAsync(token); await using var cmd=c.CreateCommand(); cmd.CommandText="SELECT DecisionId,Revision,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId,Route,DestinationRole,DestinationQueue FROM (SELECT DecisionId,Revision,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId,Route,DestinationRole,DestinationQueue FROM FinalApprovalDecision WHERE PackageId=$package AND Revision=$revision UNION ALL SELECT DecisionId,Revision,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval,OverallReason,CorrectionAction,PriorDecisionId,Route,DestinationRole,DestinationQueue FROM ReviewDecision WHERE PackageId=$package AND Revision=$revision) LIMIT 1"; cmd.Parameters.AddWithValue("$package",packageId.ToString()); cmd.Parameters.AddWithValue("$revision",revision); await using var r=await cmd.ExecuteReaderAsync(token); if(!await r.ReadAsync(token)) return null; return MapDecision(r, packageId, includePackageId: false);
     }
     public async Task<ReviewSubmission> SubmitAtomicallyAsync(WorkflowState expected, ReviewSubmission submission, AuditEntry audit, CancellationToken token = default)
     {
@@ -231,6 +290,23 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository
     private const string SelectSubmission = "SELECT SubmissionId,PackageId,DxfDocumentId,StepDocumentVersionId,DxfDocumentVersionId,VerificationSessionId,ExtractionEvidenceJson,VerificationEvidenceJson,Revision,MakerUserId,MakerDisplayName,SubmittedUtc,Note,Status,AssignedCheckerUserId,AvailableToCheckers,AssignedApproverUserId,AvailableToApprovers FROM ReviewSubmission";
     private static WorkflowState MapState(SqliteDataReader r) => new() { PackageId = Guid.Parse(r.GetString(0)), Status = (WorkflowStatus)r.GetInt32(1), Revision = r.GetInt32(2), UpdatedUtc = DateTime.Parse(r.GetString(3), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind) };
     private static ReviewSubmission MapSubmission(SqliteDataReader r) => new() { SubmissionId=Guid.Parse(r.GetString(0)),PackageId=Guid.Parse(r.GetString(1)),DxfDocumentId=Guid.TryParse(r.GetString(2), out var dxfDocumentId) ? dxfDocumentId : Guid.Empty,StepDocumentVersionId=Guid.Parse(r.GetString(3)),DxfDocumentVersionId=Guid.Parse(r.GetString(4)),VerificationSessionId=Guid.Parse(r.GetString(5)),ExtractionEvidenceJson=r.GetString(6),VerificationEvidenceJson=r.GetString(7),Revision=r.GetInt32(8),MakerUserId=r.GetString(9),MakerDisplayName=r.GetString(10),SubmittedUtc=DateTime.Parse(r.GetString(11),CultureInfo.InvariantCulture,DateTimeStyles.RoundtripKind),Note=r.IsDBNull(12)?null:r.GetString(12),Status=(WorkflowStatus)r.GetInt32(13),AssignedCheckerUserId=r.IsDBNull(14)?null:r.GetString(14),AvailableToCheckers=r.GetInt32(15) != 0,AssignedApproverUserId=r.IsDBNull(16)?null:r.GetString(16),AvailableToApprovers=!r.IsDBNull(17) && r.GetInt32(17) != 0 };
+    private static ReviewDecision MapDecision(SqliteDataReader r, Guid packageId, bool includePackageId)
+    {
+        var offset = includePackageId ? 1 : 0;
+        return new ReviewDecision
+        {
+            DecisionId = Guid.Parse(r.GetString(0)), PackageId = includePackageId ? Guid.Parse(r.GetString(1)) : packageId,
+            Revision = r.GetInt32(offset + 1), CheckerUserId = r.GetString(offset + 2), CheckerDisplayName = r.GetString(offset + 3),
+            DecidedUtc = DateTime.Parse(r.GetString(offset + 4), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+            DecisionType = (ReviewDecisionType)r.GetInt32(offset + 5), Comments = r.IsDBNull(offset + 6) ? null : r.GetString(offset + 6),
+            SnapshotReference = r.GetString(offset + 7), SnapshotJson = r.GetString(offset + 8),
+            ApproverUserId = r.IsDBNull(offset + 9) ? string.Empty : r.GetString(offset + 9), ApproverDisplayName = r.IsDBNull(offset + 10) ? string.Empty : r.GetString(offset + 10),
+            IsFinalApproval = !r.IsDBNull(offset + 11) && r.GetInt32(offset + 11) != 0,
+            OverallReason = r.IsDBNull(offset + 12) ? null : r.GetString(offset + 12), CorrectionAction = r.IsDBNull(offset + 13) ? null : r.GetString(offset + 13),
+            PriorDecisionId = r.IsDBNull(offset + 14) ? null : Guid.Parse(r.GetString(offset + 14)), Route = (ReviewDecisionRoute)r.GetInt32(offset + 15),
+            DestinationRole = r.IsDBNull(offset + 16) ? null : r.GetString(offset + 16), DestinationQueue = r.IsDBNull(offset + 17) ? null : r.GetString(offset + 17)
+        };
+    }
     private static async Task InsertAudit(SqliteConnection c, SqliteTransaction? t, AuditEntry e, CancellationToken token) => await Exec(c,t,"INSERT INTO DocumentAuditLog VALUES($id,$document,$action,$user,$time,$details)",token,("$id",e.AuditId.ToString()),("$document",(object?)e.DocumentId?.ToString()??DBNull.Value),("$action",(int)e.Action),("$user",(object?)e.UserId??DBNull.Value),("$time",e.TimestampUtc.ToUniversalTime().ToString("O",CultureInfo.InvariantCulture)),("$details",e.DetailsJson));
     private static async Task<int> Exec(SqliteConnection c, SqliteTransaction? t, string sql, CancellationToken token, params (string Name, object Value)[] values) { await using var cmd=c.CreateCommand(); cmd.Transaction=t; cmd.CommandText=sql; foreach(var value in values) cmd.Parameters.AddWithValue(value.Name,value.Value); return await cmd.ExecuteNonQueryAsync(token); }
 }

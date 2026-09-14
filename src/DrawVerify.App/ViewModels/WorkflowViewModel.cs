@@ -22,6 +22,7 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     private ReviewPackage? _reviewPackage;
     private string _reviewComment = string.Empty;
     private string _reviewError = string.Empty;
+    private string _approverRejectionReason = string.Empty;
     private readonly HashSet<string> _viewedSections = new(StringComparer.OrdinalIgnoreCase);
     private bool _decisionConfirmed;
     private ReviewDecisionType? _pendingDecision;
@@ -55,6 +56,8 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     public string ReferenceId { get => _referenceId; set { _referenceId = value ?? string.Empty; RaisePropertyChanged(nameof(ReferenceId)); } }
     public string ReferenceLocation { get => _referenceLocation; set { _referenceLocation = value ?? string.Empty; RaisePropertyChanged(nameof(ReferenceLocation)); } }
     public string ReviewError { get => _reviewError; private set { _reviewError = value; RaisePropertyChanged(nameof(ReviewError)); } }
+    public string ApproverRejectionReason { get => _approverRejectionReason; set { _approverRejectionReason = value ?? string.Empty; RaisePropertyChanged(nameof(ApproverRejectionReason)); RaiseReviewCommands(); } }
+    public bool IsApproverReview => _authorization?.IsAllowed(_authentication?.CurrentUser, RolePermission.FinalApproval) == true;
     public bool IsReviewMode => _reviewPackage is not null;
     public bool RequireSectionConfirmation { get; set; }
     public bool HasViewedKeySections => _viewedSections.Contains("Verification") && _viewedSections.Contains("Documents");
@@ -89,6 +92,7 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     public ICommand RejectCommand { get; private set; } = null!;
     public ICommand RequestChangesCommand { get; private set; } = null!;
     public ICommand ReturnForReworkCommand { get; private set; } = null!;
+    public ICommand RejectToCheckerCommand { get; private set; } = null!;
     public ICommand SaveReviewCommentCommand { get; private set; } = null!;
     public ICommand EditReviewCommentCommand { get; private set; } = null!;
     public ICommand DiscardReviewCommentCommand { get; private set; } = null!;
@@ -101,6 +105,7 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
         RejectCommand = new Command(async _ => await DecideAsync(ReviewDecisionType.Reject), _ => ReviewPackage is not null && !string.IsNullOrWhiteSpace(ReviewComment));
         RequestChangesCommand = new Command(async _ => await DecideAsync(ReviewDecisionType.RequestChanges), _ => ReviewPackage is not null && !string.IsNullOrWhiteSpace(ReviewComment));
         ReturnForReworkCommand = new Command(async _ => await DecideAsync(ReviewDecisionType.Return), _ => ReviewPackage is not null && !string.IsNullOrWhiteSpace(ReviewComment));
+        RejectToCheckerCommand = new Command(async _ => await RejectToCheckerAsync(), _ => IsApproverReview && ReviewPackage is not null && !string.IsNullOrWhiteSpace(ApproverRejectionReason) && !string.IsNullOrWhiteSpace(ReviewComment));
         SaveReviewCommentCommand = new Command(async _ => await SaveReviewCommentAsync(), _ => ReviewPackage is not null && !string.IsNullOrWhiteSpace(ReviewComment));
         EditReviewCommentCommand = new Command(async _ => await EditReviewCommentAsync(), _ => SelectedReviewComment is not null && !string.IsNullOrWhiteSpace(ReviewComment));
         DiscardReviewCommentCommand = new Command(async _ => await DiscardReviewCommentAsync(), _ => SelectedReviewComment is not null);
@@ -108,7 +113,13 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
         MarkDocumentsViewedCommand = new Command(_ => MarkSectionViewed("Documents"), _ => ReviewPackage is not null);
         MarkVerificationViewedCommand = new Command(_ => MarkSectionViewed("Verification"), _ => ReviewPackage is not null);
     }
-    private void RaiseReviewCommands() { ((Command)ApproveCommand).Raise(); ((Command)RejectCommand).Raise(); ((Command)RequestChangesCommand).Raise(); ((Command)ReturnForReworkCommand).Raise(); ((Command)SaveReviewCommentCommand).Raise(); ((Command)EditReviewCommentCommand).Raise(); ((Command)DiscardReviewCommentCommand).Raise(); ((Command)CancelReviewCommand).Raise(); }
+    private void RaiseReviewCommands() { ((Command)ApproveCommand).Raise(); ((Command)RejectCommand).Raise(); ((Command)RequestChangesCommand).Raise(); ((Command)ReturnForReworkCommand).Raise(); ((Command)RejectToCheckerCommand).Raise(); ((Command)SaveReviewCommentCommand).Raise(); ((Command)EditReviewCommentCommand).Raise(); ((Command)DiscardReviewCommentCommand).Raise(); ((Command)CancelReviewCommand).Raise(); }
+    private async Task RejectToCheckerAsync()
+    {
+        if (ReviewPackage is null || _service is null) return;
+        try { await _service.RejectToCheckerAsync(ReviewPackage.PackageId, ReviewPackage.Revision, ApproverRejectionReason, ReviewComment); ReviewError = string.Empty; await LoadQueueAsync(); }
+        catch (Exception exception) { _logger?.Log(exception, "WPF Approver rejection", $"Unable to route packageId={ReviewPackage.PackageId}, revision={ReviewPackage.Revision} to Checker."); ReviewError = exception is UnauthorizedAccessException or ArgumentException or ReviewDecisionConflictException ? exception.Message : "The rejection was not saved. Please try again or contact support."; }
+    }
     private async Task FinalDecideAsync(ReviewDecisionType type)
     {
         if (ReviewPackage is null || _service is null) return;

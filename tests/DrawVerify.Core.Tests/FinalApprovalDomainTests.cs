@@ -7,6 +7,26 @@ namespace DrawVerify.Core.Tests;
 
 public sealed class FinalApprovalDomainTests
 {
+    [Fact(DisplayName = "TD-01 validates Approver rejection route metadata and required fields")]
+    public void Td01_approver_rejection_metadata_is_revision_bound_and_explicit()
+    {
+        var package = Guid.Parse("00000000-0000-0000-0000-000000000054");
+        var decision = new ReviewDecision
+        {
+            PackageId = package, Revision = 7, ApproverUserId = "approver-17", ApproverDisplayName = "Approver",
+            IsFinalApproval = true, DecisionType = ReviewDecisionType.Return, Comments = "Correct datum callout and resubmit.",
+            OverallReason = "Dimension mismatch", SnapshotReference = "snapshot-r7", Route = ReviewDecisionRoute.ToChecker,
+            DestinationRole = "Checker", DestinationQueue = "Checker"
+        };
+
+        decision.Validate();
+        Assert.Equal(ReviewDecisionRoute.ToChecker, decision.Route);
+        Assert.Equal("Checker", decision.DestinationRole);
+        Assert.Equal(7, decision.Revision);
+        Assert.Throws<ArgumentException>(() => (decision with { Comments = " " }).Validate());
+        Assert.Throws<ArgumentException>(() => (decision with { Route = ReviewDecisionRoute.ToMaker }).Validate());
+        Assert.Throws<ArgumentException>(() => (decision with { DestinationRole = "Maker" }).Validate());
+    }
     [Fact(DisplayName = "T01 approver queue states and permission are explicit")]
     public void T01_approver_permission_and_states_are_restricted()
     {

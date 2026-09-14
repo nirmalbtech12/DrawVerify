@@ -7,6 +7,57 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteFinalApprovalPersistenceTests
 {
+    [Fact(DisplayName = "TD-06 TD-09 TD-10 SQLite rejection persists route snapshot audit and history")]
+    public async Task Td06_td09_td10_rejection_round_trips_atomically_and_in_order()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"final-rejection-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repo = new SqliteWorkflowRepository(path);
+            var id = Guid.NewGuid();
+            var submission = Submission(id) with { Status = WorkflowStatus.PendingFinalApproval };
+            await repo.SubmitAtomicallyAsync(new WorkflowState { PackageId = id, Status = WorkflowStatus.Draft, Revision = 1 }, submission, Audit(id, DocumentAuditAction.SubmissionSucceeded, "maker"));
+            var package = (await repo.GetReviewPackageAsync(id, 1))!;
+            var decision = Decision(id, ReviewDecisionType.Return) with
+            {
+                ApproverUserId = "approver-17", ApproverDisplayName = "Approver Seventeen",
+                Route = ReviewDecisionRoute.ToChecker, DestinationRole = "Checker", DestinationQueue = "Checker",
+                OverallReason = "Dimension mismatch", Comments = "Correct datum callout and resubmit.",
+                SnapshotReference = "snapshot-r7", SnapshotJson = "{\"step\":\"step-r7\",\"dxf\":\"dxf-r7\"}",
+                DecidedUtc = new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc)
+            };
+            var audit = new AuditEntry { AuditId = Guid.NewGuid(), DocumentId = id, UserId = "approver-17", Action = DocumentAuditAction.RejectedToChecker, TimestampUtc = decision.DecidedUtc, DetailsJson = "{\"packageId\":\"" + id + "\",\"revision\":1,\"route\":\"ToChecker\",\"snapshotReference\":\"snapshot-r7\",\"destinationQueue\":\"Checker\"}" };
+            await repo.SaveReviewDecisionAsync(package, decision, WorkflowStatus.ReturnedForRework, audit);
+            var reloaded = (await repo.GetReviewPackageAsync(id, 1))!.PriorDecision!;
+            Assert.Equal(ReviewDecisionRoute.ToChecker, reloaded.Route);
+            Assert.Equal("approver-17", reloaded.ApproverUserId);
+            Assert.Equal("snapshot-r7", reloaded.SnapshotReference);
+            Assert.Equal("Dimension mismatch", reloaded.OverallReason);
+            Assert.Equal("Checker", reloaded.DestinationQueue);
+            Assert.Single(await repo.GetDecisionHistoryAsync(id, 1));
+            Assert.Equal(WorkflowStatus.ReturnedForRework, (await repo.GetSubmissionsAsync(id)).Single().Status);
+        }
+        finally { TryDelete(path); }
+    }
+
+    [Fact(DisplayName = "TD-06 duplicate final rejection returns prior decision and preserves one row")]
+    public async Task Td06_duplicate_rejection_is_transactionally_rejected()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"final-duplicate-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repo = new SqliteWorkflowRepository(path); var id = Guid.NewGuid(); var submission = Submission(id);
+            await repo.SubmitAtomicallyAsync(new WorkflowState { PackageId = id, Status = WorkflowStatus.Draft, Revision = 1 }, submission, Audit(id, DocumentAuditAction.SubmissionSucceeded, "maker"));
+            var package = (await repo.GetReviewPackageAsync(id, 1))!;
+            var first = Decision(id, ReviewDecisionType.Return) with { Route = ReviewDecisionRoute.ToChecker, DestinationRole = "Checker", Comments = "Correct datum callout and resubmit.", OverallReason = "Dimension mismatch" };
+            await repo.SaveReviewDecisionAsync(package, first, WorkflowStatus.ReturnedForRework, Audit(id, DocumentAuditAction.RejectedToChecker));
+            var duplicate = Decision(id, ReviewDecisionType.Return) with { Route = ReviewDecisionRoute.ToChecker, DestinationRole = "Checker", Comments = "Correct datum callout and resubmit.", OverallReason = "Dimension mismatch" };
+            var conflict = await Assert.ThrowsAsync<ReviewDecisionConflictException>(() => repo.SaveReviewDecisionAsync(package, duplicate, WorkflowStatus.ReturnedForRework, Audit(id, DocumentAuditAction.RejectedToChecker)));
+            Assert.NotNull(conflict.PriorDecision);
+            Assert.Single(await repo.GetDecisionHistoryAsync(id, 1));
+        }
+        finally { TryDelete(path); }
+    }
     [Fact(DisplayName = "T04 migration and T07 snapshot decision are repeatable")]
     public async Task T04_T07_migration_persists_final_decision_and_snapshot()
     {

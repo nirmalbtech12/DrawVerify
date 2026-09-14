@@ -20,6 +20,9 @@ public sealed record ReviewDecision
     public string? OverallReason { get; init; }
     public string? CorrectionAction { get; init; }
     public Guid? PriorDecisionId { get; init; }
+    public ReviewDecisionRoute Route { get; init; }
+    public string? DestinationRole { get; init; }
+    public string? DestinationQueue { get; init; }
 
     public void Validate() => Validate(requireCorrectionAction: false);
 
@@ -34,5 +37,10 @@ public sealed record ReviewDecision
             throw new ArgumentException("An overall rejection reason is required.", nameof(OverallReason));
         if (requireCorrectionAction && DecisionType is (ReviewDecisionType.Reject or ReviewDecisionType.RequestChanges or ReviewDecisionType.Return) && string.IsNullOrWhiteSpace(CorrectionAction))
             throw new ArgumentException("A correction action is required for rejection or requested changes.", nameof(CorrectionAction));
+        if (IsFinalApproval && Route != ReviewDecisionRoute.None && DecisionType is (ReviewDecisionType.Reject or ReviewDecisionType.Return))
+        {
+            if (Route != ReviewDecisionRoute.ToChecker) throw new ArgumentException("Final rejection must be routed to the Checker.", nameof(Route));
+            if (!string.Equals(DestinationRole, "Checker", StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Final rejection destination must be the Checker.", nameof(DestinationRole));
+        }
     }
 }

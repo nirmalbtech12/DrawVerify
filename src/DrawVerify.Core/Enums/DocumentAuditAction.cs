@@ -31,5 +31,7 @@ public enum DocumentAuditAction
     AccessChanged = 43,
     ReviewCommentDraftSaved = 44,
     ReviewCommentEdited = 45,
-    ReviewCommentDiscarded = 46
+    ReviewCommentDiscarded = 46,
+    RejectedToChecker = 47,
+    RejectedToMaker = 48
 }
