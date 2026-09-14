@@ -165,4 +165,42 @@ public sealed class WorkflowSubmissionContractTests
         Assert.NotEqual(package.VerificationEvidenceJson, changed.VerificationEvidenceJson);
     }
 
+    [Fact(DisplayName = "TD-01 rejection contracts round-trip supported references and legacy fields")]
+    public void Rejection_contracts_round_trip_supported_references_and_legacy_payload()
+    {
+        var packageId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+        var comments = new[] { "drawing", "model", "dimension", "gdt" }.Select((type, index) => new ReviewComment
+        {
+            PackageId = packageId, Revision = 1, AuthorUserId = "checker-001", AuthorDisplayName = "Checker",
+            Text = $"Issue {index}", ReferenceType = type, ReferenceId = $"REF-{index}", IsDraft = true
+        }).ToArray();
+        foreach (var comment in comments) comment.Validate();
+        var decision = new ReviewDecision
+        {
+            PackageId = packageId, Revision = 1, CheckerUserId = "checker-001", DecisionType = ReviewDecisionType.Reject,
+            Comments = "Dimension 4 is outside tolerance", OverallReason = "Dimension 4 is outside tolerance",
+            CorrectionAction = "Correct dimension 4 and resubmit"
+        };
+        decision.Validate();
+        var json = JsonSerializer.Serialize(new ReviewPackage { PackageId = packageId, Revision = 1, Comments = comments, PriorDecision = decision });
+        var roundTrip = JsonSerializer.Deserialize<ReviewPackage>(json)!;
+        Assert.Equal(comments, roundTrip.Comments);
+        Assert.Equal(decision, roundTrip.PriorDecision);
+        var legacy = JsonSerializer.Deserialize<ReviewDecision>("{\"PackageId\":\"00000000-0000-0000-0000-000000000001\",\"Revision\":1,\"CheckerUserId\":\"checker-001\",\"DecisionType\":1,\"Comments\":\"legacy reason\"}")!;
+        legacy.Validate();
+        Assert.Null(legacy.OverallReason);
+        Assert.Throws<ArgumentException>(() => (comments[0] with { ReferenceType = "unsupported", ReferenceId = "REF" }).Validate());
+        Assert.Throws<ArgumentException>(() => (comments[0] with { ReferenceType = "drawing", ReferenceId = null, Location = null }).Validate());
+    }
+
+    [Fact(DisplayName = "TD-09 rejection additions preserve existing approval contracts")]
+    public void Approval_contract_remains_valid_without_rejection_fields()
+    {
+        var approval = new ReviewDecision { PackageId = Guid.NewGuid(), Revision = 1, CheckerUserId = "checker-001", DecisionType = ReviewDecisionType.Approve };
+        approval.Validate();
+        Assert.Null(approval.OverallReason);
+        Assert.Null(approval.CorrectionAction);
+        Assert.Equal((int)DocumentAuditAction.ReviewCommentDraftSaved + 1, (int)DocumentAuditAction.ReviewCommentEdited);
+    }
+
 }

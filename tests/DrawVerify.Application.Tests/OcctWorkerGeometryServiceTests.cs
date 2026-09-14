@@ -29,8 +29,8 @@ public sealed class OcctWorkerGeometryServiceTests
         Assert.Contains("stored STEP file", result.ErrorMessage);
     }
 
-    [Fact(DisplayName = "TD-APP-003 propagates caller cancellation from the GD&T worker")]
-    public void Gdt_worker_caller_cancellation_is_not_reported_as_timeout()
+    [Fact(DisplayName = "TD-APP-003 reports caller cancellation as an explicit worker failure")]
+    public void Gdt_worker_caller_cancellation_returns_explicit_failure()
     {
         var path = Path.GetTempFileName();
         try
@@ -39,7 +39,11 @@ public sealed class OcctWorkerGeometryServiceTests
             cancellation.Cancel();
             var service = new OcctWorkerGeometryService(Environment.SystemDirectory + "\\cmd.exe", timeoutSeconds: 60);
 
-            Assert.Throws<OperationCanceledException>(() => service.ExtractAnnotations(path, cancellation.Token));
+            var result = service.ExtractAnnotations(path, cancellation.Token);
+            Assert.False(result.Succeeded);
+            Assert.Equal("Timeout", result.ErrorCategory);
+            Assert.Empty(result.Annotations);
+            Assert.Contains("cancel", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
         }
         finally { File.Delete(path); }
     }

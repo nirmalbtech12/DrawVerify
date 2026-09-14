@@ -41,8 +41,9 @@ public sealed class OcctWorkerGeometryService : ManagedGeometryService, IMatchab
             try { process.WaitForExitAsync(timeout.Token).GetAwaiter().GetResult(); }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                Terminate(process, "GD&T worker", filePath);
-                throw;
+                var cleanupError = Terminate(process, "GD&T worker", filePath);
+                var cancellationDiagnostics = ReadDiagnostics(process);
+                return GdtAnnotationExtractionResult.Failure("Timeout", $"GD&T extraction failed: operation was canceled by the caller.{cleanupError}{FormatDiagnostics(cancellationDiagnostics)}");
             }
             catch (OperationCanceledException)
             {

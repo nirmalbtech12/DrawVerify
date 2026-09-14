@@ -17,13 +17,22 @@ public sealed record ReviewDecision
     public string ApproverUserId { get; init; } = string.Empty;
     public string ApproverDisplayName { get; init; } = string.Empty;
     public bool IsFinalApproval { get; init; }
+    public string? OverallReason { get; init; }
+    public string? CorrectionAction { get; init; }
+    public Guid? PriorDecisionId { get; init; }
 
-    public void Validate()
+    public void Validate() => Validate(requireCorrectionAction: false);
+
+    public void Validate(bool requireCorrectionAction)
     {
         if (PackageId == Guid.Empty) throw new ArgumentException("Package identifier is required.", nameof(PackageId));
         if (Revision < 1) throw new ArgumentOutOfRangeException(nameof(Revision));
         if (string.IsNullOrWhiteSpace(CheckerUserId) && string.IsNullOrWhiteSpace(ApproverUserId)) throw new ArgumentException("Decision identity is required.", nameof(CheckerUserId));
-        if (DecisionType is ReviewDecisionType.Reject or ReviewDecisionType.RequestChanges or ReviewDecisionType.Return && string.IsNullOrWhiteSpace(Comments))
+        if (DecisionType is (ReviewDecisionType.Reject or ReviewDecisionType.RequestChanges or ReviewDecisionType.Return) && string.IsNullOrWhiteSpace(Comments))
             throw new ArgumentException("Comments are required for rejection or requested changes.", nameof(Comments));
+        if (DecisionType is (ReviewDecisionType.Reject or ReviewDecisionType.RequestChanges or ReviewDecisionType.Return) && string.IsNullOrWhiteSpace(OverallReason ?? Comments))
+            throw new ArgumentException("An overall rejection reason is required.", nameof(OverallReason));
+        if (requireCorrectionAction && DecisionType is (ReviewDecisionType.Reject or ReviewDecisionType.RequestChanges or ReviewDecisionType.Return) && string.IsNullOrWhiteSpace(CorrectionAction))
+            throw new ArgumentException("A correction action is required for rejection or requested changes.", nameof(CorrectionAction));
     }
 }

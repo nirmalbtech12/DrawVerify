@@ -30,8 +30,16 @@ public interface IWorkflowService
         => Task.FromResult<ReviewPackage?>(null);
     Task<ReviewDecision> DecideAsync(Guid packageId, int revision, ReviewDecisionType decisionType, string? comments, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("Review decisions are not supported by this workflow service.");
+    Task<ReviewDecision> DecideAsync(Guid packageId, int revision, ReviewDecisionType decisionType, string? comments, string? correctionAction, CancellationToken cancellationToken = default)
+        => DecideAsync(packageId, revision, decisionType, comments, cancellationToken);
     Task<ReviewComment> AddReviewCommentAsync(Guid packageId, int revision, string text, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("Review comments are not supported by this workflow service.");
+    Task<ReviewComment> SaveReviewCommentDraftAsync(Guid packageId, int revision, string text, string? referenceType = null, string? referenceId = null, string? location = null, CancellationToken cancellationToken = default)
+        => AddReviewCommentAsync(packageId, revision, text, cancellationToken);
+    Task<ReviewComment> UpdateReviewCommentAsync(ReviewComment comment, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("Review comment editing is not supported by this workflow service.");
+    Task DiscardReviewCommentAsync(Guid packageId, int revision, Guid commentId, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("Review comment discard is not supported by this workflow service.");
     Task<ReviewPackage?> GetReviewPackageForReaderAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
         => Task.FromResult<ReviewPackage?>(null);
     Task<IReadOnlyList<ReviewComment>> GetReviewCommentsAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
