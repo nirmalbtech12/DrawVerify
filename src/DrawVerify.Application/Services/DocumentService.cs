@@ -25,15 +25,41 @@ public sealed class DocumentService
     private readonly ISessionAuthenticationService _session;
     private readonly RoleAuthorization _authorization;
     private readonly IUserRepository? _users;
+    private readonly IWorkflowRepository? _workflow;
     private readonly Dictionary<string, StepUploadPreparation> _preparedDuplicates = new(StringComparer.Ordinal);
     public bool CanUploadStep => _session.IsAuthenticated && _authorization.IsAllowed(_session.CurrentUser, RolePermission.Upload);
 
     public DocumentService(IDocumentRepository documents, IAuditLogger audit, IStepUploadFileStore files, StepUploadConfiguration configuration, ICentralizedLogger? logger = null, object? stepModelValidator = null)
         : this(documents, audit, files, configuration, new SessionAuthenticationService(), logger, new RoleAuthorization(), stepModelValidator) { }
 
-    public DocumentService(IDocumentRepository documents, IAuditLogger audit, IStepUploadFileStore files, StepUploadConfiguration configuration, ISessionAuthenticationService? session, ICentralizedLogger? logger = null, RoleAuthorization? authorization = null, object? stepModelValidator = null, IUserRepository? users = null)
+    public DocumentService(IDocumentRepository documents, IAuditLogger audit, IStepUploadFileStore files, StepUploadConfiguration configuration, ISessionAuthenticationService? session, ICentralizedLogger? logger = null, RoleAuthorization? authorization = null, object? stepModelValidator = null, IUserRepository? users = null, IWorkflowRepository? workflow = null)
     {
-        _documents = documents; _transactionalDocuments = documents as ITransactionalDocumentRepository ?? throw new ArgumentException("The document repository must support transactional document, version, and audit persistence.", nameof(documents)); _audit = audit; _files = files; _configuration = configuration; _logger = logger; _session = session ?? new SessionAuthenticationService(); _authorization = authorization ?? new RoleAuthorization(); _users = users; _configuration.Validate();
+        _documents = documents; _transactionalDocuments = documents as ITransactionalDocumentRepository ?? throw new ArgumentException("The document repository must support transactional document, version, and audit persistence.", nameof(documents)); _audit = audit; _files = files; _configuration = configuration; _logger = logger; _session = session ?? new SessionAuthenticationService(); _authorization = authorization ?? new RoleAuthorization(); _users = users; _workflow = workflow; _configuration.Validate();
+    }
+
+    public async Task<Document> GetAccessibleAsync(Guid documentId, CancellationToken cancellationToken = default)
+    {
+        var document = await _documents.GetAsync(documentId, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException("The document was not found.");
+        if (!await CanAccessAsync(document, cancellationToken).ConfigureAwait(false)) throw new UnauthorizedAccessException("You are not authorized to access this document.");
+        return document;
+    }
+
+    public async Task<Stream> OpenAccessibleReadAsync(Guid documentId, Guid versionId, CancellationToken cancellationToken = default)
+    {
+        var document = await GetAccessibleAsync(documentId, cancellationToken).ConfigureAwait(false);
+        if (document.Version?.VersionId != versionId) throw new InvalidOperationException("The requested document version is not available.");
+        return await _files.OpenReadAsync(document.Version.StoredRelativePath, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<bool> CanAccessAsync(Document document, CancellationToken cancellationToken = default)
+    {
+        if (!_session.IsAuthenticated || document.Status != DocumentStatus.Active) return false;
+        var user = _session.CurrentUser!;
+        if (_workflow is null) throw new NotSupportedException("Document access evaluation requires workflow status persistence.");
+        var state = await _workflow.GetStateAsync(document.DocumentId, cancellationToken).ConfigureAwait(false);
+        var approved = state?.Status is WorkflowStatus.FinallyApproved or WorkflowStatus.Released;
+        if (approved) return _authorization.IsAllowed(user, RolePermission.ReadApprovedDocuments) || _authorization.IsAllowed(user, RolePermission.FinalApproval) || _authorization.IsAllowed(user, RolePermission.Upload) || _authorization.IsAllowed(user, RolePermission.ReviewVerification);
+        return user.HasRole(SystemRoles.Maker) || user.HasRole(SystemRoles.Checker) || user.HasRole(SystemRoles.Approver);
     }
 
     public async Task<StepUploadResult> PrepareStepUploadAsync(StepUploadRequest request)

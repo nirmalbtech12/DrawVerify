@@ -21,6 +21,8 @@ public sealed record ReviewSubmission
     public bool MakerAuthorized { get; init; } = true;
     public string? AssignedCheckerUserId { get; init; }
     public bool AvailableToCheckers { get; init; } = true;
+    public string? AssignedApproverUserId { get; init; }
+    public bool AvailableToApprovers { get; init; } = true;
 }
 
 public sealed record SubmissionReadiness(bool IsReady, IReadOnlyList<string> Failures)
@@ -51,4 +53,6 @@ public sealed record WorkflowQueueItem(Guid PackageId, int Revision, string Make
 {
     public string? AssignedCheckerUserId { get; init; }
     public bool AvailableToCheckers { get; init; } = true;
+    public string? AssignedApproverUserId { get; init; }
+    public bool AvailableToApprovers { get; init; } = true;
 }

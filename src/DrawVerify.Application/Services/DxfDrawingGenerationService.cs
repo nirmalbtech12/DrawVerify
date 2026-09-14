@@ -22,9 +22,10 @@ public sealed class DxfDrawingGenerationService : IDxfDrawingGenerationService
     private readonly ICentralizedLogger? _logger;
     private readonly IUserRepository? _users;
     private readonly DxfDimensionExtractionService? _extraction;
+    private readonly IWorkflowRepository? _workflow;
 
-    public DxfDrawingGenerationService(IDocumentRepository documents, IStepUploadFileStore stepFiles, IDxfUploadFileStore dxfFiles, IProjectionDrawingService projection, IAuditLogger audit, ISessionAuthenticationService session, RoleAuthorization authorization, ICentralizedLogger? logger = null, IUserRepository? users = null, DxfDimensionExtractionService? extraction = null)
-    { _documents = documents ?? throw new ArgumentNullException(nameof(documents)); _transactionalDocuments = documents as ITransactionalDocumentRepository ?? throw new ArgumentException("The document repository must support transactions.", nameof(documents)); _stepFiles = stepFiles; _dxfFiles = dxfFiles; _projection = projection; _audit = audit; _session = session; _authorization = authorization; _logger = logger; _users = users; _extraction = extraction; }
+    public DxfDrawingGenerationService(IDocumentRepository documents, IStepUploadFileStore stepFiles, IDxfUploadFileStore dxfFiles, IProjectionDrawingService projection, IAuditLogger audit, ISessionAuthenticationService session, RoleAuthorization authorization, ICentralizedLogger? logger = null, IUserRepository? users = null, DxfDimensionExtractionService? extraction = null, IWorkflowRepository? workflow = null)
+    { _documents = documents ?? throw new ArgumentNullException(nameof(documents)); _transactionalDocuments = documents as ITransactionalDocumentRepository ?? throw new ArgumentException("The document repository must support transactions.", nameof(documents)); _stepFiles = stepFiles; _dxfFiles = dxfFiles; _projection = projection; _audit = audit; _session = session; _authorization = authorization; _logger = logger; _users = users; _extraction = extraction; _workflow = workflow; }
     public bool CanGenerate => _session.IsAuthenticated && _authorization.IsAllowed(_session.CurrentUser, RolePermission.GenerateDxfDrawing);
 
     public async Task<DxfDrawingGenerationResult> GenerateAsync(Guid stepDocumentId, CancellationToken cancellationToken = default, IProgress<DxfDrawingGenerationProgress>? progress = null)
@@ -132,12 +133,30 @@ public sealed class DxfDrawingGenerationService : IDxfDrawingGenerationService
     public async Task<Stream> DownloadAsync(Guid documentId, Guid versionId, CancellationToken cancellationToken = default)
     {
         await RefreshAuthorizationAsync(cancellationToken).ConfigureAwait(false);
-        if (!CanGenerate) throw new UnauthorizedAccessException("Only an authenticated Maker can download drawing files.");
+        if (!_session.IsAuthenticated) throw new UnauthorizedAccessException("Authentication is required to download drawing files.");
         var document = await _documents.GetAsync(documentId, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException("The drawing document was not found.");
+        await EnsureDownloadAccessAsync(documentId, versionId, cancellationToken).ConfigureAwait(false);
         var version = document.Versions.FirstOrDefault(candidate => candidate.VersionId == versionId) ?? throw new InvalidOperationException("The selected drawing version was not found.");
         var stream = await _dxfFiles.OpenReadAsync(version.StoredRelativePath, cancellationToken).ConfigureAwait(false);
         try { await WriteAuditAsync(documentId, DocumentAuditAction.DxfDownloaded, new { versionId }, cancellationToken).ConfigureAwait(false); return stream; }
         catch { await stream.DisposeAsync().ConfigureAwait(false); throw; }
+    }
+    private async Task EnsureDownloadAccessAsync(Guid documentId, Guid versionId, CancellationToken cancellationToken)
+    {
+        if (_workflow is null) throw new NotSupportedException("DXF download access evaluation requires workflow status persistence.");
+        var submission = (await _workflow.GetSubmissionsAsync(Guid.Empty, cancellationToken).ConfigureAwait(false))
+            .Where(item => item.DxfDocumentId == documentId && item.DxfDocumentVersionId == versionId)
+            .OrderByDescending(item => item.Revision)
+            .FirstOrDefault();
+        if (submission is null) throw new UnauthorizedAccessException("The drawing is not linked to a workflow package and cannot be downloaded.");
+        var state = await _workflow.GetStateAsync(submission.PackageId, cancellationToken).ConfigureAwait(false);
+        var user = _session.CurrentUser;
+        if (state?.Status is WorkflowStatus.FinallyApproved or WorkflowStatus.Released)
+        {
+            if (!_authorization.IsAllowed(user, RolePermission.ReadApprovedDocuments) && !_authorization.IsAllowed(user, RolePermission.FinalApproval) && !_authorization.IsAllowed(user, RolePermission.Upload) && !_authorization.IsAllowed(user, RolePermission.ReviewVerification)) throw new UnauthorizedAccessException("You are not authorized to download this approved document.");
+            return;
+        }
+        if (user is null || (!user.HasRole(SystemRoles.Maker) && !user.HasRole(SystemRoles.Checker) && !user.HasRole(SystemRoles.Approver))) throw new UnauthorizedAccessException("You are not authorized to download this unapproved document.");
     }
     private async Task RefreshAuthorizationAsync(CancellationToken cancellationToken)
     {

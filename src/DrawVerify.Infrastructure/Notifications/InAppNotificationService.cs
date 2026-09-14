@@ -19,4 +19,19 @@ public sealed class InAppNotificationService : INotificationService
         command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString()); command.Parameters.AddWithValue("$package", packageId.ToString()); command.Parameters.AddWithValue("$revision", revision); command.Parameters.AddWithValue("$message", $"Review decision: {decision.DecisionType}. {decision.Comments}" ); command.Parameters.AddWithValue("$created", decision.DecidedUtc.ToString("O", CultureInfo.InvariantCulture));
         if (await command.ExecuteNonQueryAsync(cancellationToken) != 1) throw new InvalidOperationException("The Maker notification could not be persisted because the submission was not found.");
     }
+    public async Task NotifyCheckerAsync(Guid packageId, int revision, ReviewDecision decision, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_connectionString); await connection.OpenAsync(cancellationToken);
+        string? checkerUserId;
+        await using (var lookup = connection.CreateCommand())
+        {
+            lookup.CommandText = "SELECT CheckerUserId FROM ReviewDecision WHERE PackageId=$package AND Revision=$revision AND IsFinalApproval=0 ORDER BY DecidedUtc LIMIT 1";
+            lookup.Parameters.AddWithValue("$package", packageId.ToString()); lookup.Parameters.AddWithValue("$revision", revision);
+            checkerUserId = (await lookup.ExecuteScalarAsync(cancellationToken)) as string;
+        }
+        if (string.IsNullOrWhiteSpace(checkerUserId)) throw new InvalidOperationException("The original Checker identity could not be resolved for notification delivery.");
+        await using var command = connection.CreateCommand(); command.CommandText = "INSERT INTO InAppNotification(NotificationId,UserId,PackageId,Revision,Message,CreatedUtc) VALUES($id,$user,$package,$revision,$message,$created)";
+        command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString()); command.Parameters.AddWithValue("$user", checkerUserId); command.Parameters.AddWithValue("$package", packageId.ToString()); command.Parameters.AddWithValue("$revision", revision); command.Parameters.AddWithValue("$message", $"Final approval decision: {decision.DecisionType}. {decision.Comments}"); command.Parameters.AddWithValue("$created", decision.DecidedUtc.ToString("O", CultureInfo.InvariantCulture));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
 }

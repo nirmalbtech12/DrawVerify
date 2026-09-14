@@ -25,11 +25,14 @@ public sealed class WorkflowService : IWorkflowService
     private readonly ICentralizedLogger? _logger;
     private readonly Func<DateTime> _clock;
     private readonly INotificationService? _notifications;
+    private readonly IApprovalSnapshotStore? _snapshots;
+    private readonly IStepUploadFileStore? _stepFiles;
+    private readonly IDxfUploadFileStore? _dxfFiles;
 
-    public WorkflowService(IWorkflowRepository workflow, ISessionAuthenticationService authentication, WorkflowConfiguration configuration, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null, IDocumentRepository? documents = null, IVerificationSessionRepository? sessions = null, Func<DateTime>? clock = null, INotificationService? notifications = null)
+    public WorkflowService(IWorkflowRepository workflow, ISessionAuthenticationService authentication, WorkflowConfiguration configuration, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null, IDocumentRepository? documents = null, IVerificationSessionRepository? sessions = null, Func<DateTime>? clock = null, INotificationService? notifications = null, IApprovalSnapshotStore? snapshots = null, IStepUploadFileStore? stepFiles = null, IDxfUploadFileStore? dxfFiles = null)
     {
         _workflow = workflow ?? throw new ArgumentNullException(nameof(workflow)); _authentication = authentication ?? throw new ArgumentNullException(nameof(authentication));
-        _authorization = authorization ?? new RoleAuthorization(); _machine = new WorkflowStateMachine(configuration ?? throw new ArgumentNullException(nameof(configuration))); _logger = logger; _documents = documents; _sessions = sessions; _clock = clock ?? (() => DateTime.UtcNow); _notifications = notifications;
+        _authorization = authorization ?? new RoleAuthorization(); _machine = new WorkflowStateMachine(configuration ?? throw new ArgumentNullException(nameof(configuration))); _logger = logger; _documents = documents; _sessions = sessions; _clock = clock ?? (() => DateTime.UtcNow); _notifications = notifications; _snapshots = snapshots; _stepFiles = stepFiles; _dxfFiles = dxfFiles;
     }
 
     public async Task<SubmissionReadiness> ValidateReadinessAsync(Guid packageId, CancellationToken cancellationToken = default)
@@ -226,6 +229,106 @@ public sealed class WorkflowService : IWorkflowService
         return _workflow.GetCheckerQueueAsync(_authentication.CurrentUser!.UserId, cancellationToken);
     }
 
+    public Task<IReadOnlyList<WorkflowQueueItem>> GetApproverQueueAsync(CancellationToken cancellationToken = default)
+    {
+        RequireFinalApprovalPermission();
+        return _workflow.GetApproverQueueAsync(_authentication.CurrentUser!.UserId, cancellationToken);
+    }
+
+    public async Task<ReviewDecision> FinalDecideAsync(Guid packageId, int revision, ReviewDecisionType decisionType, string? comments, CancellationToken cancellationToken = default)
+    {
+        RequireFinalApprovalPermission();
+        if (decisionType is not (ReviewDecisionType.Approve or ReviewDecisionType.Reject or ReviewDecisionType.Return))
+            throw new ArgumentOutOfRangeException(nameof(decisionType), "Only Approve, Reject, or Return are valid final decisions.");
+        var package = await _workflow.GetReviewPackageAsync(packageId, revision, cancellationToken).ConfigureAwait(false)
+            ?? throw new KeyNotFoundException($"Review package '{packageId}' revision {revision} was not found.");
+        if (package.PriorDecision is not null && package.PriorDecision.IsFinalApproval)
+            throw new ReviewDecisionConflictException(packageId, revision, package.Status, revision, package.PriorDecision);
+        if (package.Status is not (WorkflowStatus.ApprovedByChecker or WorkflowStatus.PendingFinalApproval))
+            throw new InvalidOperationException($"The package is currently '{package.Status}' and is not pending final approval.");
+        var user = _authentication.CurrentUser!;
+        if (_snapshots is null) throw new NotSupportedException("Final approval cannot proceed because immutable snapshot storage is unavailable.");
+        if (_documents is null || _stepFiles is null || _dxfFiles is null) throw new NotSupportedException("Final approval cannot proceed because versioned artifact access is unavailable.");
+        var stepDocument = await _documents.GetAsync(package.PackageId, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException("The persisted STEP artifact was not found.");
+        var dxfDocument = await _documents.GetAsync(package.DxfDocumentId, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException("The persisted DXF artifact was not found.");
+        if (stepDocument.Version?.VersionId != package.StepDocumentVersionId || dxfDocument.Version?.VersionId != package.DxfDocumentVersionId) throw new InvalidOperationException("The approval package references stale document versions.");
+        var snapshotId = Guid.NewGuid();
+        var snapshotPayload = JsonSerializer.Serialize(package);
+        var snapshot = new ApprovalSnapshot
+        {
+            SnapshotId = snapshotId, PackageId = packageId, Revision = revision,
+            StepVersionReference = package.StepDocumentVersionId.ToString("D"),
+            DxfVersionReference = package.DxfDocumentVersionId.ToString("D"),
+            ExtractionEvidenceJson = package.ExtractionEvidenceJson,
+            VerificationEvidenceJson = package.VerificationEvidenceJson,
+            CheckerDecisionJson = JsonSerializer.Serialize(package.PriorDecision),
+            CapturedUtc = _clock().ToUniversalTime()
+        };
+        ApprovalSnapshot persistedSnapshot;
+        await using (var stepArtifact = await _stepFiles.OpenReadAsync(stepDocument.Version.StoredRelativePath, cancellationToken).ConfigureAwait(false))
+        await using (var dxfArtifact = await _dxfFiles.OpenReadAsync(dxfDocument.Version.StoredRelativePath, cancellationToken).ConfigureAwait(false))
+            persistedSnapshot = await _snapshots.SaveAsync(snapshot, stepArtifact, dxfArtifact, cancellationToken).ConfigureAwait(false);
+        var decision = new ReviewDecision
+        {
+            PackageId = packageId, Revision = revision, CheckerUserId = user.UserId, CheckerDisplayName = user.DisplayName,
+            ApproverUserId = user.UserId, ApproverDisplayName = user.DisplayName, IsFinalApproval = true,
+            DecidedUtc = _clock().ToUniversalTime(), DecisionType = decisionType,
+            Comments = string.IsNullOrWhiteSpace(comments) ? null : comments.Trim(),
+            SnapshotReference = persistedSnapshot.SnapshotId.ToString("D"), SnapshotJson = snapshotPayload
+        };
+        decision.Validate();
+        var resultingStatus = decisionType switch
+        {
+            ReviewDecisionType.Approve => WorkflowStatus.FinallyApproved,
+            ReviewDecisionType.Reject => WorkflowStatus.Rejected,
+            ReviewDecisionType.Return => WorkflowStatus.ReturnedForRework,
+            _ => throw new ArgumentOutOfRangeException(nameof(decisionType))
+        };
+        var action = decisionType switch
+        {
+            ReviewDecisionType.Approve => DocumentAuditAction.FinalApproved,
+            ReviewDecisionType.Reject => DocumentAuditAction.Rejected,
+            _ => DocumentAuditAction.ReturnedForRework
+        };
+        ReviewDecision saved;
+        try
+        {
+            saved = await _workflow.SaveReviewDecisionAsync(package, decision, resultingStatus,
+                CreateAudit(packageId, revision, action, decisionType.ToString(), decision.DecidedUtc, user,
+                    new[] { decision.Comments ?? string.Empty }, decision.SnapshotReference), cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            try { await _snapshots.DeleteAsync(persistedSnapshot.SnapshotId, CancellationToken.None).ConfigureAwait(false); }
+            catch (Exception cleanupException) { _logger?.Log(cleanupException, "Final approval snapshot cleanup", $"Unable to remove uncommitted snapshotId={persistedSnapshot.SnapshotId}, packageId={packageId}, revision={revision}."); }
+            throw;
+        }
+        if (_notifications is not null)
+        {
+            try { await _notifications.NotifyMakerAsync(packageId, revision, saved, cancellationToken).ConfigureAwait(false); }
+            catch (Exception exception) { _logger?.Log(exception, "Final approval notification", $"Unable to notify stakeholders for packageId={packageId}, revision={revision}."); throw new NotificationDeliveryException(packageId, revision, exception); }
+            try { await _notifications.NotifyCheckerAsync(packageId, revision, saved, cancellationToken).ConfigureAwait(false); }
+            catch (Exception exception) { _logger?.Log(exception, "Final approval notification", $"Unable to notify Checker for packageId={packageId}, revision={revision}."); throw new NotificationDeliveryException(packageId, revision, exception); }
+        }
+        return saved;
+    }
+
+    public async Task<IReadOnlyList<ReviewDecision>> GetApprovalHistoryAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
+    {
+        if (!_authentication.IsAuthenticated) throw new UnauthorizedAccessException("Authentication is required to read approval history.");
+        var package = await _workflow.GetReviewPackageAsync(packageId, revision, cancellationToken).ConfigureAwait(false);
+        if (package is null) return Array.Empty<ReviewDecision>();
+        var user = _authentication.CurrentUser!;
+        var authorized = _authorization.IsAllowed(user, RolePermission.ReviewVerification)
+            || _authorization.IsAllowed(user, RolePermission.FinalApproval)
+            || string.Equals(user.UserId, package.MakerUserId, StringComparison.OrdinalIgnoreCase);
+        if (!authorized) throw new UnauthorizedAccessException("You are not authorized to read approval history for this package.");
+        return await _workflow.GetDecisionHistoryAsync(packageId, revision, cancellationToken).ConfigureAwait(false);
+    }
+    public bool SupportsAccessRuleConfiguration => false;
+    public Task ConfigureAccessRulesAsync(Guid packageId, int revision, IReadOnlyCollection<string> roles, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("Access-rule configuration is unavailable in the MVP workflow; no access change was applied.");
+
     public async Task<ReviewPackage?> OpenReviewPackageAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
     {
         RequireReviewPermission();
@@ -237,11 +340,12 @@ public sealed class WorkflowService : IWorkflowService
                 ?? throw new KeyNotFoundException($"Verification session '{package.VerificationSessionId}' was not found for review package '{packageId}'.");
             package = package with { StepDocumentId = session.StepDocumentId, DxfDocumentId = session.DxfDocumentId };
         }
-        if (package.Status is not (WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview))
+        if (package.Status is not (WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview or WorkflowStatus.ApprovedByChecker or WorkflowStatus.PendingFinalApproval))
             throw new InvalidOperationException($"The package is currently '{package.Status}' and is not available for review.");
         var user = _authentication.CurrentUser!;
         var now = _clock().ToUniversalTime();
-        await _workflow.RecordReviewStartedAsync(package, CreateAudit(packageId, revision, DocumentAuditAction.ReviewStarted, "ReviewStarted", now, user, snapshotReference: package.SnapshotReference), cancellationToken).ConfigureAwait(false);
+        if (package.Status is WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview)
+            await _workflow.RecordReviewStartedAsync(package, CreateAudit(packageId, revision, DocumentAuditAction.ReviewStarted, "ReviewStarted", now, user, snapshotReference: package.SnapshotReference), cancellationToken).ConfigureAwait(false);
         return package;
     }
 
@@ -307,6 +411,11 @@ public sealed class WorkflowService : IWorkflowService
     {
         if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ReviewVerification))
             throw new UnauthorizedAccessException("Only an authorized Checker or Approver can review drawing packages.");
+    }
+    private void RequireFinalApprovalPermission()
+    {
+        if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.FinalApproval))
+            throw new UnauthorizedAccessException("Only an Approver can access final approval operations.");
     }
 
     private async Task RecordAuditAsync(Guid packageId, int revision, DocumentAuditAction action, string result, IReadOnlyList<string> failures, CancellationToken cancellationToken)

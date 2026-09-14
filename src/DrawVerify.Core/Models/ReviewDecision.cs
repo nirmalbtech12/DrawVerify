@@ -14,13 +14,16 @@ public sealed record ReviewDecision
     public string? Comments { get; init; }
     public string SnapshotReference { get; init; } = string.Empty;
     public string SnapshotJson { get; init; } = "{}";
+    public string ApproverUserId { get; init; } = string.Empty;
+    public string ApproverDisplayName { get; init; } = string.Empty;
+    public bool IsFinalApproval { get; init; }
 
     public void Validate()
     {
         if (PackageId == Guid.Empty) throw new ArgumentException("Package identifier is required.", nameof(PackageId));
         if (Revision < 1) throw new ArgumentOutOfRangeException(nameof(Revision));
-        if (string.IsNullOrWhiteSpace(CheckerUserId)) throw new ArgumentException("Checker identity is required.", nameof(CheckerUserId));
-        if (DecisionType is ReviewDecisionType.Reject or ReviewDecisionType.RequestChanges && string.IsNullOrWhiteSpace(Comments))
+        if (string.IsNullOrWhiteSpace(CheckerUserId) && string.IsNullOrWhiteSpace(ApproverUserId)) throw new ArgumentException("Decision identity is required.", nameof(CheckerUserId));
+        if (DecisionType is ReviewDecisionType.Reject or ReviewDecisionType.RequestChanges or ReviewDecisionType.Return && string.IsNullOrWhiteSpace(Comments))
             throw new ArgumentException("Comments are required for rejection or requested changes.", nameof(Comments));
     }
 }
