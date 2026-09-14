@@ -23,6 +23,9 @@ public interface IWorkflowService
         => throw new NotSupportedException("Final approval is not supported by this workflow service.");
     Task<IReadOnlyList<ReviewDecision>> GetApprovalHistoryAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
         => Task.FromResult<IReadOnlyList<ReviewDecision>>(Array.Empty<ReviewDecision>());
+    bool SupportsAccessRuleConfiguration => false;
+    Task ConfigureAccessRulesAsync(Guid packageId, int revision, IReadOnlyCollection<string> roles, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("Access-rule configuration is unavailable in the MVP workflow.");
     Task<ReviewPackage?> OpenReviewPackageAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
         => Task.FromResult<ReviewPackage?>(null);
     Task<ReviewDecision> DecideAsync(Guid packageId, int revision, ReviewDecisionType decisionType, string? comments, CancellationToken cancellationToken = default)

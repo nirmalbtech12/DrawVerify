@@ -56,10 +56,16 @@ public sealed class FinalApprovalWorkflowServiceTests
     private sealed class Fixture
     {
         public Guid Package { get; } = Guid.NewGuid(); public FakeRepository Repository { get; } = new(); public FakeAuth Auth { get; } = new();
-        public WorkflowService Service => new(Repository, Auth, new WorkflowConfiguration { PermittedInitialStates = new[] { WorkflowStatus.Draft, WorkflowStatus.InPreparation }, DuplicateSubmissionStates = new[] { WorkflowStatus.SubmittedForReview, WorkflowStatus.UnderReview, WorkflowStatus.Approved } }, new RoleAuthorization(), clock: () => new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        public WorkflowService Service => new(Repository, Auth, new WorkflowConfiguration { PermittedInitialStates = new[] { WorkflowStatus.Draft, WorkflowStatus.InPreparation }, DuplicateSubmissionStates = new[] { WorkflowStatus.SubmittedForReview, WorkflowStatus.UnderReview, WorkflowStatus.Approved } }, new RoleAuthorization(), clock: () => new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), snapshots: new FakeSnapshotStore());
         public static Fixture Create() { var f = new Fixture(); f.Repository.Package = ReviewPackage.FromSubmission(new ReviewSubmission { PackageId = f.Package, Revision = 1, Status = WorkflowStatus.PendingFinalApproval, StepDocumentVersionId = Guid.NewGuid(), DxfDocumentVersionId = Guid.NewGuid(), VerificationSessionId = Guid.NewGuid(), ExtractionEvidenceJson = "{\"extraction\":\"complete\"}", VerificationEvidenceJson = "{\"verification\":\"passed\"}", MakerUserId = "maker-1", MakerDisplayName = "Maker One", Note = "review" }); return f; }
     }
     private sealed class FakeAuth : ISessionAuthenticationService { public AuthenticatedUser? CurrentUser { get; } = new("approver", new[] { SystemRoles.Approver }) { UserId = "approver-1", DisplayName = "Approver One" }; public bool IsAuthenticated => true; public void SignIn(AuthenticatedUser user) { } public void SignOut() { } }
+    private sealed class FakeSnapshotStore : IApprovalSnapshotStore
+    {
+        private readonly Dictionary<Guid, ApprovalSnapshot> _snapshots = new();
+        public Task<ApprovalSnapshot> SaveAsync(ApprovalSnapshot snapshot, CancellationToken cancellationToken = default) { _snapshots[snapshot.SnapshotId] = snapshot; return Task.FromResult(snapshot); }
+        public Task<ApprovalSnapshot?> GetAsync(Guid snapshotId, CancellationToken cancellationToken = default) => Task.FromResult(_snapshots.TryGetValue(snapshotId, out var snapshot) ? snapshot : null);
+    }
     private sealed class FakeRepository : IWorkflowRepository
     {
         public ReviewPackage? Package { get; set; } public WorkflowStatus? SavedStatus { get; private set; } public ReviewDecision? LastDecision { get; private set; } public int DecisionCalls { get; private set; } public List<AuditEntry> Audits { get; } = new();

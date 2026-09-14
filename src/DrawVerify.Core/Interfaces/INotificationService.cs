@@ -9,4 +9,6 @@ public interface INotificationService
 {
     Task NotifyMakerAsync(Guid packageId, int revision, ReviewDecision decision, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
+    Task NotifyCheckerAsync(Guid packageId, int revision, ReviewDecision decision, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
 }

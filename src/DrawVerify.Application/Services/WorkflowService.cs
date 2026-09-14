@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
 using DrawVerify.Application.Workflow;
 using DrawVerify.Core.Authorization;
 using DrawVerify.Core.Configuration;
@@ -25,11 +27,12 @@ public sealed class WorkflowService : IWorkflowService
     private readonly ICentralizedLogger? _logger;
     private readonly Func<DateTime> _clock;
     private readonly INotificationService? _notifications;
+    private readonly IApprovalSnapshotStore? _snapshots;
 
-    public WorkflowService(IWorkflowRepository workflow, ISessionAuthenticationService authentication, WorkflowConfiguration configuration, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null, IDocumentRepository? documents = null, IVerificationSessionRepository? sessions = null, Func<DateTime>? clock = null, INotificationService? notifications = null)
+    public WorkflowService(IWorkflowRepository workflow, ISessionAuthenticationService authentication, WorkflowConfiguration configuration, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null, IDocumentRepository? documents = null, IVerificationSessionRepository? sessions = null, Func<DateTime>? clock = null, INotificationService? notifications = null, IApprovalSnapshotStore? snapshots = null)
     {
         _workflow = workflow ?? throw new ArgumentNullException(nameof(workflow)); _authentication = authentication ?? throw new ArgumentNullException(nameof(authentication));
-        _authorization = authorization ?? new RoleAuthorization(); _machine = new WorkflowStateMachine(configuration ?? throw new ArgumentNullException(nameof(configuration))); _logger = logger; _documents = documents; _sessions = sessions; _clock = clock ?? (() => DateTime.UtcNow); _notifications = notifications;
+        _authorization = authorization ?? new RoleAuthorization(); _machine = new WorkflowStateMachine(configuration ?? throw new ArgumentNullException(nameof(configuration))); _logger = logger; _documents = documents; _sessions = sessions; _clock = clock ?? (() => DateTime.UtcNow); _notifications = notifications; _snapshots = snapshots;
     }
 
     public async Task<SubmissionReadiness> ValidateReadinessAsync(Guid packageId, CancellationToken cancellationToken = default)
@@ -241,16 +244,32 @@ public sealed class WorkflowService : IWorkflowService
             ?? throw new KeyNotFoundException($"Review package '{packageId}' revision {revision} was not found.");
         if (package.PriorDecision is not null && package.PriorDecision.IsFinalApproval)
             throw new ReviewDecisionConflictException(packageId, revision, package.Status, revision, package.PriorDecision);
-        if (package.Status is not (WorkflowStatus.ApprovedByChecker or WorkflowStatus.PendingFinalApproval or WorkflowStatus.UnderReview))
+        if (package.Status is not (WorkflowStatus.ApprovedByChecker or WorkflowStatus.PendingFinalApproval))
             throw new InvalidOperationException($"The package is currently '{package.Status}' and is not pending final approval.");
         var user = _authentication.CurrentUser!;
+        if (_snapshots is null) throw new NotSupportedException("Final approval cannot proceed because immutable snapshot storage is unavailable.");
+        var snapshotId = Guid.NewGuid();
+        var snapshotPayload = JsonSerializer.Serialize(package);
+        var snapshot = new ApprovalSnapshot
+        {
+            SnapshotId = snapshotId, PackageId = packageId, Revision = revision,
+            StepVersionReference = package.StepDocumentVersionId.ToString("D"),
+            DxfVersionReference = package.DxfDocumentVersionId.ToString("D"),
+            ExtractionEvidenceJson = package.ExtractionEvidenceJson,
+            VerificationEvidenceJson = package.VerificationEvidenceJson,
+            CheckerDecisionJson = JsonSerializer.Serialize(package.PriorDecision),
+            StepSha256 = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(package.StepDocumentVersionId + "|" + package.ExtractionEvidenceJson))),
+            DxfSha256 = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(package.DxfDocumentVersionId + "|" + package.VerificationEvidenceJson))),
+            CapturedUtc = _clock().ToUniversalTime()
+        };
+        await _snapshots.SaveAsync(snapshot, cancellationToken).ConfigureAwait(false);
         var decision = new ReviewDecision
         {
             PackageId = packageId, Revision = revision, CheckerUserId = user.UserId, CheckerDisplayName = user.DisplayName,
             ApproverUserId = user.UserId, ApproverDisplayName = user.DisplayName, IsFinalApproval = true,
             DecidedUtc = _clock().ToUniversalTime(), DecisionType = decisionType,
             Comments = string.IsNullOrWhiteSpace(comments) ? null : comments.Trim(),
-            SnapshotReference = package.SnapshotReference, SnapshotJson = JsonSerializer.Serialize(package)
+            SnapshotReference = snapshot.SnapshotId.ToString("D"), SnapshotJson = snapshotPayload
         };
         decision.Validate();
         var resultingStatus = decisionType switch
@@ -269,12 +288,12 @@ public sealed class WorkflowService : IWorkflowService
         var saved = await _workflow.SaveReviewDecisionAsync(package, decision, resultingStatus,
             CreateAudit(packageId, revision, action, decisionType.ToString(), decision.DecidedUtc, user,
                 new[] { decision.Comments ?? string.Empty }, decision.SnapshotReference), cancellationToken).ConfigureAwait(false);
-        if (decisionType == ReviewDecisionType.Approve)
-            await _workflow.LockRevisionAsync(packageId, revision, cancellationToken).ConfigureAwait(false);
         if (_notifications is not null)
         {
             try { await _notifications.NotifyMakerAsync(packageId, revision, saved, cancellationToken).ConfigureAwait(false); }
             catch (Exception exception) { _logger?.Log(exception, "Final approval notification", $"Unable to notify stakeholders for packageId={packageId}, revision={revision}."); throw new NotificationDeliveryException(packageId, revision, exception); }
+            try { await _notifications.NotifyCheckerAsync(packageId, revision, saved, cancellationToken).ConfigureAwait(false); }
+            catch (Exception exception) { _logger?.Log(exception, "Final approval notification", $"Unable to notify Checker for packageId={packageId}, revision={revision}."); throw new NotificationDeliveryException(packageId, revision, exception); }
         }
         return saved;
     }
@@ -284,6 +303,9 @@ public sealed class WorkflowService : IWorkflowService
         if (!_authentication.IsAuthenticated) throw new UnauthorizedAccessException("Authentication is required to read approval history.");
         return _workflow.GetDecisionHistoryAsync(packageId, revision, cancellationToken);
     }
+    public bool SupportsAccessRuleConfiguration => false;
+    public Task ConfigureAccessRulesAsync(Guid packageId, int revision, IReadOnlyCollection<string> roles, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("Access-rule configuration is unavailable in the MVP workflow; no access change was applied.");
 
     public async Task<ReviewPackage?> OpenReviewPackageAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
     {

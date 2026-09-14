@@ -72,8 +72,13 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository
     }
     public async Task<IReadOnlyList<ReviewDecision>> GetDecisionHistoryAsync(Guid packageId, int revision, CancellationToken token = default)
     {
-        var decision = await GetDecisionAsync(packageId, revision, token).ConfigureAwait(false);
-        return decision is null ? Array.Empty<ReviewDecision>() : new[] { decision };
+        await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(token);
+        await using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT DecisionId,PackageId,Revision,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval FROM (SELECT DecisionId,PackageId,Revision,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval FROM ReviewDecision WHERE PackageId=$package AND Revision=$revision UNION ALL SELECT DecisionId,PackageId,Revision,CheckerUserId,CheckerDisplayName,DecidedUtc,DecisionType,Comments,SnapshotReference,SnapshotJson,ApproverUserId,ApproverDisplayName,IsFinalApproval FROM FinalApprovalDecision WHERE PackageId=$package AND Revision=$revision) ORDER BY DecidedUtc";
+        cmd.Parameters.AddWithValue("$package", packageId.ToString()); cmd.Parameters.AddWithValue("$revision", revision);
+        await using var reader = await cmd.ExecuteReaderAsync(token); var result = new List<ReviewDecision>();
+        while (await reader.ReadAsync(token)) result.Add(new ReviewDecision { DecisionId = Guid.Parse(reader.GetString(0)), PackageId = Guid.Parse(reader.GetString(1)), Revision = reader.GetInt32(2), CheckerUserId = reader.GetString(3), CheckerDisplayName = reader.GetString(4), DecidedUtc = DateTime.Parse(reader.GetString(5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), DecisionType = (ReviewDecisionType)reader.GetInt32(6), Comments = reader.IsDBNull(7) ? null : reader.GetString(7), SnapshotReference = reader.GetString(8), SnapshotJson = reader.GetString(9), ApproverUserId = reader.IsDBNull(10) ? string.Empty : reader.GetString(10), ApproverDisplayName = reader.IsDBNull(11) ? string.Empty : reader.GetString(11), IsFinalApproval = !reader.IsDBNull(12) && reader.GetInt32(12) != 0 });
+        return result;
     }
 
     public async Task<ReviewPackage?> GetReviewPackageAsync(Guid packageId, int revision, CancellationToken token = default)
@@ -120,6 +125,8 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository
             {
                 throw await CreateDecisionConflictAsync(c, t, decision.PackageId, decision.Revision, token);
             }
+            if (decision.IsFinalApproval && resultingStatus == WorkflowStatus.FinallyApproved)
+                await Exec(c, t, "INSERT INTO RevisionLock(PackageId,Revision,LockedUtc) VALUES($package,$revision,$locked)", token, ("$package", decision.PackageId.ToString()), ("$revision", decision.Revision), ("$locked", decision.DecidedUtc.ToString("O", CultureInfo.InvariantCulture)));
             await InsertAudit(c,t,auditEntry,token); await t.CommitAsync(token); return decision;
         }
         catch (ReviewDecisionConflictException) { await t.RollbackAsync(token); throw; }

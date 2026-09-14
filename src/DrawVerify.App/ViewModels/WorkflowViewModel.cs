@@ -17,6 +17,8 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     private WorkflowStatus? _currentStatus;
     private SubmissionRequest? _submissionRequest;
     private readonly ICentralizedLogger? _logger;
+    private readonly ISessionAuthenticationService? _authentication;
+    private readonly RoleAuthorization? _authorization;
     private ReviewPackage? _reviewPackage;
     private string _reviewComment = string.Empty;
     private string _reviewError = string.Empty;
@@ -27,7 +29,7 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     public WorkflowViewModel() { SubmitCommand = new Command(async _ => await SubmitAsync(), _ => false); CancelCommand = new Command(async _ => await CancelAsync(true), _ => IsConfirmationVisible); InitializeReviewCommands(); }
     public WorkflowViewModel(IWorkflowService service, ISessionAuthenticationService? authentication = null, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null)
     {
-        _service = service ?? throw new ArgumentNullException(nameof(service)); _logger = logger;
+        _service = service ?? throw new ArgumentNullException(nameof(service)); _logger = logger; _authentication = authentication; _authorization = authorization;
         _canSubmit = authorization?.IsAllowed(authentication?.CurrentUser, RolePermission.SubmitForReview) ?? authentication?.CurrentUser?.HasRole(SystemRoles.Maker) == true;
         SubmitCommand = new Command(async _ => await SubmitAsync(), _ => _canSubmit && IsConfirmationVisible); CancelCommand = new Command(async _ => await CancelAsync(true), _ => IsConfirmationVisible);
         InitializeReviewCommands();
@@ -133,6 +135,6 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     }
     public Task CancelAndReturnAsync() => CancelAsync(true);
     private async Task CancelAsync(bool returnToPrevious = false) { try { var state = _service is null ? null : await _service.GetPackageAsync(PackageId); if (_service is not null) await _service.RecordCancellationAsync(PackageId, state?.Revision ?? 0, Note); IsConfirmationVisible = false; RaisePropertyChanged(nameof(IsConfirmationVisible)); ((Command)SubmitCommand).Raise(); ((Command)CancelCommand).Raise(); if (returnToPrevious) ReturnRequested?.Invoke((_submissionRequest ?? new SubmissionRequest(PackageId)) with { Note = Note }); } catch (Exception exception) { _logger?.Log(exception, "WPF workflow cancellation", $"Unable to record cancellation for packageId={PackageId}."); Message = "Unable to cancel submission."; } }
-    public async Task LoadQueueAsync() { if (_service is null) return; try { Queue.Clear(); foreach (var item in await _service.GetCheckerQueueAsync()) Queue.Add(item); } catch (UnauthorizedAccessException) { ReviewError = "Only Checkers and Approvers can access the review queue."; } catch (Exception exception) { _logger?.Log(exception, "WPF review queue", "Unable to load the Checker review queue."); ReviewError = "Unable to load the review queue."; } }
+    public async Task LoadQueueAsync() { if (_service is null) return; try { Queue.Clear(); var approver = _authorization?.IsAllowed(_authentication?.CurrentUser, RolePermission.FinalApproval) == true; var items = approver ? await _service.GetApproverQueueAsync() : await _service.GetCheckerQueueAsync(); foreach (var item in items) Queue.Add(item); } catch (UnauthorizedAccessException) { ReviewError = "Only authorized reviewers can access the review queue."; } catch (Exception exception) { _logger?.Log(exception, "WPF review queue", "Unable to load the review queue."); ReviewError = "Unable to load the review queue."; } }
     private sealed class Command(Action<object?> execute, Predicate<object?> canExecute) : ICommand { public event EventHandler? CanExecuteChanged; public bool CanExecute(object? parameter) => canExecute(parameter); public void Execute(object? parameter) => execute(parameter); public void Raise() => CanExecuteChanged?.Invoke(this, EventArgs.Empty); }
 }

@@ -168,7 +168,7 @@ public sealed class WorkflowViewModelTests
         await model.LoadQueueAsync();
 
         Assert.Empty(model.Queue);
-        Assert.Contains("Only Checkers", model.ReviewError);
+        Assert.Contains("Only authorized reviewers", model.ReviewError);
     }
 
     private static ReviewPackage ReviewFixture() => ReviewPackage.FromSubmission(new ReviewSubmission
