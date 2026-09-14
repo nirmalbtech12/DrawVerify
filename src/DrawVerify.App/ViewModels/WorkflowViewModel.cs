@@ -194,7 +194,20 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     private async Task DiscardReviewCommentAsync()
     {
         if (ReviewPackage is null || SelectedReviewComment is null || _service is null) return;
-        try { await _service.DiscardReviewCommentAsync(ReviewPackage.PackageId, ReviewPackage.Revision, SelectedReviewComment.CommentId); SelectedReviewComment = null; ReviewError = string.Empty; }
+        var package = ReviewPackage;
+        var commentId = SelectedReviewComment.CommentId;
+        try
+        {
+            await _service.DiscardReviewCommentAsync(package.PackageId, package.Revision, commentId);
+            ReviewPackage = package with { Comments = package.Comments.Where(comment => comment.CommentId != commentId).ToArray() };
+            ReviewComment = string.Empty;
+            CorrectionAction = string.Empty;
+            ReferenceType = string.Empty;
+            ReferenceId = string.Empty;
+            ReferenceLocation = string.Empty;
+            SelectedReviewComment = null;
+            ReviewError = string.Empty;
+        }
         catch (Exception exception) { _logger?.Log(exception, "WPF review comment discard", $"Unable to discard review comment for packageId={ReviewPackage.PackageId}, revision={ReviewPackage.Revision}."); ReviewError = "The review comment could not be discarded."; }
     }
     private void CancelReviewEditing()
