@@ -135,16 +135,19 @@ public sealed class DxfDrawingGenerationService : IDxfDrawingGenerationService
         await RefreshAuthorizationAsync(cancellationToken).ConfigureAwait(false);
         if (!_session.IsAuthenticated) throw new UnauthorizedAccessException("Authentication is required to download drawing files.");
         var document = await _documents.GetAsync(documentId, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException("The drawing document was not found.");
-        await EnsureDownloadAccessAsync(documentId, cancellationToken).ConfigureAwait(false);
+        await EnsureDownloadAccessAsync(documentId, versionId, cancellationToken).ConfigureAwait(false);
         var version = document.Versions.FirstOrDefault(candidate => candidate.VersionId == versionId) ?? throw new InvalidOperationException("The selected drawing version was not found.");
         var stream = await _dxfFiles.OpenReadAsync(version.StoredRelativePath, cancellationToken).ConfigureAwait(false);
         try { await WriteAuditAsync(documentId, DocumentAuditAction.DxfDownloaded, new { versionId }, cancellationToken).ConfigureAwait(false); return stream; }
         catch { await stream.DisposeAsync().ConfigureAwait(false); throw; }
     }
-    private async Task EnsureDownloadAccessAsync(Guid documentId, CancellationToken cancellationToken)
+    private async Task EnsureDownloadAccessAsync(Guid documentId, Guid versionId, CancellationToken cancellationToken)
     {
         if (_workflow is null) throw new NotSupportedException("DXF download access evaluation requires workflow status persistence.");
-        var submission = (await _workflow.GetSubmissionsAsync(Guid.Empty, cancellationToken).ConfigureAwait(false)).Where(item => item.DxfDocumentId == documentId).OrderByDescending(item => item.Revision).FirstOrDefault();
+        var submission = (await _workflow.GetSubmissionsAsync(Guid.Empty, cancellationToken).ConfigureAwait(false))
+            .Where(item => item.DxfDocumentId == documentId && item.DxfDocumentVersionId == versionId)
+            .OrderByDescending(item => item.Revision)
+            .FirstOrDefault();
         if (submission is null) throw new UnauthorizedAccessException("The drawing is not linked to a workflow package and cannot be downloaded.");
         var state = await _workflow.GetStateAsync(submission.PackageId, cancellationToken).ConfigureAwait(false);
         var user = _session.CurrentUser;
