@@ -57,6 +57,7 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     public ICommand ApproveCommand { get; private set; } = null!;
     public ICommand RejectCommand { get; private set; } = null!;
     public ICommand RequestChangesCommand { get; private set; } = null!;
+    public ICommand ReturnForReworkCommand { get; private set; } = null!;
     public ICommand SaveReviewCommentCommand { get; private set; } = null!;
     public ICommand MarkDocumentsViewedCommand { get; private set; } = null!;
     public ICommand MarkVerificationViewedCommand { get; private set; } = null!;
@@ -65,11 +66,18 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
         ApproveCommand = new Command(async _ => await DecideAsync(ReviewDecisionType.Approve), _ => ReviewPackage is not null);
         RejectCommand = new Command(async _ => await DecideAsync(ReviewDecisionType.Reject), _ => ReviewPackage is not null && !string.IsNullOrWhiteSpace(ReviewComment));
         RequestChangesCommand = new Command(async _ => await DecideAsync(ReviewDecisionType.RequestChanges), _ => ReviewPackage is not null && !string.IsNullOrWhiteSpace(ReviewComment));
+        ReturnForReworkCommand = new Command(async _ => await FinalDecideAsync(ReviewDecisionType.Return), _ => ReviewPackage is not null && !string.IsNullOrWhiteSpace(ReviewComment));
         SaveReviewCommentCommand = new Command(async _ => await SaveReviewCommentAsync(), _ => ReviewPackage is not null && !string.IsNullOrWhiteSpace(ReviewComment));
         MarkDocumentsViewedCommand = new Command(_ => MarkSectionViewed("Documents"), _ => ReviewPackage is not null);
         MarkVerificationViewedCommand = new Command(_ => MarkSectionViewed("Verification"), _ => ReviewPackage is not null);
     }
-    private void RaiseReviewCommands() { ((Command)ApproveCommand).Raise(); ((Command)RejectCommand).Raise(); ((Command)RequestChangesCommand).Raise(); ((Command)SaveReviewCommentCommand).Raise(); }
+    private void RaiseReviewCommands() { ((Command)ApproveCommand).Raise(); ((Command)RejectCommand).Raise(); ((Command)RequestChangesCommand).Raise(); ((Command)ReturnForReworkCommand).Raise(); ((Command)SaveReviewCommentCommand).Raise(); }
+    private async Task FinalDecideAsync(ReviewDecisionType type)
+    {
+        if (ReviewPackage is null || _service is null) return;
+        try { await _service.FinalDecideAsync(ReviewPackage.PackageId, ReviewPackage.Revision, type, ReviewComment); ReviewError = string.Empty; await LoadQueueAsync(); }
+        catch (Exception exception) { _logger?.Log(exception, "WPF final approval decision", $"Unable to complete final decision for packageId={ReviewPackage.PackageId}, revision={ReviewPackage.Revision}."); ReviewError = exception is UnauthorizedAccessException or ArgumentException or ReviewDecisionConflictException ? exception.Message : "The final decision was not saved. Please try again or contact support."; }
+    }
     public async Task OpenReviewAsync(WorkflowQueueItem item)
     {
         try { ReviewPackage = await _service!.OpenReviewPackageAsync(item.PackageId, item.Revision); RaisePropertyChanged(nameof(IsReviewMode)); ReviewError = ReviewPackage is null ? "The review package was not found or is no longer available." : string.Empty; }

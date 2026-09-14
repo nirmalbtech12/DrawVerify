@@ -25,5 +25,8 @@ public enum DocumentAuditAction
     Approved = 37,
     Rejected = 38,
     ChangesRequested = 39,
-    ReviewCommentAdded = 40
+    ReviewCommentAdded = 40,
+    FinalApproved = 41,
+    ReturnedForRework = 42,
+    AccessChanged = 43
 }

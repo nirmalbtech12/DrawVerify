@@ -4,5 +4,6 @@ public enum ReviewDecisionType
 {
     Approve = 1,
     Reject = 2,
-    RequestChanges = 3
+    RequestChanges = 3,
+    Return = 4
 }
