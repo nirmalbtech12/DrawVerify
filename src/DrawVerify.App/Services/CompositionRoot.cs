@@ -65,7 +65,7 @@ public static class CompositionRoot
     public static IWorkflowService CreateWorkflowService()
     {
         var database = DatabasePath(); var logger = new CentralizedLogger();
-        return new WorkflowService(new SqliteWorkflowRepository(database, logger, WorkflowConfiguration), Session, WorkflowConfiguration, Authorization, logger, new SqliteDocumentRepository(database, logger), new SqliteVerificationSessionRepository(database), notifications: new InAppNotificationService(database), snapshots: new ApprovalSnapshotFileStore(Path.Combine(AppContext.BaseDirectory, "approval-snapshots")));
+        return new WorkflowService(new SqliteWorkflowRepository(database, logger, WorkflowConfiguration), Session, WorkflowConfiguration, Authorization, logger, new SqliteDocumentRepository(database, logger), new SqliteVerificationSessionRepository(database), notifications: new InAppNotificationService(database), snapshots: new ApprovalSnapshotFileStore(Path.Combine(AppContext.BaseDirectory, "approval-snapshots")), stepFiles: new DocumentFileStore(AppContext.BaseDirectory, StepUploadConfiguration), dxfFiles: new DxfDocumentFileStore(AppContext.BaseDirectory, DxfUploadConfiguration));
     }
     public static DimensionMatchingConfiguration ConfiguredDimensionMatching => DimensionMatchingConfiguration;
     public static GdtValidator CreateGdtValidator()
@@ -102,7 +102,7 @@ public static class CompositionRoot
         var config=StepUploadConfiguration;
         var database=Path.Combine(AppContext.BaseDirectory,"drawverify.db");
         var logger = new CentralizedLogger();
-        return new StepUploadViewModel(new DocumentService(new SqliteDocumentRepository(database, logger),new SqliteAuditRepository(database),new DocumentFileStore(AppContext.BaseDirectory,config),config,Session,logger,Authorization,users:new SqliteUserRepository(database,logger)));
+        return new StepUploadViewModel(new DocumentService(new SqliteDocumentRepository(database, logger),new SqliteAuditRepository(database),new DocumentFileStore(AppContext.BaseDirectory,config),config,Session,logger,Authorization,users:new SqliteUserRepository(database,logger),workflow:new SqliteWorkflowRepository(database, logger, WorkflowConfiguration)));
     }
     public static DxfUploadViewModel CreateDxfUploadViewModel()
     {

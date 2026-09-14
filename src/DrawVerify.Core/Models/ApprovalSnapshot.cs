@@ -13,4 +13,6 @@ public sealed record ApprovalSnapshot
     public string StepSha256 { get; init; } = string.Empty;
     public string DxfSha256 { get; init; } = string.Empty;
     public DateTime CapturedUtc { get; init; } = DateTime.UtcNow;
+    public string StepArtifactPath { get; init; } = string.Empty;
+    public string DxfArtifactPath { get; init; } = string.Empty;
 }

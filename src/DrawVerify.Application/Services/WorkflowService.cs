@@ -1,6 +1,4 @@
 using System.Text.Json;
-using System.Security.Cryptography;
-using System.Text;
 using DrawVerify.Application.Workflow;
 using DrawVerify.Core.Authorization;
 using DrawVerify.Core.Configuration;
@@ -28,11 +26,13 @@ public sealed class WorkflowService : IWorkflowService
     private readonly Func<DateTime> _clock;
     private readonly INotificationService? _notifications;
     private readonly IApprovalSnapshotStore? _snapshots;
+    private readonly IStepUploadFileStore? _stepFiles;
+    private readonly IDxfUploadFileStore? _dxfFiles;
 
-    public WorkflowService(IWorkflowRepository workflow, ISessionAuthenticationService authentication, WorkflowConfiguration configuration, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null, IDocumentRepository? documents = null, IVerificationSessionRepository? sessions = null, Func<DateTime>? clock = null, INotificationService? notifications = null, IApprovalSnapshotStore? snapshots = null)
+    public WorkflowService(IWorkflowRepository workflow, ISessionAuthenticationService authentication, WorkflowConfiguration configuration, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null, IDocumentRepository? documents = null, IVerificationSessionRepository? sessions = null, Func<DateTime>? clock = null, INotificationService? notifications = null, IApprovalSnapshotStore? snapshots = null, IStepUploadFileStore? stepFiles = null, IDxfUploadFileStore? dxfFiles = null)
     {
         _workflow = workflow ?? throw new ArgumentNullException(nameof(workflow)); _authentication = authentication ?? throw new ArgumentNullException(nameof(authentication));
-        _authorization = authorization ?? new RoleAuthorization(); _machine = new WorkflowStateMachine(configuration ?? throw new ArgumentNullException(nameof(configuration))); _logger = logger; _documents = documents; _sessions = sessions; _clock = clock ?? (() => DateTime.UtcNow); _notifications = notifications; _snapshots = snapshots;
+        _authorization = authorization ?? new RoleAuthorization(); _machine = new WorkflowStateMachine(configuration ?? throw new ArgumentNullException(nameof(configuration))); _logger = logger; _documents = documents; _sessions = sessions; _clock = clock ?? (() => DateTime.UtcNow); _notifications = notifications; _snapshots = snapshots; _stepFiles = stepFiles; _dxfFiles = dxfFiles;
     }
 
     public async Task<SubmissionReadiness> ValidateReadinessAsync(Guid packageId, CancellationToken cancellationToken = default)
@@ -248,6 +248,10 @@ public sealed class WorkflowService : IWorkflowService
             throw new InvalidOperationException($"The package is currently '{package.Status}' and is not pending final approval.");
         var user = _authentication.CurrentUser!;
         if (_snapshots is null) throw new NotSupportedException("Final approval cannot proceed because immutable snapshot storage is unavailable.");
+        if (_documents is null || _stepFiles is null || _dxfFiles is null) throw new NotSupportedException("Final approval cannot proceed because versioned artifact access is unavailable.");
+        var stepDocument = await _documents.GetAsync(package.PackageId, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException("The persisted STEP artifact was not found.");
+        var dxfDocument = await _documents.GetAsync(package.DxfDocumentId, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException("The persisted DXF artifact was not found.");
+        if (stepDocument.Version?.VersionId != package.StepDocumentVersionId || dxfDocument.Version?.VersionId != package.DxfDocumentVersionId) throw new InvalidOperationException("The approval package references stale document versions.");
         var snapshotId = Guid.NewGuid();
         var snapshotPayload = JsonSerializer.Serialize(package);
         var snapshot = new ApprovalSnapshot
@@ -258,18 +262,19 @@ public sealed class WorkflowService : IWorkflowService
             ExtractionEvidenceJson = package.ExtractionEvidenceJson,
             VerificationEvidenceJson = package.VerificationEvidenceJson,
             CheckerDecisionJson = JsonSerializer.Serialize(package.PriorDecision),
-            StepSha256 = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(package.StepDocumentVersionId + "|" + package.ExtractionEvidenceJson))),
-            DxfSha256 = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(package.DxfDocumentVersionId + "|" + package.VerificationEvidenceJson))),
             CapturedUtc = _clock().ToUniversalTime()
         };
-        await _snapshots.SaveAsync(snapshot, cancellationToken).ConfigureAwait(false);
+        ApprovalSnapshot persistedSnapshot;
+        await using (var stepArtifact = await _stepFiles.OpenReadAsync(stepDocument.Version.StoredRelativePath, cancellationToken).ConfigureAwait(false))
+        await using (var dxfArtifact = await _dxfFiles.OpenReadAsync(dxfDocument.Version.StoredRelativePath, cancellationToken).ConfigureAwait(false))
+            persistedSnapshot = await _snapshots.SaveAsync(snapshot, stepArtifact, dxfArtifact, cancellationToken).ConfigureAwait(false);
         var decision = new ReviewDecision
         {
             PackageId = packageId, Revision = revision, CheckerUserId = user.UserId, CheckerDisplayName = user.DisplayName,
             ApproverUserId = user.UserId, ApproverDisplayName = user.DisplayName, IsFinalApproval = true,
             DecidedUtc = _clock().ToUniversalTime(), DecisionType = decisionType,
             Comments = string.IsNullOrWhiteSpace(comments) ? null : comments.Trim(),
-            SnapshotReference = snapshot.SnapshotId.ToString("D"), SnapshotJson = snapshotPayload
+            SnapshotReference = persistedSnapshot.SnapshotId.ToString("D"), SnapshotJson = snapshotPayload
         };
         decision.Validate();
         var resultingStatus = decisionType switch
@@ -285,9 +290,19 @@ public sealed class WorkflowService : IWorkflowService
             ReviewDecisionType.Reject => DocumentAuditAction.Rejected,
             _ => DocumentAuditAction.ReturnedForRework
         };
-        var saved = await _workflow.SaveReviewDecisionAsync(package, decision, resultingStatus,
-            CreateAudit(packageId, revision, action, decisionType.ToString(), decision.DecidedUtc, user,
-                new[] { decision.Comments ?? string.Empty }, decision.SnapshotReference), cancellationToken).ConfigureAwait(false);
+        ReviewDecision saved;
+        try
+        {
+            saved = await _workflow.SaveReviewDecisionAsync(package, decision, resultingStatus,
+                CreateAudit(packageId, revision, action, decisionType.ToString(), decision.DecidedUtc, user,
+                    new[] { decision.Comments ?? string.Empty }, decision.SnapshotReference), cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            try { await _snapshots.DeleteAsync(persistedSnapshot.SnapshotId, CancellationToken.None).ConfigureAwait(false); }
+            catch (Exception cleanupException) { _logger?.Log(cleanupException, "Final approval snapshot cleanup", $"Unable to remove uncommitted snapshotId={persistedSnapshot.SnapshotId}, packageId={packageId}, revision={revision}."); }
+            throw;
+        }
         if (_notifications is not null)
         {
             try { await _notifications.NotifyMakerAsync(packageId, revision, saved, cancellationToken).ConfigureAwait(false); }

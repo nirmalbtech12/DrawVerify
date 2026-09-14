@@ -56,8 +56,9 @@ public sealed class FinalApprovalWorkflowServiceTests
     private sealed class Fixture
     {
         public Guid Package { get; } = Guid.NewGuid(); public FakeRepository Repository { get; } = new(); public FakeAuth Auth { get; } = new();
-        public WorkflowService Service => new(Repository, Auth, new WorkflowConfiguration { PermittedInitialStates = new[] { WorkflowStatus.Draft, WorkflowStatus.InPreparation }, DuplicateSubmissionStates = new[] { WorkflowStatus.SubmittedForReview, WorkflowStatus.UnderReview, WorkflowStatus.Approved } }, new RoleAuthorization(), clock: () => new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), snapshots: new FakeSnapshotStore());
-        public static Fixture Create() { var f = new Fixture(); f.Repository.Package = ReviewPackage.FromSubmission(new ReviewSubmission { PackageId = f.Package, Revision = 1, Status = WorkflowStatus.PendingFinalApproval, StepDocumentVersionId = Guid.NewGuid(), DxfDocumentVersionId = Guid.NewGuid(), VerificationSessionId = Guid.NewGuid(), ExtractionEvidenceJson = "{\"extraction\":\"complete\"}", VerificationEvidenceJson = "{\"verification\":\"passed\"}", MakerUserId = "maker-1", MakerDisplayName = "Maker One", Note = "review" }); return f; }
+        public WorkflowService Service => new(Repository, Auth, new WorkflowConfiguration { PermittedInitialStates = new[] { WorkflowStatus.Draft, WorkflowStatus.InPreparation }, DuplicateSubmissionStates = new[] { WorkflowStatus.SubmittedForReview, WorkflowStatus.UnderReview, WorkflowStatus.Approved } }, new RoleAuthorization(), documents: new FakeDocuments(Package, DxfDocument, Repository.Package!.StepDocumentVersionId, Repository.Package.DxfDocumentVersionId), clock: () => new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), snapshots: new FakeSnapshotStore(), stepFiles: new FakeStepFiles(), dxfFiles: new FakeDxfFiles());
+        private static readonly Guid DxfDocument = Guid.Parse("00000000-0000-0000-0000-0000000000d1");
+        public static Fixture Create() { var f = new Fixture(); f.Repository.Package = ReviewPackage.FromSubmission(new ReviewSubmission { PackageId = f.Package, DxfDocumentId = DxfDocument, Revision = 1, Status = WorkflowStatus.PendingFinalApproval, StepDocumentVersionId = Guid.NewGuid(), DxfDocumentVersionId = Guid.NewGuid(), VerificationSessionId = Guid.NewGuid(), ExtractionEvidenceJson = "{\"extraction\":\"complete\"}", VerificationEvidenceJson = "{\"verification\":\"passed\"}", MakerUserId = "maker-1", MakerDisplayName = "Maker One", Note = "review" }); return f; }
     }
     private sealed class FakeAuth : ISessionAuthenticationService { public AuthenticatedUser? CurrentUser { get; } = new("approver", new[] { SystemRoles.Approver }) { UserId = "approver-1", DisplayName = "Approver One" }; public bool IsAuthenticated => true; public void SignIn(AuthenticatedUser user) { } public void SignOut() { } }
     private sealed class FakeSnapshotStore : IApprovalSnapshotStore
@@ -65,6 +66,24 @@ public sealed class FinalApprovalWorkflowServiceTests
         private readonly Dictionary<Guid, ApprovalSnapshot> _snapshots = new();
         public Task<ApprovalSnapshot> SaveAsync(ApprovalSnapshot snapshot, CancellationToken cancellationToken = default) { _snapshots[snapshot.SnapshotId] = snapshot; return Task.FromResult(snapshot); }
         public Task<ApprovalSnapshot?> GetAsync(Guid snapshotId, CancellationToken cancellationToken = default) => Task.FromResult(_snapshots.TryGetValue(snapshotId, out var snapshot) ? snapshot : null);
+    }
+    private sealed class FakeDocuments(Guid packageId, Guid dxfId, Guid stepVersionId, Guid dxfVersionId) : IDocumentRepository
+    {
+        public Task<Document?> GetAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<Document?>(id == packageId ? new Document { DocumentId = id, OriginalFileName = "model.step", FileSizeBytes = 3, UploadStatus = DrawVerify.Core.Enums.UploadStatus.Uploaded, GeometryStatus = DrawVerify.Core.Enums.GeometryStatus.Processed, Version = new DocumentVersion { DocumentId = id, VersionId = stepVersionId, StoredRelativePath = "step" } } : id == dxfId ? new Document { DocumentId = id, OriginalFileName = "drawing.dxf", FileSizeBytes = 3, UploadStatus = DrawVerify.Core.Enums.UploadStatus.Uploaded, VerificationStatus = VerificationStatus.DimensionsExtracted, Version = new DocumentVersion { DocumentId = id, VersionId = dxfVersionId, StoredRelativePath = "dxf" } } : null);
+    }
+    private sealed class FakeStepFiles : IStepUploadFileStore
+    {
+        public Task<Stream> OpenReadAsync(string relativePath, CancellationToken cancellationToken = default) => Task.FromResult<Stream>(new MemoryStream(new byte[] { 1, 2, 3 }));
+        public Task<StepUploadStagingFile> CreateStagingFileAsync(string originalFileName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<string> MoveToFinalAsync(StepUploadStagingFile stagingFile, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task DeleteAsync(string relativePath, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+    private sealed class FakeDxfFiles : IDxfUploadFileStore
+    {
+        public Task<Stream> OpenReadAsync(string relativePath, CancellationToken cancellationToken = default) => Task.FromResult<Stream>(new MemoryStream(new byte[] { 4, 5, 6 }));
+        public Task<DxfUploadStagingFile> CreateStagingFileAsync(string originalFileName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<string> MoveToFinalAsync(DxfUploadStagingFile stagingFile, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task DeleteAsync(string relativePath, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
     private sealed class FakeRepository : IWorkflowRepository
     {
