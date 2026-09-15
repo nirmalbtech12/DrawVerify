@@ -21,7 +21,10 @@ public sealed class WorkflowService : IWorkflowService
     private readonly IVerificationSessionRepository? _sessions;
     private readonly ISessionAuthenticationService _authentication;
     private readonly RoleAuthorization _authorization;
-    private readonly WorkflowStateMachine _machine;
+    private WorkflowStateMachine _machine;
+    private readonly IWorkflowConfigurationRepository? _configurationRepository;
+    private readonly WorkflowConfiguration _startupConfiguration;
+    private WorkflowConfiguration _effectiveConfiguration;
     private readonly ICentralizedLogger? _logger;
     private readonly Func<DateTime> _clock;
     private readonly INotificationService? _notifications;
@@ -29,10 +32,113 @@ public sealed class WorkflowService : IWorkflowService
     private readonly IStepUploadFileStore? _stepFiles;
     private readonly IDxfUploadFileStore? _dxfFiles;
 
-    public WorkflowService(IWorkflowRepository workflow, ISessionAuthenticationService authentication, WorkflowConfiguration configuration, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null, IDocumentRepository? documents = null, IVerificationSessionRepository? sessions = null, Func<DateTime>? clock = null, INotificationService? notifications = null, IApprovalSnapshotStore? snapshots = null, IStepUploadFileStore? stepFiles = null, IDxfUploadFileStore? dxfFiles = null)
+    /// <summary>Gets the immutable configuration version most recently resolved for this service operation.</summary>
+    public int? EffectiveConfigurationVersion { get; private set; }
+
+    public WorkflowService(IWorkflowRepository workflow, ISessionAuthenticationService authentication, WorkflowConfiguration configuration, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null, IDocumentRepository? documents = null, IVerificationSessionRepository? sessions = null, Func<DateTime>? clock = null, INotificationService? notifications = null, IApprovalSnapshotStore? snapshots = null, IStepUploadFileStore? stepFiles = null, IDxfUploadFileStore? dxfFiles = null, IWorkflowConfigurationRepository? configurationRepository = null)
     {
         _workflow = workflow ?? throw new ArgumentNullException(nameof(workflow)); _authentication = authentication ?? throw new ArgumentNullException(nameof(authentication));
-        _authorization = authorization ?? new RoleAuthorization(); _machine = new WorkflowStateMachine(configuration ?? throw new ArgumentNullException(nameof(configuration))); _logger = logger; _documents = documents; _sessions = sessions; _clock = clock ?? (() => DateTime.UtcNow); _notifications = notifications; _snapshots = snapshots; _stepFiles = stepFiles; _dxfFiles = dxfFiles;
+        _authorization = authorization ?? new RoleAuthorization(); _startupConfiguration = configuration ?? throw new ArgumentNullException(nameof(configuration)); _effectiveConfiguration = _startupConfiguration; _machine = new WorkflowStateMachine(_startupConfiguration); _configurationRepository = configurationRepository; _logger = logger; _documents = documents; _sessions = sessions; _clock = clock ?? (() => DateTime.UtcNow); _notifications = notifications; _snapshots = snapshots; _stepFiles = stepFiles; _dxfFiles = dxfFiles;
+    }
+    private async Task RefreshEffectiveConfigurationAsync(CancellationToken cancellationToken, int? version = null)
+    {
+        if (_configurationRepository is null) return;
+        var effective = version.HasValue
+            ? await _configurationRepository.GetVersionAsync(version.Value, cancellationToken).ConfigureAwait(false)
+            : await _configurationRepository.GetCurrentAsync(cancellationToken).ConfigureAwait(false);
+        if (effective is null) throw new InvalidOperationException("No effective workflow configuration is available.");
+        effective.Validate();
+        _effectiveConfiguration = effective;
+        EffectiveConfigurationVersion = effective.Version;
+        _machine = new WorkflowStateMachine(effective);
+    }
+
+    private async Task ResolveWorkflowConfigurationAsync(Guid packageId, CancellationToken cancellationToken, bool allowCurrentForNewSubmission = false)
+    {
+        if (_configurationRepository is null && !IsLegacyConfiguration(_effectiveConfiguration))
+            throw new InvalidOperationException("Configured workflow execution requires a persistent configuration repository; no workflow operation was applied.");
+        var capturedVersion = await ReadPersistedConfigurationVersionAsync(packageId, cancellationToken).ConfigureAwait(false);
+        if (capturedVersion.HasValue)
+        {
+            await RefreshEffectiveConfigurationAsync(cancellationToken, capturedVersion).ConfigureAwait(false);
+            return;
+        }
+
+        await RefreshEffectiveConfigurationAsync(cancellationToken).ConfigureAwait(false);
+        if (!allowCurrentForNewSubmission && !IsLegacyConfiguration(_effectiveConfiguration))
+            throw new InvalidOperationException($"Workflow package '{packageId}' has no captured configuration version; the active workflow was not evaluated.");
+    }
+
+    private static bool IsLegacyConfiguration(WorkflowConfiguration configuration) =>
+        configuration.Stages.Count == 0 && configuration.Triggers.Count == 0 && configuration.Notifications.Count == 0 &&
+        configuration.StatusTransitions.Count == 0 && configuration.StatusLabels.Count == 0 &&
+        configuration.RevisionPolicy == new WorkflowRevisionPolicy();
+
+    private async Task<int?> ReadPersistedConfigurationVersionAsync(Guid packageId, CancellationToken cancellationToken)
+    {
+        if (_configurationRepository is null) return null;
+        var method = _configurationRepository.GetType().GetMethod("GetWorkflowVersionAsync", new[] { typeof(string), typeof(CancellationToken) });
+        if (method is null) return null;
+        try
+        {
+            var task = method.Invoke(_configurationRepository, new object[] { packageId.ToString(), cancellationToken }) as Task<int?>;
+            return task is null ? null : await task.ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            _logger?.Log(exception, "Workflow configuration version resolution", $"Unable to resolve persisted configuration version for packageId={packageId}.");
+            throw;
+        }
+    }
+
+    private async Task CapturePersistedConfigurationVersionAsync(Guid packageId, int? version, CancellationToken cancellationToken)
+    {
+        if (_configurationRepository is null || !version.HasValue) return;
+        var method = _configurationRepository.GetType().GetMethod("CaptureWorkflowVersionAsync", new[] { typeof(string), typeof(int?), typeof(CancellationToken) });
+        if (method is null) return;
+        try
+        {
+            var task = method.Invoke(_configurationRepository, new object[] { packageId.ToString(), version, cancellationToken }) as Task;
+            if (task is not null) await task.ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            _logger?.Log(exception, "Workflow configuration version capture", $"Unable to persist configuration version={version} for packageId={packageId}.");
+            throw;
+        }
+    }
+
+    private async Task NotifyConfiguredAsync(Guid packageId, int revision, ReviewDecision decision, WorkflowNotificationEvent notificationEvent, CancellationToken cancellationToken)
+    {
+        if (_notifications is null) return;
+        var recipients = _machine.NotificationRecipients(notificationEvent);
+        var configuredRules = _effectiveConfiguration.Notifications.Where(x => x.Event == notificationEvent).ToArray();
+        if (configuredRules.Any(rule => rule.Channels.Any(channel => channel != WorkflowNotificationChannel.InApp)))
+            throw new NotSupportedException($"Workflow notification event '{notificationEvent}' specifies a channel that is not available in the configured notification service.");
+        if (recipients.Count == 0 && !IsLegacyConfiguration(_effectiveConfiguration))
+            throw new InvalidOperationException($"Workflow notification event '{notificationEvent}' has no configured recipients.");
+        if (recipients.Count == 0)
+        {
+            if (notificationEvent is WorkflowNotificationEvent.Approval or WorkflowNotificationEvent.Rejection or WorkflowNotificationEvent.Return)
+                recipients = new[] { "Maker", "Checker" };
+            else recipients = new[] { "Maker", "Checker" };
+        }
+        foreach (var recipient in recipients)
+        {
+            var systemRole = _machineRole(recipient);
+            try
+            {
+                if (string.Equals(systemRole, "Maker", StringComparison.OrdinalIgnoreCase)) await _notifications.NotifyMakerAsync(packageId, revision, decision, cancellationToken).ConfigureAwait(false);
+                else if (string.Equals(systemRole, "Checker", StringComparison.OrdinalIgnoreCase)) await _notifications.NotifyCheckerAsync(packageId, revision, decision, cancellationToken).ConfigureAwait(false);
+                else throw new InvalidOperationException($"Workflow notification recipient '{recipient}' does not map to a supported canonical workflow role.");
+            }
+            catch (Exception exception)
+            {
+                _logger?.Log(exception, "Workflow notification", $"Unable to deliver configured event={notificationEvent} recipient='{recipient}' for packageId={packageId}, revision={revision}.");
+                throw new NotificationDeliveryException(packageId, revision, exception);
+            }
+        }
+        string _machineRole(string name) => _effectiveConfiguration.Roles.FirstOrDefault(x => string.Equals(x.DisplayName, name, StringComparison.OrdinalIgnoreCase))?.SystemRole ?? name;
     }
 
     public async Task<SubmissionReadiness> ValidateReadinessAsync(Guid packageId, CancellationToken cancellationToken = default)
@@ -40,6 +146,7 @@ public sealed class WorkflowService : IWorkflowService
         var failures = new List<string>();
         try
         {
+        await ResolveWorkflowConfigurationAsync(packageId, cancellationToken, allowCurrentForNewSubmission: true).ConfigureAwait(false);
         if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.SubmitForReview)) failures.Add("Only an authenticated Maker can submit a package for review.");
         var state = await _workflow.GetStateAsync(packageId, cancellationToken).ConfigureAwait(false);
         if (state is null) failures.Add("The package has no workflow state and cannot be submitted.");
@@ -197,6 +304,10 @@ public sealed class WorkflowService : IWorkflowService
         var submission = new ReviewSubmission { PackageId = request.PackageId, DxfDocumentId = request.DxfDocumentId, Revision = state.Revision, MakerUserId = user!.UserId, MakerDisplayName = user.DisplayName, MakerAuthorized = true, SubmittedUtc = now, Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim(), StepDocumentVersionId = request.StepDocumentVersionId, DxfDocumentVersionId = request.DxfDocumentVersionId, VerificationSessionId = request.VerificationSessionId, ExtractionEvidenceJson = request.ExtractionEvidenceJson, VerificationEvidenceJson = request.VerificationEvidenceJson };
         try
         {
+            // Establish the durable version reference before the workflow transaction
+            // can commit. A capture failure therefore cannot leave a submitted package
+            // without the configuration version that governs it.
+            await CapturePersistedConfigurationVersionAsync(request.PackageId, EffectiveConfigurationVersion, cancellationToken).ConfigureAwait(false);
             var saved = await _workflow.SubmitAtomicallyAsync(state, submission, CreateAudit(request.PackageId, state.Revision, DocumentAuditAction.SubmissionSucceeded, "Submitted", now, user, documentVersionId: request.StepDocumentVersionId, previousWorkflowStatus: state.Status, workflowStatus: WorkflowStatus.SubmittedForReview), cancellationToken).ConfigureAwait(false);
             return new(true, "The drawing was submitted for review.", state with { Status = WorkflowStatus.SubmittedForReview, UpdatedUtc = now }, saved);
         }
@@ -211,6 +322,7 @@ public sealed class WorkflowService : IWorkflowService
     public async Task<WorkflowState?> GetPackageAsync(Guid packageId, CancellationToken cancellationToken = default)
     {
         var state = await _workflow.GetStateAsync(packageId, cancellationToken).ConfigureAwait(false);
+        if (state is not null) await ResolveWorkflowConfigurationAsync(packageId, cancellationToken).ConfigureAwait(false);
         if (state?.Status == WorkflowStatus.SubmittedForReview && _documents is not null)
         {
             var current = await _documents.GetAsync(packageId, cancellationToken).ConfigureAwait(false);
@@ -261,6 +373,7 @@ public sealed class WorkflowService : IWorkflowService
             throw new ArgumentOutOfRangeException(nameof(decisionType), "Only Approve, Reject, or Return are valid final decisions.");
         var package = await _workflow.GetReviewPackageAsync(packageId, revision, cancellationToken).ConfigureAwait(false)
             ?? throw new KeyNotFoundException($"Review package '{packageId}' revision {revision} was not found.");
+        await ResolveWorkflowConfigurationAsync(packageId, cancellationToken).ConfigureAwait(false);
         if (package.PriorDecision is not null && package.PriorDecision.IsFinalApproval)
             throw new ReviewDecisionConflictException(packageId, revision, package.Status, revision, package.PriorDecision);
         if (package.Status is not (WorkflowStatus.ApprovedByChecker or WorkflowStatus.PendingFinalApproval))
@@ -329,21 +442,7 @@ public sealed class WorkflowService : IWorkflowService
             catch (Exception cleanupException) { _logger?.Log(cleanupException, "Final approval snapshot cleanup", $"Unable to remove uncommitted snapshotId={persistedSnapshot.SnapshotId}, packageId={packageId}, revision={revision}."); }
             throw;
         }
-        if (_notifications is not null)
-        {
-            if (route == ReviewDecisionRoute.ToChecker)
-            {
-                try { await _notifications.NotifyCheckerAsync(packageId, revision, saved, cancellationToken).ConfigureAwait(false); }
-                catch (Exception exception) { _logger?.Log(exception, "Approver rejection notification", $"Unable to notify Checker for packageId={packageId}, revision={revision}."); throw new NotificationDeliveryException(packageId, revision, exception); }
-            }
-            else
-            {
-                try { await _notifications.NotifyMakerAsync(packageId, revision, saved, cancellationToken).ConfigureAwait(false); }
-                catch (Exception exception) { _logger?.Log(exception, "Final approval notification", $"Unable to notify Maker for packageId={packageId}, revision={revision}."); throw new NotificationDeliveryException(packageId, revision, exception); }
-                try { await _notifications.NotifyCheckerAsync(packageId, revision, saved, cancellationToken).ConfigureAwait(false); }
-                catch (Exception exception) { _logger?.Log(exception, "Final approval notification", $"Unable to notify Checker for packageId={packageId}, revision={revision}."); throw new NotificationDeliveryException(packageId, revision, exception); }
-            }
-        }
+        await NotifyConfiguredAsync(packageId, revision, saved, decisionType == ReviewDecisionType.Approve ? WorkflowNotificationEvent.Approval : route == ReviewDecisionRoute.ToChecker ? WorkflowNotificationEvent.Return : WorkflowNotificationEvent.Rejection, cancellationToken).ConfigureAwait(false);
         return saved;
     }
 
@@ -398,6 +497,7 @@ public sealed class WorkflowService : IWorkflowService
         RequireReviewPermission();
         var package = await _workflow.GetReviewPackageAsync(packageId, revision, cancellationToken).ConfigureAwait(false)
             ?? throw new KeyNotFoundException($"Review package '{packageId}' revision {revision} was not found.");
+        await ResolveWorkflowConfigurationAsync(packageId, cancellationToken).ConfigureAwait(false);
         var returnedFromApprover = package.Status == WorkflowStatus.ReturnedForRework
             && package.PriorDecision?.IsFinalApproval == true
             && package.PriorDecision.Route == ReviewDecisionRoute.ToChecker;
@@ -414,11 +514,13 @@ public sealed class WorkflowService : IWorkflowService
         var status = decisionType switch { ReviewDecisionType.Approve => _machine.ApprovedState, ReviewDecisionType.Reject => _machine.RejectedState, ReviewDecisionType.RequestChanges => _machine.ChangesRequestedState, ReviewDecisionType.Return when package.Status == WorkflowStatus.ReturnedForRework => WorkflowStatus.ReturnedToMaker, ReviewDecisionType.Return => WorkflowStatus.ReturnedForRework, _ => throw new ArgumentOutOfRangeException(nameof(decisionType)) };
         var action = decisionType switch { ReviewDecisionType.Approve => DocumentAuditAction.Approved, ReviewDecisionType.Reject => DocumentAuditAction.Rejected, ReviewDecisionType.Return => DocumentAuditAction.ReturnedForRework, _ => DocumentAuditAction.ChangesRequested };
         var saved = await _workflow.SaveReviewDecisionAsync(package, decision, status, CreateAudit(packageId, revision, action, decisionType.ToString(), decision.DecidedUtc, user, new[] { decision.Comments ?? string.Empty }, decision.SnapshotReference, commentReferences: package.Comments, workflowStatus: status, previousWorkflowStatus: package.Status, decision: decision, documentVersionId: package.StepDocumentVersionId), cancellationToken).ConfigureAwait(false);
-        if (_notifications is not null)
+        await NotifyConfiguredAsync(packageId, revision, saved, decisionType switch
         {
-            try { await _notifications.NotifyMakerAsync(packageId, revision, saved, cancellationToken).ConfigureAwait(false); }
-            catch (Exception exception) { _logger?.Log(exception, "Workflow review notification", $"Unable to notify Maker for packageId={packageId}, revision={revision} after decision persistence succeeded."); throw new NotificationDeliveryException(packageId, revision, exception); }
-        }
+            ReviewDecisionType.Approve => WorkflowNotificationEvent.Approval,
+            ReviewDecisionType.Reject => WorkflowNotificationEvent.Rejection,
+            ReviewDecisionType.Return => WorkflowNotificationEvent.Return,
+            _ => WorkflowNotificationEvent.Rejection
+        }, cancellationToken).ConfigureAwait(false);
         return saved;
     }
 

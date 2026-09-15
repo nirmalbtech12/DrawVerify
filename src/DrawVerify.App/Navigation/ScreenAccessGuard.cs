@@ -15,8 +15,9 @@ public sealed class ScreenAccessGuard(ISessionAuthenticationService session, Rol
         {
             ScreenRegistry.StepUpload or ScreenRegistry.DxfUpload or ScreenRegistry.UploadVerify => authorization.IsAllowed(user, RolePermission.Upload),
             ScreenRegistry.Verification => authorization.IsAllowed(user, RolePermission.ReviewVerification) || authorization.IsAllowed(user, RolePermission.StartVerification) || authorization.IsAllowed(user, RolePermission.ReadApprovedDocuments),
-            ScreenRegistry.Workflow => HasRole(user, SystemRoles.Maker) || HasRole(user, SystemRoles.Checker) || authorization.IsAllowed(user, RolePermission.FinalApproval),
+            ScreenRegistry.Workflow => HasRole(user, SystemRoles.Admin) || HasRole(user, SystemRoles.Maker) || HasRole(user, SystemRoles.Checker) || authorization.IsAllowed(user, RolePermission.FinalApproval),
             ScreenRegistry.UserAdministration => authorization.IsAllowed(user, RolePermission.ManageUsersAndRoles),
+            ScreenRegistry.WorkflowConfiguration => authorization.IsAllowed(user, RolePermission.ManageGlobalConfiguration),
             ScreenRegistry.AuditLog => authorization.IsAllowed(user, RolePermission.ViewAuditLog),
             ScreenRegistry.Report => authorization.IsAllowed(user, RolePermission.ViewDimensionMatchResults),
             _ => false
