@@ -55,6 +55,8 @@ public sealed class WorkflowService : IWorkflowService
 
     private async Task ResolveWorkflowConfigurationAsync(Guid packageId, CancellationToken cancellationToken)
     {
+        if (_configurationRepository is null && !IsLegacyConfiguration(_effectiveConfiguration))
+            throw new InvalidOperationException("Configured workflow execution requires a persistent configuration repository; no workflow operation was applied.");
         var capturedVersion = await ReadPersistedConfigurationVersionAsync(packageId, cancellationToken).ConfigureAwait(false);
         if (capturedVersion.HasValue)
         {
@@ -64,6 +66,11 @@ public sealed class WorkflowService : IWorkflowService
 
         await RefreshEffectiveConfigurationAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    private static bool IsLegacyConfiguration(WorkflowConfiguration configuration) =>
+        configuration.Stages.Count == 0 && configuration.Triggers.Count == 0 && configuration.Notifications.Count == 0 &&
+        configuration.StatusTransitions.Count == 0 && configuration.StatusLabels.Count == 0 &&
+        configuration.RevisionPolicy == new WorkflowRevisionPolicy();
 
     private async Task<int?> ReadPersistedConfigurationVersionAsync(Guid packageId, CancellationToken cancellationToken)
     {
