@@ -17,6 +17,22 @@
         <Button Content="Extract Dimensions" Command="{Binding ExtractDimensionsCommand}" Margin="0,16,0,8"/>
         <Button Content="Refresh Dimensions" Command="{Binding LoadDimensionsCommand}" Margin="0,0,0,8"/>
         <Button Content="Submit for Review" Command="{Binding SubmitForReviewCommand}" Margin="0,0,0,8"/>
+        <TextBlock Text="Prior versions" FontWeight="Bold" Margin="0,16,0,8"/>
+        <StackPanel Orientation="Horizontal">
+            <TextBox Text="{Binding PriorMakerFilter, UpdateSourceTrigger=PropertyChanged}" Width="160" Margin="0,0,8,8" ToolTip="Maker filter"/>
+            <Button Content="Load history" Command="{Binding LoadPriorVersionsCommand}" Margin="0,0,8,8"/>
+            <Button Content="View current version" Command="{Binding ViewCurrentVersionCommand}" Margin="0,0,8,8"/>
+            <Button Content="Compare with current" Command="{Binding ComparePriorVersionCommand}" Margin="0,0,8,8"/>
+        </StackPanel>
+        <ListBox ItemsSource="{Binding PriorVersions}" SelectedItem="{Binding SelectedPriorVersion}" DisplayMemberPath="Revision" SelectionChanged="PriorVersionSelectionChanged"/>
+        <StackPanel DataContext="{Binding SelectedPriorVersion}" Margin="0,8,0,8">
+            <TextBlock Text="{Binding MakerDisplayName, StringFormat=Maker: {0}}"/>
+            <TextBlock Text="{Binding Status, StringFormat=Status: {0}}"/>
+            <TextBlock Text="{Binding SubmittedUtc, StringFormat=Submitted: {0}}"/>
+            <TextBlock Text="{Binding RejectionReason, StringFormat=Rejection: {0}}" TextWrapping="Wrap"/>
+            <TextBlock Text="{Binding CorrectionResponse, StringFormat=Correction response: {0}}" TextWrapping="Wrap"/>
+            <TextBlock Text="Prior versions are read-only." FontStyle="Italic"/>
+        </StackPanel>
         <TextBlock Text="{Binding Message}"/>
         <TextBlock Text="{Binding ErrorMessage}" Foreground="{DynamicResource BrandError}"/>
         <TextBlock Text="{Binding DimensionResultsHeading}" FontWeight="Bold" Margin="0,16,0,8"/>

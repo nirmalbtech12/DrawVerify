@@ -25,6 +25,8 @@ public interface IDocumentRepository
     }
     Task<IReadOnlyList<DimensionData>> GetDimensionsAsync(Guid documentId, CancellationToken cancellationToken = default)
         => Task.FromResult<IReadOnlyList<DimensionData>>(Array.Empty<DimensionData>());
+    Task<DocumentVersion?> GetVersionAsync(Guid documentId, Guid versionId, CancellationToken cancellationToken = default)
+        => Task.FromResult<DocumentVersion?>(Get(documentId)?.Versions.FirstOrDefault(x => x.VersionId == versionId));
 }
 
 public interface ITransactionalDocumentRepository

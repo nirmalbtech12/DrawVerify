@@ -48,4 +48,10 @@ public interface IWorkflowService
         => Task.FromResult<IReadOnlyList<ReviewComment>>(Array.Empty<ReviewComment>());
     Task<IReadOnlyList<ReviewPackage>> GetMakerReviewPackagesAsync(CancellationToken cancellationToken = default)
         => Task.FromResult<IReadOnlyList<ReviewPackage>>(Array.Empty<ReviewPackage>());
+    Task<IReadOnlyList<PriorVersionReview>> GetPriorVersionsAsync(Guid packageId, PriorVersionFilter? filter = null, CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<PriorVersionReview>>(Array.Empty<PriorVersionReview>());
+    Task<PriorVersionReview?> GetPriorVersionAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
+        => Task.FromResult<PriorVersionReview?>(null);
+    Task<VersionComparison> CompareVersionsAsync(Guid packageId, int currentRevision, int priorRevision, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("Version comparison is not supported by this workflow service.");
 }

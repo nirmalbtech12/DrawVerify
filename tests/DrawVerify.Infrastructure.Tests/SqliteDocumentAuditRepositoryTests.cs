@@ -31,5 +31,19 @@ public sealed class SqliteDocumentAuditRepositoryTests
         finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); if (File.Exists(path)) File.Delete(path); }
     }
 
+    [Fact(DisplayName = "TD-INF-03 persists complete PriorVersionViewed audit fields")]
+    public async Task Prior_version_view_audit_round_trips_exact_access_context()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"audit-prior-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteAuditRepository(path); var document = Guid.NewGuid(); var when = new DateTimeOffset(2026, 3, 4, 5, 6, 7, TimeSpan.Zero);
+            await repository.AppendAsync(new AuditEntry { AuditId = Guid.NewGuid(), DocumentId = document, UserId = "checker-001", ActorRole = "Checker", DocumentRevision = "7", DocumentVersion = "version-7", TimestampOffset = when, TimestampUtc = when.UtcDateTime, Action = DocumentAuditAction.PriorVersionViewed, DetailsJson = "{\"action\":\"PriorVersionViewed\",\"revision\":7}" });
+            var result = await repository.QueryAsync(new AuditLogQuery(DocumentId: document));
+            var entry = Assert.Single(result); Assert.Equal(DocumentAuditAction.PriorVersionViewed, entry.Action); Assert.Equal("checker-001", entry.ActorId); Assert.Equal("Checker", entry.ActorRole); Assert.Equal("7", entry.DocumentRevision); Assert.Equal("version-7", entry.DocumentVersion); Assert.Equal(when, entry.Timestamp); Assert.Contains("PriorVersionViewed", entry.DetailsJson);
+        }
+        finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); if (File.Exists(path)) File.Delete(path); }
+    }
+
     private static AuditEntry Entry(Guid document, DocumentAuditAction action, string revision, DateTimeOffset timestamp, string metadata = "{}") => new() { AuditId = Guid.NewGuid(), DocumentId = document, UserId = "maker-001", ActorRole = "Maker", DocumentRevision = revision, DocumentVersion = "1", TimestampOffset = timestamp, TimestampUtc = timestamp.UtcDateTime, Action = action, DetailsJson = "{\"event\":\"audit\"}", EventMetadataJson = metadata };
 }

@@ -496,10 +496,98 @@ public sealed class WorkflowService : IWorkflowService
         return packages;
     }
 
+    public async Task<IReadOnlyList<PriorVersionReview>> GetPriorVersionsAsync(Guid packageId, PriorVersionFilter? filter = null, CancellationToken cancellationToken = default)
+    {
+        RequirePriorVersionPermission();
+        if (packageId == Guid.Empty) throw new ArgumentException("Package identifier is required.", nameof(packageId));
+        var submissions = await _workflow.GetPriorSubmissionsAsync(packageId, filter, cancellationToken).ConfigureAwait(false);
+        var result = new List<PriorVersionReview>(submissions.Count);
+        foreach (var submission in submissions)
+        {
+            var package = await BuildPriorVersionAsync(submission, cancellationToken).ConfigureAwait(false);
+            if (package is not null) result.Add(package);
+        }
+        return result;
+    }
+
+    public async Task<PriorVersionReview?> GetPriorVersionAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
+    {
+        RequirePriorVersionPermission();
+        if (packageId == Guid.Empty) throw new ArgumentException("Package identifier is required.", nameof(packageId));
+        if (revision < 1) throw new ArgumentOutOfRangeException(nameof(revision));
+        var submission = (await _workflow.GetSubmissionsAsync(packageId, cancellationToken).ConfigureAwait(false)).FirstOrDefault(x => x.Revision == revision);
+        if (submission is null) return null;
+        var result = await BuildPriorVersionAsync(submission, cancellationToken).ConfigureAwait(false);
+        if (result is null) return null;
+        var user = _authentication.CurrentUser!;
+        var audit = CreateAudit(packageId, revision, DocumentAuditAction.PriorVersionViewed, "PriorVersionViewed", _clock().ToUniversalTime(), user, documentVersionId: submission.StepDocumentVersionId);
+        try
+        {
+            await _workflow.RecordAuditAsync(audit, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            _logger?.Log(exception, "Prior version audit", $"packageId={packageId}; revision={revision}; versionId={submission.StepDocumentVersionId}");
+            throw;
+        }
+        return result;
+    }
+
+    public async Task<VersionComparison> CompareVersionsAsync(Guid packageId, int currentRevision, int priorRevision, CancellationToken cancellationToken = default)
+    {
+        RequirePriorVersionPermission();
+        if (currentRevision < 1 || priorRevision < 1) throw new ArgumentOutOfRangeException(nameof(priorRevision));
+        var submissions = await _workflow.GetSubmissionsAsync(packageId, cancellationToken).ConfigureAwait(false);
+        var current = submissions.FirstOrDefault(x => x.Revision == currentRevision) ?? throw new KeyNotFoundException("The current revision was not found.");
+        var prior = submissions.FirstOrDefault(x => x.Revision == priorRevision) ?? throw new KeyNotFoundException("The prior revision was not found.");
+        var fileChanges = new List<VersionDifference>();
+        AddDifference(fileChanges, "STEP", prior.StepDocumentVersionId, current.StepDocumentVersionId);
+        AddDifference(fileChanges, "DXF", prior.DxfDocumentVersionId, current.DxfDocumentVersionId);
+        var metadata = new List<VersionDifference>();
+        AddDifference(metadata, "Status", prior.Status.ToString(), current.Status.ToString());
+        AddDifference(metadata, "Maker", prior.MakerUserId, current.MakerUserId);
+        AddDifference(metadata, "Note", prior.Note, current.Note);
+        var dimensions = CompareEvidence(prior.VerificationEvidenceJson, current.VerificationEvidenceJson, "Dimension");
+        var gdt = CompareEvidence(prior.VerificationEvidenceJson, current.VerificationEvidenceJson, "Gdt");
+        return new VersionComparison { PackageId = packageId, PriorRevision = priorRevision, CurrentRevision = currentRevision, FileChanges = fileChanges, MetadataChanges = metadata, DimensionChanges = dimensions, GdtChanges = gdt, EvidenceAvailable = prior.VerificationEvidenceJson != "{}" && current.VerificationEvidenceJson != "{}" };
+    }
+
+    private async Task<PriorVersionReview?> BuildPriorVersionAsync(ReviewSubmission submission, CancellationToken cancellationToken)
+    {
+        var package = await _workflow.GetReviewPackageAsync(submission.PackageId, submission.Revision, cancellationToken).ConfigureAwait(false);
+        if (package is null) return null;
+        var decisions = await _workflow.GetDecisionHistoryAsync(submission.PackageId, submission.Revision, cancellationToken).ConfigureAwait(false);
+        var decision = decisions.LastOrDefault() ?? package.PriorDecision;
+        var correction = package.CorrectionAction ?? package.Comments.Select(x => x.CorrectionResponse).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x));
+        return new PriorVersionReview { PackageId = submission.PackageId, SubmissionId = submission.SubmissionId, Revision = submission.Revision, StepDocumentVersionId = submission.StepDocumentVersionId, DxfDocumentVersionId = submission.DxfDocumentVersionId, VerificationSessionId = submission.VerificationSessionId, MakerUserId = submission.MakerUserId, MakerDisplayName = submission.MakerDisplayName, CreatedUtc = submission.SubmittedUtc, SubmittedUtc = submission.SubmittedUtc, ApprovedUtc = decisions.Where(x => x.DecisionType == ReviewDecisionType.Approve).Select(x => (DateTime?)x.DecidedUtc).LastOrDefault(), Status = submission.Status, Note = submission.Note, RejectionReason = package.RejectionReason, CorrectionResponse = correction, Decisions = decisions, Comments = package.Comments, Package = package, IsCurrent = submission.Status is WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview };
+    }
+
+    private static void AddDifference(ICollection<VersionDifference> target, string category, Guid previous, Guid current)
+    {
+        if (previous != current) target.Add(new VersionDifference("File", category, "Modified", previous.ToString("D"), current.ToString("D")));
+    }
+
+    private static void AddDifference(ICollection<VersionDifference> target, string identifier, string? previous, string? current)
+    {
+        if (!string.Equals(previous, current, StringComparison.Ordinal)) target.Add(new VersionDifference("Metadata", identifier, "Modified", previous, current));
+    }
+
+    private static IReadOnlyList<VersionDifference> CompareEvidence(string previous, string current, string category)
+    {
+        if (string.Equals(previous, current, StringComparison.Ordinal)) return Array.Empty<VersionDifference>();
+        return new[] { new VersionDifference(category, category, "Modified", previous, current) };
+    }
+
     private void RequireReviewPermission()
     {
         if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ReviewVerification))
             throw new UnauthorizedAccessException("Only an authorized Checker or Approver can review drawing packages.");
+    }
+
+    private void RequirePriorVersionPermission()
+    {
+        if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ViewPriorVersions))
+            throw new UnauthorizedAccessException("Only an authorized Checker or Approver can access prior versions.");
     }
     private void RequireFinalApprovalPermission()
     {

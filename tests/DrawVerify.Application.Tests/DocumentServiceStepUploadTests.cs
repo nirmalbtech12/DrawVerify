@@ -105,6 +105,23 @@ public sealed class DocumentServiceStepUploadTests
         Assert.NotEmpty(failure.Store.Deleted);
     }
 
+    [Fact(DisplayName = "TD-APP-02 opens the exact historical STEP version read-only")]
+    public async Task Historical_version_read_uses_exact_version_and_is_disposable()
+    {
+        var f = new Fakes();
+        var documentId = Guid.NewGuid();
+        var prior = new DocumentVersion { DocumentId = documentId, VersionId = Guid.NewGuid(), VersionNumber = 1, StoredRelativePath = "history/prior.step" };
+        var current = new DocumentVersion { DocumentId = documentId, VersionId = Guid.NewGuid(), VersionNumber = 2, StoredRelativePath = "current.step" };
+        f.Documents.Created = new Document { DocumentId = documentId, Status = DrawVerify.Core.Enums.DocumentStatus.Active, Versions = new[] { prior, current }, Version = current };
+
+        await using var stream = await f.Service.OpenHistoricalReadAsync(documentId, prior.VersionId);
+
+        Assert.False(stream.CanWrite);
+        Assert.Equal("history/prior.step", f.Store.LastReadPath);
+        using var reader = new StreamReader(stream, leaveOpen: true);
+        Assert.Equal("historical", await reader.ReadToEndAsync());
+    }
+
     private static void AssertNoWrites(Fakes f) { Assert.Empty(f.Documents.Writes); Assert.Empty(f.Store.Created); }
     private static void AssertAudit(Fakes f, string name, string reason)
     {
@@ -117,22 +134,24 @@ public sealed class DocumentServiceStepUploadTests
     private sealed class Fakes
     {
         public Fakes(StepUploadConfiguration? config = null, ISessionAuthenticationService? session = null, Logger? logger = null, bool authenticate = true)
-        { Audit = new(); Documents = new(Audit); Store = new(); Logger = logger; session ??= new SessionAuthenticationService(); if (authenticate && session.CurrentUser is null) session.SignIn(new AuthenticatedUser("MAKER", new[] { SystemRoles.Maker })); Service = new(Documents, Audit, Store, config ?? new(), session, logger); }
+        { Audit = new(); Documents = new(Audit); Store = new(); Logger = logger; session ??= new SessionAuthenticationService(); if (authenticate && session.CurrentUser is null) session.SignIn(new AuthenticatedUser("MAKER", new[] { SystemRoles.Maker })); Service = new(Documents, Audit, Store, config ?? new(), session, logger, workflow: new WorkflowAccess()); }
         public readonly AuditLog Audit; public readonly DocumentRepository Documents; public readonly FileStore Store; public readonly Logger? Logger; public DocumentService Service { get; }
         public Document? Duplicate { get => Documents.Duplicate; set => Documents.Duplicate = value; } public bool ThrowOnCreate { get => Documents.ThrowOnCreate; set => Documents.ThrowOnCreate = value; }
     }
     private sealed class AuditLog : IAuditLogger { public List<AuditEntry> Entries { get; } = new(); public Task WriteAsync(AuditEntry e, CancellationToken t = default) { Entries.Add(e); return Task.CompletedTask; } }
     private sealed class DocumentRepository(AuditLog audit) : IDocumentRepository, ITransactionalDocumentRepository
     {
-        public Document? Duplicate { get; set; } public Document? Created { get; private set; } public bool ThrowOnCreate { get; set; } public List<string> Writes { get; } = new();
+        public Document? Duplicate { get; set; } public Document? Created { get; set; } public bool ThrowOnCreate { get; set; } public List<string> Writes { get; } = new();
         public Task<Document?> FindByOriginalNameAndSizeAsync(string n, long s, CancellationToken t = default) => Task.FromResult(Duplicate);
-        public Task<Document?> GetAsync(Guid id, CancellationToken t = default) => Task.FromResult(Created);
+        public Task<Document?> GetAsync(Guid id, CancellationToken t = default) => Task.FromResult(Created?.DocumentId == id ? Created : null);
         public Task CreateWithVersionAsync(Document d, DocumentVersion v, CancellationToken t = default) { if (ThrowOnCreate) throw new InvalidOperationException("persistence failure"); Created = d; Writes.Add("create"); return Task.CompletedTask; }
         public Task AddVersionAsync(Guid id, DocumentVersion v, CancellationToken t = default) { Writes.Add("version"); return Task.CompletedTask; }
         public async Task CreateWithVersionAndAuditAsync(Document d, DocumentVersion v, AuditEntry a, CancellationToken t = default) { await CreateWithVersionAsync(d, v, t); audit.Entries.Add(a); }
         public async Task AddVersionWithAuditAsync(Guid id, DocumentVersion v, AuditEntry a, CancellationToken t = default) { await AddVersionAsync(id, v, t); audit.Entries.Add(a); }
     }
-    private sealed class FileStore : IStepUploadFileStore { public List<string> Created { get; } = new(); public List<string> Deleted { get; } = new(); public Task<StepUploadStagingFile> CreateStagingFileAsync(string n, CancellationToken t = default) { Created.Add(n); return Task.FromResult(new StepUploadStagingFile("staging/test", new MemoryStream())); } public Task<string> MoveToFinalAsync(StepUploadStagingFile s, CancellationToken t = default) => Task.FromResult("uploads/step/final.step"); public Task DeleteAsync(string p, CancellationToken t = default) { Deleted.Add(p); return Task.CompletedTask; } }
+    private sealed class FileStore : IStepUploadFileStore { public List<string> Created { get; } = new(); public List<string> Deleted { get; } = new(); public string? LastReadPath { get; private set; } public Task<Stream> OpenReadAsync(string p, CancellationToken t = default) { LastReadPath = p; return Task.FromResult<Stream>(new ReadOnlyMemoryStream(B("historical"))); } public Task<StepUploadStagingFile> CreateStagingFileAsync(string n, CancellationToken t = default) { Created.Add(n); return Task.FromResult(new StepUploadStagingFile("staging/test", new MemoryStream())); } public Task<string> MoveToFinalAsync(StepUploadStagingFile s, CancellationToken t = default) => Task.FromResult("uploads/step/final.step"); public Task DeleteAsync(string p, CancellationToken t = default) { Deleted.Add(p); return Task.CompletedTask; } }
+    private sealed class WorkflowAccess : IWorkflowRepository { public Task<WorkflowState?> GetStateAsync(Guid id, CancellationToken t = default) => Task.FromResult<WorkflowState?>(new WorkflowState { PackageId = id, Status = WorkflowStatus.Draft }); public Task<ReviewSubmission?> GetSubmissionAsync(Guid id, CancellationToken t = default) => Task.FromResult<ReviewSubmission?>(null); public Task<IReadOnlyList<ReviewSubmission>> GetSubmissionsAsync(Guid id, CancellationToken t = default) => Task.FromResult<IReadOnlyList<ReviewSubmission>>(Array.Empty<ReviewSubmission>()); public Task<IReadOnlyList<WorkflowQueueItem>> GetCheckerQueueAsync(CancellationToken t = default) => Task.FromResult<IReadOnlyList<WorkflowQueueItem>>(Array.Empty<WorkflowQueueItem>()); public Task<ReviewSubmission> SubmitAtomicallyAsync(WorkflowState s, ReviewSubmission sub, AuditEntry a, CancellationToken t = default) => Task.FromResult(sub); public Task RecordAuditAsync(AuditEntry a, CancellationToken t = default) => Task.CompletedTask; public Task MarkSupersededAsync(Guid id, AuditEntry a, CancellationToken t = default) => Task.CompletedTask; }
+    private sealed class ReadOnlyMemoryStream(byte[] data) : MemoryStream(data, writable: false) { }
     private sealed class Logger : ICentralizedLogger { public List<string> Entries { get; } = new(); public void Log(Exception e, string op, string ctx) => Entries.Add(op + ctx + e.Message); }
     private sealed class TrackingStream(byte[] data) : MemoryStream(data) { public int Reads { get; private set; } public long ValidationBytesRead { get; private set; } public long CopyBytesRead { get; private set; } public override ValueTask<int> ReadAsync(Memory<byte> b, CancellationToken t = default) { Reads++; return ReadTracked(b); } private async ValueTask<int> ReadTracked(Memory<byte> b) { var n = await base.ReadAsync(b); if (b.Length <= 8192) ValidationBytesRead += n; else CopyBytesRead += n; return n; } }
     private sealed class DelayedStream(byte[] data) : MemoryStream(data) { public override async ValueTask<int> ReadAsync(Memory<byte> b, CancellationToken t = default) { await Task.Delay(TimeSpan.FromSeconds(5), t); return await base.ReadAsync(b, t); } }

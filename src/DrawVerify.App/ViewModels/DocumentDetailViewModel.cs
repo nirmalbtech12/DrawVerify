@@ -23,11 +23,22 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     private readonly SubmissionRequest? _submissionRequest;
     private readonly ISessionAuthenticationService? _authentication;
     private readonly RoleAuthorization _authorization = new();
+    private IReadOnlyList<PriorVersionReview> _priorVersions = Array.Empty<PriorVersionReview>();
+    private PriorVersionReview? _selectedPriorVersion;
+    private VersionComparison? _versionComparison;
+    private WorkflowStatus? _priorStatusFilter;
+    private DateTime? _priorFromUtc;
+    private DateTime? _priorToUtc;
+    private string? _priorMakerFilter;
 
     public DocumentDetailViewModel()
     {
         ExtractDimensionsCommand = new RelayCommand(async _ => await ExtractDimensionsAsync().ConfigureAwait(true), _ => CanExtractDimensions && !IsBusy);
         LoadDimensionsCommand = new RelayCommand(async _ => await LoadDimensionsAsync().ConfigureAwait(true), _ => CanViewDimensions && !IsBusy);
+        LoadPriorVersionsCommand = new RelayCommand(async _ => await LoadPriorVersionsAsync().ConfigureAwait(true), _ => CanViewPriorVersions && !IsBusy);
+        SelectPriorVersionCommand = new RelayCommand(async value => await SelectPriorVersionAsync(value).ConfigureAwait(true), value => CanViewPriorVersions && value is PriorVersionReview && !IsBusy);
+        ComparePriorVersionCommand = new RelayCommand(async _ => await ComparePriorVersionAsync().ConfigureAwait(true), _ => CanViewPriorVersions && SelectedPriorVersion is not null && !IsBusy);
+        ViewCurrentVersionCommand = new RelayCommand(_ => ViewCurrentVersion(), _ => SelectedPriorVersion is not null);
     }
 
     public DocumentDetailViewModel(Document document) : this(document, null) { }
@@ -80,6 +91,18 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     public ICommand ExtractCommand => ExtractDimensionsCommand;
     public ICommand LoadDimensionsCommand { get; }
     public ICommand RefreshDimensionsCommand => LoadDimensionsCommand;
+    public IReadOnlyList<PriorVersionReview> PriorVersions => _priorVersions;
+    public PriorVersionReview? SelectedPriorVersion { get => _selectedPriorVersion; private set { if (_selectedPriorVersion == value) return; _selectedPriorVersion = value; Changed(); ((RelayCommand)ComparePriorVersionCommand).Raise(); ((RelayCommand)ViewCurrentVersionCommand).Raise(); } }
+    public VersionComparison? VersionComparison => _versionComparison;
+    public WorkflowStatus? PriorStatusFilter { get => _priorStatusFilter; set { _priorStatusFilter = value; Changed(); } }
+    public DateTime? PriorFromUtc { get => _priorFromUtc; set { _priorFromUtc = value; Changed(); } }
+    public DateTime? PriorToUtc { get => _priorToUtc; set { _priorToUtc = value; Changed(); } }
+    public string? PriorMakerFilter { get => _priorMakerFilter; set { _priorMakerFilter = value; Changed(); } }
+    public bool CanViewPriorVersions => _workflowService is not null && _authentication?.IsAuthenticated == true && _authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ViewPriorVersions);
+    public ICommand LoadPriorVersionsCommand { get; }
+    public ICommand SelectPriorVersionCommand { get; }
+    public ICommand ComparePriorVersionCommand { get; }
+    public ICommand ViewCurrentVersionCommand { get; }
 
     private void RaiseSubmissionRequested()
     {
@@ -113,9 +136,48 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
         Changed(nameof(CanExtractDimensions)); Changed(nameof(IsAuthorized)); Changed(nameof(Dimensions));
         Changed(nameof(DimensionResults)); Changed(nameof(ExtractedDimensions));
         Changed(nameof(CanSubmitForReview));
+        Changed(nameof(CanViewPriorVersions));
         ((RelayCommand)ExtractDimensionsCommand).Raise();
         ((RelayCommand)LoadDimensionsCommand).Raise();
         ((RelayCommand)SubmitForReviewCommand).Raise();
+        ((RelayCommand)LoadPriorVersionsCommand).Raise();
+    }
+
+    public async Task LoadPriorVersionsAsync()
+    {
+        if (!CanViewPriorVersions || _workflowService is null || _document is null) return;
+        IsBusy = true; ErrorMessage = string.Empty;
+        try
+        {
+            _priorVersions = await _workflowService.GetPriorVersionsAsync(_document.DocumentId, new PriorVersionFilter { Status = PriorStatusFilter, FromUtc = PriorFromUtc, ToUtc = PriorToUtc, MakerUserId = PriorMakerFilter }).ConfigureAwait(true);
+            Message = string.Empty;
+        }
+        catch (UnauthorizedAccessException) { ErrorMessage = Message = "Only an authorized Checker or Approver can view prior versions."; }
+        catch (Exception) { ErrorMessage = Message = "Unable to load prior versions."; }
+        finally { Changed(nameof(PriorVersions)); IsBusy = false; }
+    }
+
+    private async Task SelectPriorVersionAsync(object? value)
+    {
+        if (value is not PriorVersionReview version || _workflowService is null) return;
+        IsBusy = true; ErrorMessage = string.Empty;
+        try { SelectedPriorVersion = await _workflowService.GetPriorVersionAsync(version.PackageId, version.Revision).ConfigureAwait(true); }
+        catch (Exception) { ErrorMessage = Message = "Unable to load the selected prior version."; }
+        finally { IsBusy = false; }
+    }
+
+    private async Task ComparePriorVersionAsync()
+    {
+        if (SelectedPriorVersion is null || _workflowService is null || _document is null) return;
+        IsBusy = true;
+        try { _versionComparison = await _workflowService.CompareVersionsAsync(SelectedPriorVersion.PackageId, _document.CurrentVersion, SelectedPriorVersion.Revision).ConfigureAwait(true); Changed(nameof(VersionComparison)); }
+        catch (Exception) { ErrorMessage = Message = "Unable to compare the selected prior version."; }
+        finally { IsBusy = false; }
+    }
+
+    private void ViewCurrentVersion()
+    {
+        SelectedPriorVersion = null; _versionComparison = null; Changed(nameof(VersionComparison)); Message = "Viewing the current version.";
     }
 
     public async Task LoadDimensionsAsync()

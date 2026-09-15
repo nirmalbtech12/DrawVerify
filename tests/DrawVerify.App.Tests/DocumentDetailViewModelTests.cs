@@ -174,6 +174,54 @@ public sealed class DocumentDetailViewModelTests
         Assert.Equal(0, scenario.Store.OpenReadCalls);
     }
 
+    [Fact(DisplayName = "TD-UI-01 navigates and filters history without replacing current document")]
+    public async Task Prior_version_commands_preserve_current_document_context()
+    {
+        var document = new Document { DocumentId = Guid.NewGuid(), CurrentVersion = 2, Version = new DocumentVersion { VersionId = Guid.NewGuid(), VersionNumber = 2 } };
+        var prior = new PriorVersionReview { PackageId = document.DocumentId, Revision = 1, Status = WorkflowStatus.Rejected, MakerDisplayName = "Maker", IsCurrent = false };
+        var current = prior with { Revision = 2, Status = WorkflowStatus.SubmittedForReview, IsCurrent = true };
+        var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser("checker", new[] { SystemRoles.Checker }));
+        var service = new HistoryService(new[] { prior, current });
+        var viewModel = new DocumentDetailViewModel(document, null, service, authentication: auth);
+
+        Assert.True(viewModel.CanViewPriorVersions);
+        await viewModel.LoadPriorVersionsAsync();
+        Assert.Equal(2, viewModel.PriorVersions.Count);
+        viewModel.SelectPriorVersionCommand.Execute(prior);
+        await WaitUntilIdleAsync(viewModel);
+        Assert.Equal(1, viewModel.SelectedPriorVersion!.Revision);
+        Assert.Equal(document.DocumentId, viewModel.Document!.DocumentId);
+        Assert.True(viewModel.SelectedPriorVersion.IsReadOnly);
+        viewModel.ViewCurrentVersionCommand.Execute(null);
+        Assert.Null(viewModel.SelectedPriorVersion);
+        Assert.Equal(2, document.CurrentVersion);
+    }
+
+    private static async Task WaitUntilIdleAsync(DocumentDetailViewModel viewModel)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        while (viewModel.IsBusy)
+        {
+            await Task.Delay(1, timeout.Token);
+        }
+    }
+
+    private sealed class HistoryService(IReadOnlyList<PriorVersionReview> versions) : IWorkflowService
+    {
+        public Task<SubmissionReadiness> ValidateReadinessAsync(Guid packageId, CancellationToken cancellationToken = default) => Task.FromResult(SubmissionReadiness.Ready);
+        public Task<SubmissionResult> SubmitForReviewAsync(SubmissionRequest request, CancellationToken cancellationToken = default) => Task.FromResult(new SubmissionResult(false, "not used"));
+        public Task RecordCancellationAsync(Guid packageId, int revision, string? note, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<WorkflowState?> GetPackageAsync(Guid packageId, CancellationToken cancellationToken = default) => Task.FromResult<WorkflowState?>(null);
+        public Task<IReadOnlyList<ReviewSubmission>> GetSubmittedPackagesAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ReviewSubmission>>(Array.Empty<ReviewSubmission>());
+        public Task<IReadOnlyList<WorkflowQueueItem>> GetCheckerQueueAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<WorkflowQueueItem>>(Array.Empty<WorkflowQueueItem>());
+        public Task<IReadOnlyList<PriorVersionReview>> GetPriorVersionsAsync(Guid packageId, PriorVersionFilter? filter = null, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<PriorVersionReview>>(versions.Where(x => filter?.Status is null || x.Status == filter.Status).ToArray());
+        public Task<PriorVersionReview?> GetPriorVersionAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
+            => Task.FromResult<PriorVersionReview?>(versions.FirstOrDefault(x => x.Revision == revision));
+        public Task<VersionComparison> CompareVersionsAsync(Guid packageId, int currentRevision, int priorRevision, CancellationToken cancellationToken = default)
+            => Task.FromResult(new VersionComparison { PackageId = packageId, CurrentRevision = currentRevision, PriorRevision = priorRevision, EvidenceAvailable = true });
+    }
+
     private static async Task ExecuteAndWaitAsync(DocumentDetailViewModel viewModel)
     {
         viewModel.ExtractDimensionsCommand.Execute(null);

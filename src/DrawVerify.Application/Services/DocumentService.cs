@@ -47,9 +47,14 @@ public sealed class DocumentService
     public async Task<Stream> OpenAccessibleReadAsync(Guid documentId, Guid versionId, CancellationToken cancellationToken = default)
     {
         var document = await GetAccessibleAsync(documentId, cancellationToken).ConfigureAwait(false);
-        if (document.Version?.VersionId != versionId) throw new InvalidOperationException("The requested document version is not available.");
-        return await _files.OpenReadAsync(document.Version.StoredRelativePath, cancellationToken).ConfigureAwait(false);
+        var version = document.Versions.FirstOrDefault(candidate => candidate.VersionId == versionId) ??
+            (document.Version?.VersionId == versionId ? document.Version : null);
+        if (version is null) throw new KeyNotFoundException("The requested document version is not available.");
+        return await _files.OpenReadAsync(version.StoredRelativePath, cancellationToken).ConfigureAwait(false);
     }
+
+    public Task<Stream> OpenHistoricalReadAsync(Guid documentId, Guid versionId, CancellationToken cancellationToken = default)
+        => OpenAccessibleReadAsync(documentId, versionId, cancellationToken);
 
     public async Task<bool> CanAccessAsync(Document document, CancellationToken cancellationToken = default)
     {

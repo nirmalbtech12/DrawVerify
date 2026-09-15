@@ -48,4 +48,5 @@ public enum DocumentAuditAction
     ,DocumentPrinted = 60
     ,DocumentArchived = 61
     ,DocumentDeleted = 62
+    ,PriorVersionViewed = 63
 }
