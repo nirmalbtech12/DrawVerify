@@ -425,6 +425,7 @@ public sealed class WorkflowService : IWorkflowService
     public async Task<ReviewComment> AddReviewCommentAsync(Guid packageId, int revision, string text, CancellationToken cancellationToken = default)
     {
         RequireReviewPermission();
+        await RequireCurrentRevisionAsync(packageId, revision, cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(text)) throw new ArgumentException("Review comment cannot be blank.", nameof(text));
         var user = _authentication.CurrentUser!; var comment = new ReviewComment { PackageId = packageId, Revision = revision, AuthorUserId = user.UserId, AuthorDisplayName = user.DisplayName, CreatedUtc = _clock().ToUniversalTime(), Text = text.Trim(), IsDraft = true };
         await _workflow.SaveReviewCommentAsync(comment, CreateAudit(packageId, revision, DocumentAuditAction.ReviewCommentDraftSaved, "CommentDraftSaved", comment.CreatedUtc, user, comment: comment), cancellationToken).ConfigureAwait(false);
@@ -434,6 +435,7 @@ public sealed class WorkflowService : IWorkflowService
     public async Task<ReviewComment> SaveReviewCommentDraftAsync(Guid packageId, int revision, string text, string? referenceType = null, string? referenceId = null, string? location = null, CancellationToken cancellationToken = default)
     {
         RequireReviewPermission();
+        await RequireCurrentRevisionAsync(packageId, revision, cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(text)) throw new ArgumentException("Review comment cannot be blank.", nameof(text));
         var package = await _workflow.GetReviewPackageAsync(packageId, revision, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException("The review package was not found.");
         if (package.Status is not (WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview)) throw new ReviewDecisionConflictException(packageId, revision, package.Status, revision, package.PriorDecision);
@@ -448,6 +450,7 @@ public sealed class WorkflowService : IWorkflowService
     {
         RequireReviewPermission();
         var user = _authentication.CurrentUser!;
+        await RequireCurrentRevisionAsync(comment.PackageId, comment.Revision, cancellationToken).ConfigureAwait(false);
         if (!string.Equals(user.UserId, comment.AuthorUserId, StringComparison.OrdinalIgnoreCase)) throw new UnauthorizedAccessException("Only the comment author can edit an unsent review comment.");
         var package = await _workflow.GetReviewPackageAsync(comment.PackageId, comment.Revision, cancellationToken).ConfigureAwait(false);
         if (package is null) throw new KeyNotFoundException($"Review package '{comment.PackageId}' revision {comment.Revision} was not found.");
@@ -462,10 +465,35 @@ public sealed class WorkflowService : IWorkflowService
     {
         RequireReviewPermission();
         var user = _authentication.CurrentUser!;
+        await RequireCurrentRevisionAsync(packageId, revision, cancellationToken).ConfigureAwait(false);
         var package = await _workflow.GetReviewPackageAsync(packageId, revision, cancellationToken).ConfigureAwait(false);
         if (package is null) throw new KeyNotFoundException($"Review package '{packageId}' revision {revision} was not found.");
         if (package.Status is not (WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview)) throw new ReviewDecisionConflictException(packageId, revision, package.Status, revision, package.PriorDecision);
         await _workflow.DiscardReviewCommentAsync(commentId, CreateAudit(packageId, revision, DocumentAuditAction.ReviewCommentDiscarded, "CommentDiscarded", _clock().ToUniversalTime(), user, commentId: commentId, workflowStatus: package?.Status), cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task RequireCurrentRevisionAsync(Guid packageId, int revision, CancellationToken cancellationToken)
+    {
+        if (packageId == Guid.Empty || revision < 1) throw new ArgumentException("A valid current review revision is required.");
+        var submissions = await _workflow.GetSubmissionsAsync(packageId, cancellationToken).ConfigureAwait(false);
+        var current = submissions.OrderByDescending(x => x.Revision).FirstOrDefault();
+        if (current is not null)
+        {
+            if (current.Revision != revision)
+                throw new ReviewDecisionConflictException(packageId, revision, current.Status, current.Revision, null);
+            return;
+        }
+
+        // Some legacy review callers do not expose submission history. Preserve
+        // their current/draft comment contract; persisted repositories enforce
+        // the revision and lock invariant at their mutation boundary.
+        if (submissions.Count == 0) return;
+
+        var package = await _workflow.GetReviewPackageAsync(packageId, revision, cancellationToken).ConfigureAwait(false);
+        if (package is null)
+            throw new ReviewDecisionConflictException(packageId, revision, WorkflowStatus.Draft, 0, null);
+        if (package.Revision != revision || package.Status is not (WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview))
+            throw new ReviewDecisionConflictException(packageId, revision, package.Status, package.Revision, package.PriorDecision);
     }
 
     public async Task<ReviewPackage?> GetReviewPackageForReaderAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
@@ -559,7 +587,7 @@ public sealed class WorkflowService : IWorkflowService
         var decisions = await _workflow.GetDecisionHistoryAsync(submission.PackageId, submission.Revision, cancellationToken).ConfigureAwait(false);
         var decision = decisions.LastOrDefault() ?? package.PriorDecision;
         var correction = package.CorrectionAction ?? package.Comments.Select(x => x.CorrectionResponse).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x));
-        return new PriorVersionReview { PackageId = submission.PackageId, SubmissionId = submission.SubmissionId, Revision = submission.Revision, StepDocumentVersionId = submission.StepDocumentVersionId, DxfDocumentVersionId = submission.DxfDocumentVersionId, VerificationSessionId = submission.VerificationSessionId, MakerUserId = submission.MakerUserId, MakerDisplayName = submission.MakerDisplayName, CreatedUtc = submission.SubmittedUtc, SubmittedUtc = submission.SubmittedUtc, ApprovedUtc = decisions.Where(x => x.DecisionType == ReviewDecisionType.Approve).Select(x => (DateTime?)x.DecidedUtc).LastOrDefault(), Status = submission.Status, Note = submission.Note, RejectionReason = package.RejectionReason, CorrectionResponse = correction, Decisions = decisions, Comments = package.Comments, Package = package, IsCurrent = submission.Status is WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview };
+        return new PriorVersionReview { PackageId = submission.PackageId, SubmissionId = submission.SubmissionId, Revision = submission.Revision, StepDocumentVersionId = submission.StepDocumentVersionId, DxfDocumentVersionId = submission.DxfDocumentVersionId, VerificationSessionId = submission.VerificationSessionId, MakerUserId = submission.MakerUserId, MakerDisplayName = submission.MakerDisplayName, CreatedUtc = submission.CreatedUtc.ToUniversalTime(), SubmittedUtc = submission.SubmittedUtc.ToUniversalTime(), ApprovedUtc = decisions.Where(x => x.DecisionType == ReviewDecisionType.Approve).Select(x => (DateTime?)x.DecidedUtc.ToUniversalTime()).LastOrDefault(), Status = submission.Status, Note = submission.Note, RejectionReason = package.RejectionReason, CorrectionResponse = correction, Decisions = decisions, Comments = package.Comments, Package = package, IsCurrent = submission.Status is WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview };
     }
 
     private static void AddDifference(ICollection<VersionDifference> target, string category, Guid previous, Guid current)

@@ -26,15 +26,16 @@ public sealed class DocumentService
     private readonly RoleAuthorization _authorization;
     private readonly IUserRepository? _users;
     private readonly IWorkflowRepository? _workflow;
+    private readonly IDxfUploadFileStore? _dxfFiles;
     private readonly Dictionary<string, StepUploadPreparation> _preparedDuplicates = new(StringComparer.Ordinal);
     public bool CanUploadStep => _session.IsAuthenticated && _authorization.IsAllowed(_session.CurrentUser, RolePermission.Upload);
 
     public DocumentService(IDocumentRepository documents, IAuditLogger audit, IStepUploadFileStore files, StepUploadConfiguration configuration, ICentralizedLogger? logger = null, object? stepModelValidator = null)
         : this(documents, audit, files, configuration, new SessionAuthenticationService(), logger, new RoleAuthorization(), stepModelValidator) { }
 
-    public DocumentService(IDocumentRepository documents, IAuditLogger audit, IStepUploadFileStore files, StepUploadConfiguration configuration, ISessionAuthenticationService? session, ICentralizedLogger? logger = null, RoleAuthorization? authorization = null, object? stepModelValidator = null, IUserRepository? users = null, IWorkflowRepository? workflow = null)
+    public DocumentService(IDocumentRepository documents, IAuditLogger audit, IStepUploadFileStore files, StepUploadConfiguration configuration, ISessionAuthenticationService? session, ICentralizedLogger? logger = null, RoleAuthorization? authorization = null, object? stepModelValidator = null, IUserRepository? users = null, IWorkflowRepository? workflow = null, IDxfUploadFileStore? dxfFiles = null)
     {
-        _documents = documents; _transactionalDocuments = documents as ITransactionalDocumentRepository ?? throw new ArgumentException("The document repository must support transactional document, version, and audit persistence.", nameof(documents)); _audit = audit; _files = files; _configuration = configuration; _logger = logger; _session = session ?? new SessionAuthenticationService(); _authorization = authorization ?? new RoleAuthorization(); _users = users; _workflow = workflow; _configuration.Validate();
+        _documents = documents; _transactionalDocuments = documents as ITransactionalDocumentRepository ?? throw new ArgumentException("The document repository must support transactional document, version, and audit persistence.", nameof(documents)); _audit = audit; _files = files; _dxfFiles = dxfFiles; _configuration = configuration; _logger = logger; _session = session ?? new SessionAuthenticationService(); _authorization = authorization ?? new RoleAuthorization(); _users = users; _workflow = workflow; _configuration.Validate();
     }
 
     public async Task<Document> GetAccessibleAsync(Guid documentId, CancellationToken cancellationToken = default)
@@ -53,8 +54,19 @@ public sealed class DocumentService
         return await _files.OpenReadAsync(version.StoredRelativePath, cancellationToken).ConfigureAwait(false);
     }
 
-    public Task<Stream> OpenHistoricalReadAsync(Guid documentId, Guid versionId, CancellationToken cancellationToken = default)
-        => OpenAccessibleReadAsync(documentId, versionId, cancellationToken);
+    public async Task<Stream> OpenHistoricalReadAsync(Guid documentId, Guid versionId, CancellationToken cancellationToken = default)
+    {
+        var document = await GetAccessibleAsync(documentId, cancellationToken).ConfigureAwait(false);
+        var version = document.Versions.FirstOrDefault(candidate => candidate.VersionId == versionId) ??
+            (document.Version?.VersionId == versionId ? document.Version : null);
+        if (version is null) throw new KeyNotFoundException("The requested document version is not available.");
+        if (document.DocumentType == DrawVerify.Core.Enums.DocumentType.DxfDrawing)
+        {
+            if (_dxfFiles is null) throw new InvalidOperationException("DXF historical file access is not configured.");
+            return await _dxfFiles.OpenReadAsync(version.StoredRelativePath, cancellationToken).ConfigureAwait(false);
+        }
+        return await _files.OpenReadAsync(version.StoredRelativePath, cancellationToken).ConfigureAwait(false);
+    }
 
     public async Task<bool> CanAccessAsync(Document document, CancellationToken cancellationToken = default)
     {

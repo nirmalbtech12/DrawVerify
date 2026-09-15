@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using DrawVerify.Application.Services;
@@ -23,6 +24,7 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     private readonly SubmissionRequest? _submissionRequest;
     private readonly ISessionAuthenticationService? _authentication;
     private readonly RoleAuthorization _authorization = new();
+    private readonly DocumentService? _documentService;
     private IReadOnlyList<PriorVersionReview> _priorVersions = Array.Empty<PriorVersionReview>();
     private PriorVersionReview? _selectedPriorVersion;
     private VersionComparison? _versionComparison;
@@ -39,13 +41,15 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
         SelectPriorVersionCommand = new RelayCommand(async value => await SelectPriorVersionAsync(value).ConfigureAwait(true), value => CanViewPriorVersions && value is PriorVersionReview && !IsBusy);
         ComparePriorVersionCommand = new RelayCommand(async _ => await ComparePriorVersionAsync().ConfigureAwait(true), _ => CanViewPriorVersions && SelectedPriorVersion is not null && !IsBusy);
         ViewCurrentVersionCommand = new RelayCommand(_ => ViewCurrentVersion(), _ => SelectedPriorVersion is not null);
+        OpenHistoricalStepCommand = new RelayCommand(async _ => await OpenHistoricalFileAsync(false).ConfigureAwait(true), _ => CanOpenHistoricalFiles && SelectedPriorVersion is not null && !IsBusy);
+        OpenHistoricalDxfCommand = new RelayCommand(async _ => await OpenHistoricalFileAsync(true).ConfigureAwait(true), _ => CanOpenHistoricalFiles && SelectedPriorVersion is not null && !IsBusy);
     }
 
     public DocumentDetailViewModel(Document document) : this(document, null) { }
 
-    public DocumentDetailViewModel(Document document, DxfDimensionExtractionService? dimensionService, IWorkflowService? workflowService = null, SubmissionRequest? submissionRequest = null, ISessionAuthenticationService? authentication = null, RoleAuthorization? authorization = null) : this()
+    public DocumentDetailViewModel(Document document, DxfDimensionExtractionService? dimensionService, IWorkflowService? workflowService = null, SubmissionRequest? submissionRequest = null, ISessionAuthenticationService? authentication = null, RoleAuthorization? authorization = null, DocumentService? documentService = null) : this()
     {
-        _dimensionService = dimensionService; _workflowService = workflowService; _submissionRequest = submissionRequest; _authentication = authentication; _authorization = authorization ?? new RoleAuthorization();
+        _dimensionService = dimensionService; _workflowService = workflowService; _submissionRequest = submissionRequest; _authentication = authentication; _authorization = authorization ?? new RoleAuthorization(); _documentService = documentService;
         SubmitForReviewCommand = new RelayCommand(_ => RaiseSubmissionRequested(), _ => CanSubmitForReview);
         Load(document);
     }
@@ -84,7 +88,7 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     public bool IsAuthorized => CanViewDimensions;
     public bool CanViewDimensions => _dimensionService?.CanViewDimensions == true;
     public bool CanExtractDimensions => _dimensionService?.CanExtractDimensions == true && DocumentType == CoreDocumentType.DxfDrawing && UploadStatus == CoreUploadStatus.Uploaded;
-    public bool IsBusy { get => _isBusy; private set { if (_isBusy == value) return; _isBusy = value; Changed(); Changed(nameof(CanExtractDimensions)); ((RelayCommand)ExtractDimensionsCommand).Raise(); } }
+    public bool IsBusy { get => _isBusy; private set { if (_isBusy == value) return; _isBusy = value; Changed(); Changed(nameof(CanExtractDimensions)); ((RelayCommand)ExtractDimensionsCommand).Raise(); ((RelayCommand)OpenHistoricalStepCommand).Raise(); ((RelayCommand)OpenHistoricalDxfCommand).Raise(); } }
     public string Message { get => _message; private set { if (_message == value) return; _message = value; Changed(); } }
     public string ErrorMessage { get => _errorMessage; private set { if (_errorMessage == value) return; _errorMessage = value; Changed(); } }
     public ICommand ExtractDimensionsCommand { get; }
@@ -92,7 +96,7 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     public ICommand LoadDimensionsCommand { get; }
     public ICommand RefreshDimensionsCommand => LoadDimensionsCommand;
     public IReadOnlyList<PriorVersionReview> PriorVersions => _priorVersions;
-    public PriorVersionReview? SelectedPriorVersion { get => _selectedPriorVersion; private set { if (_selectedPriorVersion == value) return; _selectedPriorVersion = value; Changed(); ((RelayCommand)ComparePriorVersionCommand).Raise(); ((RelayCommand)ViewCurrentVersionCommand).Raise(); } }
+    public PriorVersionReview? SelectedPriorVersion { get => _selectedPriorVersion; private set { if (_selectedPriorVersion == value) return; _selectedPriorVersion = value; Changed(); ((RelayCommand)ComparePriorVersionCommand).Raise(); ((RelayCommand)ViewCurrentVersionCommand).Raise(); ((RelayCommand)OpenHistoricalStepCommand).Raise(); ((RelayCommand)OpenHistoricalDxfCommand).Raise(); } }
     public VersionComparison? VersionComparison => _versionComparison;
     public WorkflowStatus? PriorStatusFilter { get => _priorStatusFilter; set { _priorStatusFilter = value; Changed(); } }
     public DateTime? PriorFromUtc { get => _priorFromUtc; set { _priorFromUtc = value; Changed(); } }
@@ -103,6 +107,11 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     public ICommand SelectPriorVersionCommand { get; }
     public ICommand ComparePriorVersionCommand { get; }
     public ICommand ViewCurrentVersionCommand { get; }
+    public ICommand OpenHistoricalStepCommand { get; }
+    public ICommand OpenHistoricalDxfCommand { get; }
+    public bool CanOpenHistoricalFiles => _documentService is not null && CanViewPriorVersions;
+    public int HistoricalStepBytesRead { get; private set; }
+    public int HistoricalDxfBytesRead { get; private set; }
 
     private void RaiseSubmissionRequested()
     {
@@ -172,6 +181,25 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
         IsBusy = true;
         try { _versionComparison = await _workflowService.CompareVersionsAsync(SelectedPriorVersion.PackageId, _document.CurrentVersion, SelectedPriorVersion.Revision).ConfigureAwait(true); Changed(nameof(VersionComparison)); }
         catch (Exception) { ErrorMessage = Message = "Unable to compare the selected prior version."; }
+        finally { IsBusy = false; }
+    }
+
+    private async Task OpenHistoricalFileAsync(bool dxf)
+    {
+        if (!CanOpenHistoricalFiles || SelectedPriorVersion is null || _documentService is null) return;
+        IsBusy = true; ErrorMessage = string.Empty;
+        try
+        {
+            var versionId = dxf ? SelectedPriorVersion.DxfDocumentVersionId : SelectedPriorVersion.StepDocumentVersionId;
+            await using var stream = await _documentService.OpenHistoricalReadAsync(SelectedPriorVersion.PackageId, versionId).ConfigureAwait(true);
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer).ConfigureAwait(true);
+            if (dxf) HistoricalDxfBytesRead = checked((int)buffer.Length); else HistoricalStepBytesRead = checked((int)buffer.Length);
+            Changed(nameof(HistoricalStepBytesRead)); Changed(nameof(HistoricalDxfBytesRead));
+            Message = $"Opened historical {(dxf ? "DXF" : "STEP")} file ({buffer.Length} bytes) read-only.";
+        }
+        catch (UnauthorizedAccessException) { ErrorMessage = Message = "You are not authorized to open this historical file."; }
+        catch (Exception) { ErrorMessage = Message = $"Unable to open the historical {(dxf ? "DXF" : "STEP")} file."; }
         finally { IsBusy = false; }
     }
 
