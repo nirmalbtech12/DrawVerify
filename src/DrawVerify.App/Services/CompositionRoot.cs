@@ -67,7 +67,25 @@ public static class CompositionRoot
         var database = DatabasePath(); var logger = new CentralizedLogger();
         return new WorkflowService(new SqliteWorkflowRepository(database, logger, WorkflowConfiguration), Session, WorkflowConfiguration, Authorization, logger, new SqliteDocumentRepository(database, logger), new SqliteVerificationSessionRepository(database), notifications: new InAppNotificationService(database), snapshots: new ApprovalSnapshotFileStore(Path.Combine(AppContext.BaseDirectory, "approval-snapshots")), stepFiles: new DocumentFileStore(AppContext.BaseDirectory, StepUploadConfiguration), dxfFiles: new DxfDocumentFileStore(AppContext.BaseDirectory, DxfUploadConfiguration));
     }
-    public static IWorkflowConfigurationService CreateWorkflowConfigurationService() => new WorkflowConfigurationService(new SqliteWorkflowConfigurationRepository(DatabasePath()), Session, Authorization, new CentralizedLogger());
+    public static IWorkflowConfigurationService CreateWorkflowConfigurationService()
+    {
+        var logger = new CentralizedLogger();
+        try
+        {
+            var repository = new SqliteWorkflowConfigurationRepository(DatabasePath(), logger);
+            if (repository.GetCurrentAsync().GetAwaiter().GetResult() is null)
+            {
+                var bootstrap = WorkflowConfiguration;
+                repository.SaveAsync(bootstrap, new DrawVerify.Core.Models.WorkflowConfigurationAudit("system", DateTime.UtcNow, null, bootstrap.Version, string.Empty, JsonSerializer.Serialize(bootstrap)), null).GetAwaiter().GetResult();
+            }
+            return new WorkflowConfigurationService(repository, Session, Authorization, logger);
+        }
+        catch (Exception exception)
+        {
+            logger.Log(exception, "Workflow configuration bootstrap", "Unable to initialize the effective configuration from config/workflow.default.json.");
+            throw;
+        }
+    }
     public static DimensionMatchingConfiguration ConfiguredDimensionMatching => DimensionMatchingConfiguration;
     public static GdtValidator CreateGdtValidator()
     {

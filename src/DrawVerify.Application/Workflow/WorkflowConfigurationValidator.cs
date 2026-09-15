@@ -56,6 +56,36 @@ public sealed class WorkflowConfigurationValidator
         var graph = configuration.StatusTransitions.GroupBy(x => x.From).ToDictionary(x => x.Key, x => x.Select(y => y.To).ToArray()); var colors = new Dictionary<WorkflowStatus, int>();
         bool Visit(WorkflowStatus node) { if (colors.TryGetValue(node, out var color)) return color == 1; colors[node] = 1; if (graph.TryGetValue(node, out var next) && next.Any(Visit)) return true; colors[node] = 2; return false; }
         foreach (var node in graph.Keys) if (Visit(node)) { errors.Add($"StatusTransitions contains a circular route involving '{node}'."); break; }
+
+        if (configuration.StatusTransitions.Count > 0)
+        {
+            var roots = new HashSet<WorkflowStatus> { WorkflowStatus.Draft };
+            if (configuration.StatusLabels.TryGetValue(WorkflowStatus.Draft, out var draftLabel) && Enum.TryParse<WorkflowStatus>(draftLabel, true, out var labelledDraft)) roots.Add(labelledDraft);
+            var reachable = new HashSet<WorkflowStatus>(roots);
+            var pending = new Queue<WorkflowStatus>(roots);
+            while (pending.Count > 0)
+            {
+                var current = pending.Dequeue();
+                if (!graph.TryGetValue(current, out var next)) continue;
+                foreach (var target in next.Where(reachable.Add)) pending.Enqueue(target);
+            }
+            foreach (var transition in configuration.StatusTransitions.Where(x => !reachable.Contains(x.From)))
+                errors.Add($"StatusTransitions['{transition.From}->{transition.To}'] is unreachable from '{WorkflowStatus.Draft}'.");
+        }
+
+        var rejectionGraph = configuration.Stages.Where(x => !string.IsNullOrWhiteSpace(x.RejectTo))
+            .ToDictionary(x => x.Name, x => x.RejectTo!, StringComparer.OrdinalIgnoreCase);
+        var rejectionColors = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        bool VisitRejection(string stage)
+        {
+            if (rejectionColors.TryGetValue(stage, out var color)) return color == 1;
+            rejectionColors[stage] = 1;
+            if (rejectionGraph.TryGetValue(stage, out var next) && VisitRejection(next)) return true;
+            rejectionColors[stage] = 2;
+            return false;
+        }
+        foreach (var stage in rejectionGraph.Keys)
+            if (VisitRejection(stage)) errors.Add($"Stages['{stage}'].RejectTo contains a circular rejection route.");
     }
     public void EnsureValid(WorkflowConfiguration configuration)
     { var errors = Validate(configuration); if (errors.Count > 0) throw new InvalidOperationException(string.Join(" ", errors)); }
