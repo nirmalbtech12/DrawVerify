@@ -190,8 +190,11 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
         IsBusy = true; ErrorMessage = string.Empty;
         try
         {
+            var documentId = dxf ? SelectedPriorVersion.Package.DxfDocumentId : SelectedPriorVersion.Package.StepDocumentId;
             var versionId = dxf ? SelectedPriorVersion.DxfDocumentVersionId : SelectedPriorVersion.StepDocumentVersionId;
-            await using var stream = await _documentService.OpenHistoricalReadAsync(SelectedPriorVersion.PackageId, versionId).ConfigureAwait(true);
+            if (documentId == Guid.Empty || versionId == Guid.Empty)
+                throw new KeyNotFoundException($"The selected historical {(dxf ? "DXF" : "STEP")} document version is unavailable.");
+            await using var stream = await _documentService.OpenHistoricalReadAsync(documentId, versionId).ConfigureAwait(true);
             using var buffer = new MemoryStream();
             await stream.CopyToAsync(buffer).ConfigureAwait(true);
             if (dxf) HistoricalDxfBytesRead = checked((int)buffer.Length); else HistoricalStepBytesRead = checked((int)buffer.Length);

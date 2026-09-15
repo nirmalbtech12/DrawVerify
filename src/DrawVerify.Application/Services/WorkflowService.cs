@@ -603,7 +603,80 @@ public sealed class WorkflowService : IWorkflowService
     private static IReadOnlyList<VersionDifference> CompareEvidence(string previous, string current, string category)
     {
         if (string.Equals(previous, current, StringComparison.Ordinal)) return Array.Empty<VersionDifference>();
-        return new[] { new VersionDifference(category, category, "Modified", previous, current) };
+        if (!TryGetEvidenceMap(previous, category, out var previousItems) || !TryGetEvidenceMap(current, category, out var currentItems))
+            return Array.Empty<VersionDifference>();
+
+        var differences = new List<VersionDifference>();
+        foreach (var identifier in previousItems.Keys.Union(currentItems.Keys, StringComparer.OrdinalIgnoreCase).OrderBy(value => value, StringComparer.OrdinalIgnoreCase))
+        {
+            var hasPrevious = previousItems.TryGetValue(identifier, out var previousValue);
+            var hasCurrent = currentItems.TryGetValue(identifier, out var currentValue);
+            if (!hasPrevious)
+                differences.Add(new VersionDifference(category, identifier, "Added", null, currentValue));
+            else if (!hasCurrent)
+                differences.Add(new VersionDifference(category, identifier, "Removed", previousValue, null));
+            else if (!string.Equals(previousValue, currentValue, StringComparison.Ordinal))
+                differences.Add(new VersionDifference(category, identifier, "Modified", previousValue, currentValue));
+        }
+        return differences;
+    }
+
+    private static bool TryGetEvidenceMap(string json, string category, out IReadOnlyDictionary<string, string> values)
+    {
+        values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(json) || json == "{}") return false;
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            var propertyNames = category.Equals("Dimension", StringComparison.OrdinalIgnoreCase)
+                ? new[] { "dimensions", "dimensionMatches", "matches" }
+                : new[] { "gdt", "gdtResults", "gdtControls", "geometricTolerances" };
+            JsonElement collection = default;
+            foreach (var propertyName in propertyNames)
+            {
+                if (TryGetPropertyIgnoreCase(document.RootElement, propertyName, out var candidate) && candidate.ValueKind == JsonValueKind.Array)
+                {
+                    collection = candidate;
+                    break;
+                }
+            }
+            if (collection.ValueKind != JsonValueKind.Array) return false;
+
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in collection.EnumerateArray())
+            {
+                var identifier = GetEvidenceIdentifier(item);
+                if (!string.IsNullOrWhiteSpace(identifier)) result[identifier] = item.GetRawText();
+            }
+            values = result;
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static string? GetEvidenceIdentifier(JsonElement item)
+    {
+        if (item.ValueKind != JsonValueKind.Object) return null;
+        foreach (var propertyName in new[] { "identifier", "id", "dimensionId", "dimensionMatchId", "gdtResultId", "reference", "dxfDimensionReference" })
+            if (TryGetPropertyIgnoreCase(item, propertyName, out var value))
+                return value.ValueKind == JsonValueKind.String ? value.GetString() : value.ToString();
+        return null;
+    }
+
+    private static bool TryGetPropertyIgnoreCase(JsonElement element, string name, out JsonElement value)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+            foreach (var property in element.EnumerateObject())
+                if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = property.Value;
+                    return true;
+                }
+        value = default;
+        return false;
     }
 
     private void RequireReviewPermission()
