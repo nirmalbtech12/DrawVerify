@@ -4,6 +4,8 @@ using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
 using DrawVerify.Core.Configuration;
 using Microsoft.Data.Sqlite;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace DrawVerify.Infrastructure.Persistence;
 
@@ -308,6 +310,21 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository
             DestinationRole = r.IsDBNull(offset + 16) ? null : r.GetString(offset + 16), DestinationQueue = r.IsDBNull(offset + 17) ? null : r.GetString(offset + 17)
         };
     }
-    private static async Task InsertAudit(SqliteConnection c, SqliteTransaction? t, AuditEntry e, CancellationToken token) => await Exec(c,t,"INSERT INTO DocumentAuditLog (AuditId,DocumentId,Action,UserId,TimestampUtc,DetailsJson,ActorRole,DocumentRevision,DocumentVersion,EventMetadataJson,PreviousWorkflowStatus,NewWorkflowStatus,PredecessorAuditId,IntegrityHash) VALUES($id,$document,$action,$user,$time,$details,$role,$revision,$version,$metadata,$previous,$next,$predecessor,$hash)",token,("$id",e.AuditId.ToString()),("$document",(object?)e.DocumentId?.ToString()??DBNull.Value),("$action",(int)e.Action),("$user",(object?)e.UserId??DBNull.Value),("$time",DateTime.SpecifyKind(e.TimestampUtc, DateTimeKind.Utc).ToString("O",CultureInfo.InvariantCulture)),("$details",e.DetailsJson),("$role",(object?)e.ActorRole??DBNull.Value),("$revision",(object?)e.DocumentRevision??DBNull.Value),("$version",(object?)e.DocumentVersion??DBNull.Value),("$metadata",e.EventMetadataJson),("$previous",(object?)e.PreviousWorkflowStatus??DBNull.Value),("$next",(object?)e.NewWorkflowStatus??DBNull.Value),("$predecessor",(object?)e.PredecessorAuditId?.ToString()??DBNull.Value),("$hash",(object?)e.IntegrityHash??DBNull.Value));
+    private static async Task InsertAudit(SqliteConnection c, SqliteTransaction? t, AuditEntry e, CancellationToken token)
+    {
+        var timestamp = new DateTimeOffset(DateTime.SpecifyKind(e.TimestampUtc, DateTimeKind.Utc)); Guid? predecessor = e.PredecessorAuditId; string? hash = e.IntegrityHash;
+        if (e.DocumentId.HasValue && hash is null)
+        {
+            await using var prior = c.CreateCommand(); prior.Transaction = t; prior.CommandText = "SELECT AuditId,IntegrityHash FROM DocumentAuditLog WHERE DocumentId=$document ORDER BY TimestampUtc DESC,AuditId DESC LIMIT 1"; prior.Parameters.AddWithValue("$document", e.DocumentId.Value.ToString());
+            string? previousHash = null;
+            await using (var reader = await prior.ExecuteReaderAsync(token))
+            {
+                if (await reader.ReadAsync(token)) { predecessor = Guid.Parse(reader.GetString(0)); previousHash = reader.IsDBNull(1) ? null : reader.GetString(1); }
+            }
+            hash = Hash(previousHash ?? string.Empty, e.AuditId, e.DocumentId.Value, e.Action, e.UserId, timestamp, e.DocumentRevision, e.EventMetadataJson, e.DetailsJson);
+        }
+        await Exec(c,t,"INSERT INTO DocumentAuditLog (AuditId,DocumentId,Action,UserId,TimestampUtc,DetailsJson,ActorRole,DocumentRevision,DocumentVersion,EventMetadataJson,PreviousWorkflowStatus,NewWorkflowStatus,PredecessorAuditId,IntegrityHash) VALUES($id,$document,$action,$user,$time,$details,$role,$revision,$version,$metadata,$previous,$next,$predecessor,$hash)",token,("$id",e.AuditId.ToString()),("$document",(object?)e.DocumentId?.ToString()??DBNull.Value),("$action",(int)e.Action),("$user",(object?)e.UserId??DBNull.Value),("$time",timestamp.UtcDateTime.ToString("O",CultureInfo.InvariantCulture)),("$details",e.DetailsJson),("$role",(object?)e.ActorRole??DBNull.Value),("$revision",(object?)e.DocumentRevision??DBNull.Value),("$version",(object?)e.DocumentVersion??DBNull.Value),("$metadata",e.EventMetadataJson),("$previous",(object?)e.PreviousWorkflowStatus??DBNull.Value),("$next",(object?)e.NewWorkflowStatus??DBNull.Value),("$predecessor",(object?)predecessor?.ToString()??DBNull.Value),("$hash",(object?)hash??DBNull.Value));
+    }
+    private static string Hash(string previous, Guid id, Guid document, DocumentAuditAction action, string actor, DateTimeOffset timestamp, string? revision, string metadata, string details) { var payload=$"{previous}|{id}|{document}|{action}|{actor}|{timestamp:O}|{revision}|{metadata}|{details}"; return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))); }
     private static async Task<int> Exec(SqliteConnection c, SqliteTransaction? t, string sql, CancellationToken token, params (string Name, object Value)[] values) { await using var cmd=c.CreateCommand(); cmd.Transaction=t; cmd.CommandText=sql; foreach(var value in values) cmd.Parameters.AddWithValue(value.Name,value.Value); return await cmd.ExecuteNonQueryAsync(token); }
 }

@@ -109,7 +109,7 @@ public sealed class DxfDocumentService
             finalPath = await _files.MoveToFinalAsync(staging, request.CancellationToken).ConfigureAwait(false); staging = null;
             var current = _documents.GetCurrentVersion(documentId) ?? existing.Version ?? throw new InvalidOperationException("The current DXF version was not found.");
             var version = NewVersion(documentId, Math.Max(existing.CurrentVersion, current.VersionNumber) + 1, finalPath, size);
-            var audit = CreateAudit(documentId, DocumentAuditAction.DxfReplaced, request, JsonSerializer.Serialize(new { replacedVersionId = current.VersionId, newVersionId = version.VersionId }));
+            var audit = CreateAudit(documentId, DocumentAuditAction.DxfReplaced, request, JsonSerializer.Serialize(new { replacedVersionId = current.VersionId, newVersionId = version.VersionId }), version);
             await _transactionalDocuments.AddVersionWithAuditAsync(documentId, version, audit, request.CancellationToken).ConfigureAwait(false);
             var updated = existing with { FileSizeBytes = size, UploadTimestampUtc = version.CreatedUtc, CurrentVersion = version.VersionNumber, VerificationStatus = VerificationStatus.PendingVerification, VerificationError = null, DrawingSource = DrawingSource.Uploaded, Version = version, Versions = existing.Versions.Append(version).ToArray() };
             return SuccessResult(updated, name, size);
@@ -194,7 +194,7 @@ public sealed class DxfDocumentService
             if (duplicate is not null)
             {
                 var version = NewVersion(duplicate.DocumentId, duplicate.CurrentVersion + 1, finalPath, size);
-                var audit = CreateAudit(duplicate.DocumentId, DocumentAuditAction.Overwritten, request, "new version");
+                var audit = CreateAudit(duplicate.DocumentId, DocumentAuditAction.Overwritten, request, "new version", version);
                 await _transactionalDocuments.AddVersionWithAuditAsync(duplicate.DocumentId, version, audit, request.CancellationToken).ConfigureAwait(false);
                 var updated = duplicate with
                 {
@@ -208,7 +208,7 @@ public sealed class DxfDocumentService
             }
 
             var document = NewDocument(name, size, finalPath);
-            var uploadedAudit = CreateAudit(document.DocumentId, DocumentAuditAction.Uploaded, request, "uploaded");
+            var uploadedAudit = CreateAudit(document.DocumentId, DocumentAuditAction.Uploaded, request, "uploaded", document.Version);
             await _transactionalDocuments.CreateWithVersionAndAuditAsync(document, document.Version!, uploadedAudit, request.CancellationToken).ConfigureAwait(false);
             return SuccessResult(document, name, size);
         }
@@ -372,12 +372,13 @@ public sealed class DxfDocumentService
     private static DocumentVersion NewVersion(Guid documentId, int number, string path, long size, DateTime? timestamp = null) =>
         new() { DocumentId = documentId, VersionNumber = number, StoredRelativePath = path, FileSizeBytes = size, CreatedUtc = timestamp ?? DateTime.UtcNow, DrawingSource = DrawingSource.Uploaded };
 
-    private AuditEntry CreateAudit(Guid? documentId, DocumentAuditAction action, DxfUploadRequest request, string detail)
-        => CreateAudit(documentId, action, request, detail, GetSize(request));
+    private AuditEntry CreateAudit(Guid? documentId, DocumentAuditAction action, DxfUploadRequest request, string detail, DocumentVersion? version = null)
+        => CreateAudit(documentId, action, request, detail, GetSize(request), version);
 
-    private AuditEntry CreateAudit(Guid? documentId, DocumentAuditAction action, DxfUploadRequest request, string detail, long fileSizeBytes)
+    private AuditEntry CreateAudit(Guid? documentId, DocumentAuditAction action, DxfUploadRequest request, string detail, long fileSizeBytes, DocumentVersion? version = null)
     {
         var current = _session.CurrentUser ?? throw new UnauthorizedAccessException("An authenticated uploader is required.");
+        if (documentId.HasValue && version is null && action is DocumentAuditAction.Uploaded or DocumentAuditAction.Overwritten or DocumentAuditAction.DxfReplaced) throw new InvalidOperationException("The affected document version is required for DXF lifecycle auditing.");
         var name = LeafName(request.OriginalFileName);
         var details = JsonSerializer.Serialize(new
         {
@@ -388,7 +389,7 @@ public sealed class DxfDocumentService
         });
         return new AuditEntry
         {
-            DocumentId = documentId,
+            DocumentId = documentId, DocumentRevision = version?.VersionNumber.ToString(), DocumentVersion = version?.VersionId.ToString("D"),
             Action = action,
             UserId = current.UserId,
             DetailsJson = details
@@ -399,7 +400,8 @@ public sealed class DxfDocumentService
     {
         try
         {
-            await _audit.WriteAsync(CreateAudit(documentId, action, request, detail), cancellationToken ?? request.CancellationToken).ConfigureAwait(false);
+            var version = documentId.HasValue ? (await _documents.GetAsync(documentId.Value, cancellationToken ?? request.CancellationToken).ConfigureAwait(false))?.Version : null;
+            await _audit.WriteAsync(CreateAudit(documentId, action, request, detail, GetSize(request), version), cancellationToken ?? request.CancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception)
         {

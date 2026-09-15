@@ -136,12 +136,12 @@ public sealed class DocumentService
             if (duplicate is not null)
             {
                 var version = NewVersion(duplicate.DocumentId, duplicate.CurrentVersion + 1, finalPath, size);
-                var audit = CreateAudit(duplicate.DocumentId, DocumentAuditAction.Overwritten, request, "new version");
+                var audit = CreateAudit(duplicate.DocumentId, DocumentAuditAction.Overwritten, request, "new version", version);
                 await _transactionalDocuments.AddVersionWithAuditAsync(duplicate.DocumentId, version, audit, request.CancellationToken).ConfigureAwait(false);
                 return new StepUploadResult { Kind = StepUploadResultKind.Success, Message = $"Uploaded {name} ({size} bytes).", Document = duplicate, OriginalFileName = name, FileSizeBytes = size };
             }
             var document = NewDocument(name, size, finalPath);
-            var uploadedAudit = CreateAudit(document.DocumentId, DocumentAuditAction.Uploaded, request, "uploaded");
+            var uploadedAudit = CreateAudit(document.DocumentId, DocumentAuditAction.Uploaded, request, "uploaded", document.Version);
             await _transactionalDocuments.CreateWithVersionAndAuditAsync(document, document.Version!, uploadedAudit, request.CancellationToken).ConfigureAwait(false);
             return new StepUploadResult { Kind = StepUploadResultKind.Success, Message = $"Uploaded {name} ({size} bytes).", Document = document, OriginalFileName = name, FileSizeBytes = size };
         }
@@ -206,17 +206,19 @@ public sealed class DocumentService
     { source.Position = 0; var buffer = new byte[81920]; long copied = 0; int read; while ((read = await source.ReadAsync(buffer, token).ConfigureAwait(false)) > 0) { await destination.WriteAsync(buffer.AsMemory(0, read), token).ConfigureAwait(false); copied += read; progress?.Report(copied); } if (copied != size) throw new IOException("The upload stream changed while it was being copied."); await destination.FlushAsync(token).ConfigureAwait(false); }
     private static Document NewDocument(string name, long size, string path) { var id = Guid.NewGuid(); var version = NewVersion(id, 1, path, size); return new Document { DocumentId = id, OriginalFileName = name, FileSizeBytes = size, UploadTimestampUtc = DateTime.UtcNow, Version = version, Versions = new[] { version } }; }
     private static DocumentVersion NewVersion(Guid id, int number, string path, long size) => new() { DocumentId = id, VersionNumber = number, StoredRelativePath = path, FileSizeBytes = size, CreatedUtc = DateTime.UtcNow };
-    private AuditEntry CreateAudit(Guid? id, DocumentAuditAction action, StepUploadRequest request, string detail)
+    private AuditEntry CreateAudit(Guid? id, DocumentAuditAction action, StepUploadRequest request, string detail, DocumentVersion? version = null)
     {
+        var user = _session.CurrentUser ?? throw new UnauthorizedAccessException("An authenticated actor is required for document auditing.");
+        if (id.HasValue && version is null && action is DocumentAuditAction.Uploaded or DocumentAuditAction.Overwritten) throw new InvalidOperationException("The affected document version is required for lifecycle auditing.");
         var name = Path.GetFileName(request.OriginalFileName);
         var details = action == DocumentAuditAction.InvalidStepFileRejected
             ? JsonSerializer.Serialize(new { originalFileName = name, fileSizeBytes = GetSize(request), reason = detail })
             : JsonSerializer.Serialize(new { fileName = name, detail });
-        return new AuditEntry { DocumentId = id, Action = action, UserId = _session.CurrentUser?.Username ?? "Anonymous", DetailsJson = details };
+        return new AuditEntry { DocumentId = id, Action = action, UserId = user.UserId, DocumentRevision = version?.VersionNumber.ToString(), DocumentVersion = version?.VersionId.ToString("D"), DetailsJson = details };
     }
     private async Task WriteAuditAsync(Guid? id, DocumentAuditAction action, StepUploadRequest request, string detail, CancellationToken? cancellationToken = null)
     {
-        try { await _audit.WriteAsync(CreateAudit(id, action, request, detail), cancellationToken ?? request.CancellationToken).ConfigureAwait(false); }
+        try { var version = id.HasValue ? (await _documents.GetAsync(id.Value, cancellationToken ?? request.CancellationToken).ConfigureAwait(false))?.Version : null; await _audit.WriteAsync(CreateAudit(id, action, request, detail, version), cancellationToken ?? request.CancellationToken).ConfigureAwait(false); }
         catch (Exception exception) { _logger?.Log(exception, "STEP audit", $"action={action}; documentId={id?.ToString() ?? "none"}"); throw; }
     }
     private async Task<bool> TryDeleteAsync(string? relativePath, Exception originalException, string operation)
