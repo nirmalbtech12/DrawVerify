@@ -42,6 +42,41 @@ public sealed class SqliteWorkflowConfigurationRepositoryTests
         finally { Cleanup(path); }
     }
 
+    [Fact(DisplayName = "TD-INF-004 audit stores timestamp and complete old/new values")]
+    public async Task Audit_contains_complete_change_metadata()
+    {
+        var path = TempPath();
+        var timestamp = new DateTime(2026, 2, 3, 4, 5, 6, DateTimeKind.Utc);
+        try
+        {
+            await new SqliteWorkflowConfigurationRepository(path).SaveAsync(
+                Baseline() with { Version = 1 },
+                new WorkflowConfigurationAudit("admin-42", timestamp, null, 1, "previous-json", "new-json"), null);
+            await using var connection = Open(path);
+            Assert.Equal("admin-42", await Text(connection, "SELECT ActorId FROM WorkflowConfigurationAudit WHERE NewVersion=1"));
+            Assert.Equal(timestamp.ToString("O"), await Text(connection, "SELECT TimestampUtc FROM WorkflowConfigurationAudit WHERE NewVersion=1"));
+            Assert.Equal("previous-json", await Text(connection, "SELECT PreviousValue FROM WorkflowConfigurationAudit WHERE NewVersion=1"));
+            Assert.Equal("new-json", await Text(connection, "SELECT NewValue FROM WorkflowConfigurationAudit WHERE NewVersion=1"));
+        }
+        finally { Cleanup(path); }
+    }
+
+    [Fact(DisplayName = "TD-INF-005 workflow version capture preserves legacy null and explicit versions")]
+    public async Task Workflow_version_capture_is_explicit_and_nullable()
+    {
+        var path = TempPath();
+        try
+        {
+            var repository = new SqliteWorkflowConfigurationRepository(path);
+            Assert.Null(await repository.GetWorkflowVersionAsync("legacy"));
+            await repository.CaptureWorkflowVersionAsync("legacy", null);
+            await repository.CaptureWorkflowVersionAsync("active", 7);
+            Assert.Null(await repository.GetWorkflowVersionAsync("legacy"));
+            Assert.Equal(7, await repository.GetWorkflowVersionAsync("active"));
+        }
+        finally { Cleanup(path); }
+    }
+
     [Fact(DisplayName = "TD-INF-005 legacy nullable workflow version references remain compatible")]
     public async Task Legacy_rows_remain_readable_after_migration()
     {

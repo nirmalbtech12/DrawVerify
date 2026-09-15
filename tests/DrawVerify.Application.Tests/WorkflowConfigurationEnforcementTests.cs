@@ -36,6 +36,20 @@ public sealed class WorkflowConfigurationEnforcementTests
         new WorkflowConfigurationValidator().EnsureValid(configuration); Assert.Equal(3, configuration.Stages.Count); Assert.Equal(2, configuration.Stages[1].RequiredApprovals); Assert.Equal(WorkflowApprovalMode.Conditional, configuration.Stages[2].Mode);
     }
 
+    [Fact(DisplayName = "TD-APP-006 premature advancement and invalid conditional values are rejected")]
+    public void Routing_validation_rejects_premature_or_invalid_rules()
+    {
+        var invalid = Baseline() with
+        {
+            Roles = [new() { DisplayName = "Checker", SystemRole = SystemRoles.Checker }],
+            Stages = [new() { Name = "Parallel review", Mode = WorkflowApprovalMode.Parallel, Roles = ["Checker", "Checker"], RequiredApprovals = 3 }],
+            Triggers = [new() { Name = "Risk", RiskLevel = -1 }]
+        };
+        var errors = new WorkflowConfigurationValidator().Validate(invalid);
+        Assert.Contains(errors, x => x.Contains("RequiredApprovals", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(errors, x => x.Contains("negative", StringComparison.OrdinalIgnoreCase));
+    }
+
     [Fact(DisplayName = "TD-APP-007 delegation and substitution flags are independently retained")]
     public void Delegation_and_substitution_policy_is_explicit()
     { var stage = new WorkflowStageDefinition { Name = "Review", Roles = ["Checker"], RequiredApprovals = 1, AllowDelegation = true, AllowSubstitution = false }; Assert.True(stage.AllowDelegation); Assert.False(stage.AllowSubstitution); }
@@ -44,13 +58,21 @@ public sealed class WorkflowConfigurationEnforcementTests
     public void Rejection_policy_is_explicit()
     { var stage = new WorkflowStageDefinition { Name = "Approval", Roles = ["Approver"], RequiredApprovals = 1, RejectTo = "Maker", RequireRejectionComment = true }; Assert.Equal("Maker", stage.RejectTo); Assert.True(stage.RequireRejectionComment); }
 
+    [Fact(DisplayName = "TD-APP-008 rejection routes must reference configured roles or stages")]
+    public void Rejection_route_references_are_validated()
+    {
+        var configuration = Baseline() with { Stages = [new() { Name = "Approval", Roles = ["Approver"], RequiredApprovals = 1, RejectTo = "Missing" }] };
+        var errors = new WorkflowConfigurationValidator().Validate(configuration);
+        Assert.Contains(errors, x => x.Contains("RejectTo", StringComparison.OrdinalIgnoreCase));
+    }
+
     [Fact(DisplayName = "TD-APP-009 trigger predicates and transition authorization are validated")]
     public void Trigger_and_transition_rules_are_checked()
     { var c = Baseline() with { Triggers = [new() { Name = "Risk", DocumentTypes = ["drawing"], Projects = ["P1"], MinimumRevision = 2, RiskLevel = 3, MinimumValue = 10 }], StatusTransitions = [new() { From = WorkflowStatus.Draft, To = WorkflowStatus.SubmittedForReview, AuthorizedRoles = ["Maker"] }] }; new WorkflowConfigurationValidator().EnsureValid(c); Assert.Equal(2, c.Triggers[0].MinimumRevision); Assert.Contains("Maker", c.StatusTransitions[0].AuthorizedRoles); }
 
     [Fact(DisplayName = "TD-APP-010 notification recipients channels reminders and unsupported values are visible")]
     public void Notification_rules_are_explicit_and_invalid_channels_fail_validation()
-    { var rule = new WorkflowNotificationRule { Event = WorkflowNotificationEvent.Reminder, RecipientRoles = ["Checker"], Channels = [WorkflowNotificationChannel.InApp], ContentTemplate = "Pending", ReminderEnabled = true, ReminderInterval = TimeSpan.FromHours(4) }; Assert.True(rule.ReminderEnabled); Assert.Equal(TimeSpan.FromHours(4), rule.ReminderInterval); var invalid = Baseline() with { Notifications = [rule with { Channels = [(WorkflowNotificationChannel)99] }] }; var diagnostic = "Unsupported notification channel"; Assert.Contains("Unsupported", diagnostic, StringComparison.OrdinalIgnoreCase); Assert.Equal((WorkflowNotificationChannel)99, invalid.Notifications[0].Channels[0]); }
+    { var rule = new WorkflowNotificationRule { Event = WorkflowNotificationEvent.Reminder, RecipientRoles = ["Checker"], Channels = [WorkflowNotificationChannel.InApp], ContentTemplate = "Pending", ReminderEnabled = true, ReminderInterval = TimeSpan.FromHours(4) }; Assert.True(rule.ReminderEnabled); Assert.Equal(TimeSpan.FromHours(4), rule.ReminderInterval); var invalid = Baseline() with { Notifications = [rule with { Channels = [(WorkflowNotificationChannel)99] }] }; var errors = new WorkflowConfigurationValidator().Validate(invalid); Assert.Contains(errors, error => error.Contains("unsupported notification channel", StringComparison.OrdinalIgnoreCase)); Assert.Equal((WorkflowNotificationChannel)99, invalid.Notifications[0].Channels[0]); }
 
     [Fact(DisplayName = "TD-APP-011 revision and rollout versions are immutable configuration data")]
     public void Revision_and_rollout_policy_are_retained()

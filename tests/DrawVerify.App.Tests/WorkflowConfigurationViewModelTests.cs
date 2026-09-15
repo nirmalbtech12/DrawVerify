@@ -22,15 +22,41 @@ public sealed class WorkflowConfigurationViewModelTests
             var view = new DrawVerify.App.Views.WorkflowConfigurationView();
             Assert.True(vm.CanEdit); Assert.True(vm.SaveCommand.CanExecute(null)); Assert.True(vm.PreviewCommand.CanExecute(null));
             Assert.IsType<ScrollViewer>(view.Content);
+            var root = (ScrollViewer)view.Content;
+            var panel = Assert.IsType<StackPanel>(root.Content);
+            Assert.Contains(panel.Children.OfType<GroupBox>(), box => box.Header?.ToString() == "Role definitions");
+            Assert.Contains(panel.Children.OfType<GroupBox>(), box => box.Header?.ToString()!.Contains("Notifications", StringComparison.Ordinal) == true);
         });
     }
 
-    private sealed class Session(AuthenticatedUser user) : ISessionAuthenticationService { public AuthenticatedUser? CurrentUser { get; } = user; public bool IsAuthenticated => true; public void SignIn(AuthenticatedUser value) { } public void SignOut() { } }
+    [Fact(DisplayName = "TD-UI-001 non-Admin editing commands are disabled and custom labels bind")]
+    public void Non_admin_cannot_edit_and_custom_labels_are_visible()
+    {
+        Sta.Run(() =>
+        {
+            var configuration = Service.BaselineConfiguration() with
+            {
+                Roles = [new() { DisplayName = "Reviewer", SystemRole = SystemRoles.Checker }],
+                StatusLabels = new Dictionary<WorkflowStatus, string> { [WorkflowStatus.UnderReview] = "In Review" }
+            };
+            var vm = new WorkflowConfigurationViewModel(new Service(configuration), new Session(new("maker", [SystemRoles.Maker])), new RoleAuthorization());
+            Assert.False(vm.CanEdit);
+            Assert.False(vm.SaveCommand.CanExecute(null));
+            Assert.False(vm.PreviewCommand.CanExecute(null));
+            Assert.Equal("Reviewer (Checker)", vm.RolesSummary);
+            Assert.Contains(vm.StatusLabels, label => label.Value == "In Review");
+        });
+    }
+
+    private sealed class Session(AuthenticatedUser? user) : ISessionAuthenticationService { public AuthenticatedUser? CurrentUser { get; } = user; public bool IsAuthenticated => CurrentUser is not null; public void SignIn(AuthenticatedUser value) { } public void SignOut() { } }
     private sealed class Service : IWorkflowConfigurationService
     {
-        public Task<WorkflowConfiguration> GetAsync(CancellationToken cancellationToken = default) => Task.FromResult(Baseline());
+        private readonly WorkflowConfiguration _configuration;
+        public Service() : this(BaselineConfiguration()) { }
+        public Service(WorkflowConfiguration configuration) => _configuration = configuration;
+        public Task<WorkflowConfiguration> GetAsync(CancellationToken cancellationToken = default) => Task.FromResult(_configuration);
         public Task<WorkflowConfiguration> SaveAsync(WorkflowConfiguration configuration, int? expectedVersion = null, CancellationToken cancellationToken = default) => Task.FromResult(configuration with { Version = configuration.Version + 1 });
         public Task<WorkflowPreviewResult> PreviewAsync(WorkflowConfiguration configuration, WorkflowPreviewMetadata metadata, CancellationToken cancellationToken = default) => Task.FromResult(new WorkflowPreviewResult([], [], [], true));
-        private static WorkflowConfiguration Baseline() => new() { PermittedInitialStates = [WorkflowStatus.Draft, WorkflowStatus.InPreparation], DuplicateSubmissionStates = [WorkflowStatus.SubmittedForReview, WorkflowStatus.UnderReview, WorkflowStatus.Approved] };
+        internal static WorkflowConfiguration BaselineConfiguration() => new() { PermittedInitialStates = [WorkflowStatus.Draft, WorkflowStatus.InPreparation], DuplicateSubmissionStates = [WorkflowStatus.SubmittedForReview, WorkflowStatus.UnderReview, WorkflowStatus.Approved] };
     }
 }

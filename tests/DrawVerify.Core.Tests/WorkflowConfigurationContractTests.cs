@@ -54,6 +54,30 @@ public sealed class WorkflowConfigurationContractTests
         Assert.Empty(Baseline().ApplicationValidation());
     }
 
+    [Fact(DisplayName = "TD-CORE-002 invalid enum values, predicates, cycles, and notification rules are reported")]
+    public void Invalid_rules_are_descriptive_and_do_not_mutate_the_baseline()
+    {
+        var baseline = Baseline() with
+        {
+            Roles = [new() { DisplayName = "Checker", SystemRole = SystemRoles.Checker }],
+            Stages = [new() { Name = "Review", Roles = ["Checker"], RequiredApprovals = 1 }]
+        };
+        var invalid = baseline with
+        {
+            Stages = [new() { Name = "Review", Roles = ["Checker"], RequiredApprovals = 2 }, new() { Name = "Review", Roles = ["Unknown"], RequiredApprovals = 1, Mode = (WorkflowApprovalMode)99 }],
+            Triggers = [new() { Name = "Risk", MinimumRevision = -1, RiskLevel = -1, MinimumValue = -1 }],
+            Notifications = [new() { Event = WorkflowNotificationEvent.Reminder, RecipientRoles = ["Unknown"], Channels = [(WorkflowNotificationChannel)99], ReminderEnabled = true, ReminderInterval = TimeSpan.Zero }],
+            RevisionPolicy = new() { NumberFormat = "Unsupported" },
+            RolloutPolicy = (WorkflowRolloutPolicy)99,
+            StatusTransitions = [new() { From = WorkflowStatus.Draft, To = WorkflowStatus.SubmittedForReview, AuthorizedRoles = ["Checker"] }, new() { From = WorkflowStatus.SubmittedForReview, To = WorkflowStatus.Draft, AuthorizedRoles = ["Checker"] }]
+        };
+
+        var errors = invalid.ApplicationValidation();
+        Assert.Contains(errors, error => error.Contains("RequiredApprovals", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(errors, error => error.Contains("undefined", StringComparison.OrdinalIgnoreCase));
+        Assert.Empty(baseline.ApplicationValidation());
+    }
+
     [Fact(DisplayName = "TD-CORE-003 legacy defaults preserve existing status values")]
     public void Legacy_configuration_contract_remains_compatible()
     {
