@@ -108,6 +108,7 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
 
             Execute(connection, transaction, "CREATE UNIQUE INDEX IF NOT EXISTS IX_Document_NameSize ON Document(OriginalFileName,FileSizeBytes)");
             transaction.Commit();
+            SqliteAuditRepository.EnsureSchema(connection);
             return hasUploaderColumns;
         }
         catch
@@ -357,7 +358,6 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
         foreach (var statement in new[]
         {
             "DELETE FROM DimensionData WHERE DocumentId=$id",
-            "DELETE FROM DocumentAuditLog WHERE DocumentId=$id",
             "DELETE FROM DocumentVersion WHERE DocumentId=$id",
             "DELETE FROM Document WHERE DocumentId=$id"
         })

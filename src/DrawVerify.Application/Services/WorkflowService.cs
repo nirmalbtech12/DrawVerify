@@ -178,8 +178,16 @@ public sealed class WorkflowService : IWorkflowService
         var user = _authentication.CurrentUser;
         if (!readiness.IsReady)
         {
-            var currentState = await _workflow.GetStateAsync(request.PackageId, cancellationToken).ConfigureAwait(false);
-            await RecordAuditSafelyAsync(request.PackageId, currentState?.Revision ?? 0, DocumentAuditAction.SubmissionRejected, "Rejected", readiness.Failures, cancellationToken).ConfigureAwait(false);
+            if (_authentication.IsAuthenticated)
+            {
+                var currentState = await _workflow.GetStateAsync(request.PackageId, cancellationToken).ConfigureAwait(false);
+                await RecordAuditSafelyAsync(request.PackageId, currentState?.Revision ?? 0, DocumentAuditAction.SubmissionRejected, "Rejected", readiness.Failures, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                var currentState = await _workflow.GetStateAsync(request.PackageId, cancellationToken).ConfigureAwait(false);
+                await RecordUnauthenticatedRejectionAuditAsync(request.PackageId, currentState?.Revision ?? 0, readiness.Failures, cancellationToken).ConfigureAwait(false);
+            }
             return new(false, string.Join(" ", readiness.Failures), Failures: readiness.Failures);
         }
         var state = await _workflow.GetStateAsync(request.PackageId, cancellationToken).ConfigureAwait(false);
@@ -189,7 +197,7 @@ public sealed class WorkflowService : IWorkflowService
         var submission = new ReviewSubmission { PackageId = request.PackageId, DxfDocumentId = request.DxfDocumentId, Revision = state.Revision, MakerUserId = user!.UserId, MakerDisplayName = user.DisplayName, MakerAuthorized = true, SubmittedUtc = now, Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim(), StepDocumentVersionId = request.StepDocumentVersionId, DxfDocumentVersionId = request.DxfDocumentVersionId, VerificationSessionId = request.VerificationSessionId, ExtractionEvidenceJson = request.ExtractionEvidenceJson, VerificationEvidenceJson = request.VerificationEvidenceJson };
         try
         {
-            var saved = await _workflow.SubmitAtomicallyAsync(state, submission, CreateAudit(request.PackageId, state.Revision, DocumentAuditAction.SubmissionSucceeded, "Submitted", now, user), cancellationToken).ConfigureAwait(false);
+            var saved = await _workflow.SubmitAtomicallyAsync(state, submission, CreateAudit(request.PackageId, state.Revision, DocumentAuditAction.SubmissionSucceeded, "Submitted", now, user, documentVersionId: request.StepDocumentVersionId, previousWorkflowStatus: state.Status, workflowStatus: WorkflowStatus.SubmittedForReview), cancellationToken).ConfigureAwait(false);
             return new(true, "The drawing was submitted for review.", state with { Status = WorkflowStatus.SubmittedForReview, UpdatedUtc = now }, saved);
         }
         catch (Exception exception)
@@ -216,7 +224,7 @@ public sealed class WorkflowService : IWorkflowService
             }
             if (submission is not null && current?.Version is not null && (submission.StepDocumentVersionId != current.Version.VersionId || dxfChanged || verificationChanged))
             {
-                await _workflow.MarkSupersededAsync(submission.SubmissionId, CreateAudit(packageId, submission.Revision, DocumentAuditAction.SubmissionSuperseded, "Superseded", _clock().ToUniversalTime(), _authentication.CurrentUser), cancellationToken).ConfigureAwait(false);
+                await _workflow.MarkSupersededAsync(submission.SubmissionId, CreateAudit(packageId, submission.Revision, DocumentAuditAction.SubmissionSuperseded, "Superseded", _clock().ToUniversalTime(), _authentication.CurrentUser, documentVersionId: submission.StepDocumentVersionId, previousWorkflowStatus: state.Status, workflowStatus: WorkflowStatus.Superseded), cancellationToken).ConfigureAwait(false);
                 return state with { Status = WorkflowStatus.Superseded };
             }
         }
@@ -313,7 +321,7 @@ public sealed class WorkflowService : IWorkflowService
         {
             saved = await _workflow.SaveReviewDecisionAsync(package, decision, resultingStatus,
                 CreateAudit(packageId, revision, action, decisionType.ToString(), decision.DecidedUtc, user,
-                    new[] { decision.Comments ?? string.Empty }, decision.SnapshotReference, decision: decision), cancellationToken).ConfigureAwait(false);
+                    new[] { decision.Comments ?? string.Empty }, decision.SnapshotReference, decision: decision, documentVersionId: package.StepDocumentVersionId, previousWorkflowStatus: package.Status, workflowStatus: resultingStatus), cancellationToken).ConfigureAwait(false);
         }
         catch
         {
@@ -375,7 +383,7 @@ public sealed class WorkflowService : IWorkflowService
         var user = _authentication.CurrentUser!;
         var now = _clock().ToUniversalTime();
         if (package.Status is WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview)
-            await _workflow.RecordReviewStartedAsync(package, CreateAudit(packageId, revision, DocumentAuditAction.ReviewStarted, "ReviewStarted", now, user, snapshotReference: package.SnapshotReference), cancellationToken).ConfigureAwait(false);
+            await _workflow.RecordReviewStartedAsync(package, CreateAudit(packageId, revision, DocumentAuditAction.ReviewStarted, "ReviewStarted", now, user, snapshotReference: package.SnapshotReference, documentVersionId: package.StepDocumentVersionId, previousWorkflowStatus: package.Status, workflowStatus: WorkflowStatus.UnderReview), cancellationToken).ConfigureAwait(false);
         return package;
     }
 
@@ -405,7 +413,7 @@ public sealed class WorkflowService : IWorkflowService
         decision.Validate(requireCorrectionAction);
         var status = decisionType switch { ReviewDecisionType.Approve => _machine.ApprovedState, ReviewDecisionType.Reject => _machine.RejectedState, ReviewDecisionType.RequestChanges => _machine.ChangesRequestedState, ReviewDecisionType.Return when package.Status == WorkflowStatus.ReturnedForRework => WorkflowStatus.ReturnedToMaker, ReviewDecisionType.Return => WorkflowStatus.ReturnedForRework, _ => throw new ArgumentOutOfRangeException(nameof(decisionType)) };
         var action = decisionType switch { ReviewDecisionType.Approve => DocumentAuditAction.Approved, ReviewDecisionType.Reject => DocumentAuditAction.Rejected, ReviewDecisionType.Return => DocumentAuditAction.ReturnedForRework, _ => DocumentAuditAction.ChangesRequested };
-        var saved = await _workflow.SaveReviewDecisionAsync(package, decision, status, CreateAudit(packageId, revision, action, decisionType.ToString(), decision.DecidedUtc, user, new[] { decision.Comments ?? string.Empty }, decision.SnapshotReference, commentReferences: package.Comments, workflowStatus: status, decision: decision), cancellationToken).ConfigureAwait(false);
+        var saved = await _workflow.SaveReviewDecisionAsync(package, decision, status, CreateAudit(packageId, revision, action, decisionType.ToString(), decision.DecidedUtc, user, new[] { decision.Comments ?? string.Empty }, decision.SnapshotReference, commentReferences: package.Comments, workflowStatus: status, previousWorkflowStatus: package.Status, decision: decision, documentVersionId: package.StepDocumentVersionId), cancellationToken).ConfigureAwait(false);
         if (_notifications is not null)
         {
             try { await _notifications.NotifyMakerAsync(packageId, revision, saved, cancellationToken).ConfigureAwait(false); }
@@ -508,5 +516,25 @@ public sealed class WorkflowService : IWorkflowService
         try { await RecordAuditAsync(packageId, revision, action, result, failures, cancellationToken).ConfigureAwait(false); }
         catch (Exception exception) { _logger?.Log(exception, "Workflow audit", $"Unable to record action={action} for packageId={packageId}, revision={revision}."); throw; }
     }
-    private static AuditEntry CreateAudit(Guid packageId, int revision, DocumentAuditAction action, string result, DateTime timestamp, AuthenticatedUser? user, IReadOnlyList<string>? failures = null, string? snapshotReference = null, ReviewComment? comment = null, Guid? commentId = null, WorkflowStatus? workflowStatus = null, IReadOnlyList<ReviewComment>? commentReferences = null, ReviewDecision? decision = null) => new() { DocumentId = packageId, UserId = user?.UserId ?? "Anonymous", Action = action, TimestampUtc = timestamp, DetailsJson = JsonSerializer.Serialize(new { packageId, revision, action = action.ToString(), result, checkerUserId = user?.UserId, checkerDisplayName = user?.DisplayName, approverUserId = decision?.ApproverUserId, approverDisplayName = decision?.ApproverDisplayName, workflowStatus = workflowStatus?.ToString(), rejectionStatus = decision is null ? null : action is DocumentAuditAction.Rejected or DocumentAuditAction.RejectedToChecker or DocumentAuditAction.RejectedToMaker or DocumentAuditAction.ReturnedForRework or DocumentAuditAction.ChangesRequested ? workflowStatus?.ToString() : null, route = decision?.Route.ToString(), destinationRole = decision?.DestinationRole, destinationQueue = decision?.DestinationQueue, reason = decision?.OverallReason, comments = decision?.Comments, failures, snapshotReference, commentId = comment?.CommentId ?? commentId, referenceType = comment?.ReferenceType, referenceId = comment?.ReferenceId, location = comment?.Location, commentReferences = commentReferences?.Select(x => new { id = x.CommentId, x.ReferenceType, x.ReferenceId, x.Location }).ToArray(), correctionAction = decision?.CorrectionAction }) };
+    private async Task RecordUnauthenticatedRejectionAuditAsync(Guid packageId, int revision, IReadOnlyList<string> failures, CancellationToken cancellationToken)
+    {
+        var timestamp = _clock().ToUniversalTime();
+        var audit = new AuditEntry
+        {
+            DocumentId = packageId,
+            UserId = "system:unauthenticated",
+            ActorRole = "System",
+            DocumentRevision = revision.ToString(),
+            Action = DocumentAuditAction.SubmissionRejected,
+            TimestampUtc = timestamp,
+            DetailsJson = JsonSerializer.Serialize(new { packageId, revision, action = DocumentAuditAction.SubmissionRejected.ToString(), result = "Rejected", reason = "Only an authenticated Maker can submit a package for review.", failures })
+        };
+        try { await _workflow.RecordAuditAsync(audit, cancellationToken).ConfigureAwait(false); }
+        catch (Exception exception) { _logger?.Log(exception, "Workflow audit", $"Unable to record unauthenticated submission rejection for packageId={packageId}, revision={revision}."); throw; }
+    }
+    private static AuditEntry CreateAudit(Guid packageId, int revision, DocumentAuditAction action, string result, DateTime timestamp, AuthenticatedUser? user, IReadOnlyList<string>? failures = null, string? snapshotReference = null, ReviewComment? comment = null, Guid? commentId = null, WorkflowStatus? workflowStatus = null, IReadOnlyList<ReviewComment>? commentReferences = null, ReviewDecision? decision = null, Guid? documentVersionId = null, WorkflowStatus? previousWorkflowStatus = null) {
+        var actor = user ?? throw new UnauthorizedAccessException("An authenticated workflow actor is required for auditing."); var role = actor.Roles.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? throw new InvalidOperationException("The authenticated workflow actor has no role.");
+        if (workflowStatus is null && action is DocumentAuditAction.SubmissionSucceeded or DocumentAuditAction.Approved or DocumentAuditAction.Rejected or DocumentAuditAction.ReturnedForRework or DocumentAuditAction.FinalApproved) throw new InvalidOperationException("Workflow transition context is required for decision auditing.");
+        return new AuditEntry { DocumentId = packageId, UserId = actor.UserId, ActorRole = role, DocumentRevision = revision.ToString(), DocumentVersion = documentVersionId?.ToString("D"), PreviousWorkflowStatus = previousWorkflowStatus?.ToString(), NewWorkflowStatus = workflowStatus?.ToString(), Action = action, TimestampUtc = timestamp, DetailsJson = JsonSerializer.Serialize(new { packageId, revision, action = action.ToString(), result, checkerUserId = actor.UserId, checkerDisplayName = actor.DisplayName, approverUserId = decision?.ApproverUserId, approverDisplayName = decision?.ApproverDisplayName, workflowStatus = workflowStatus?.ToString(), rejectionStatus = decision is null ? null : action is DocumentAuditAction.Rejected or DocumentAuditAction.RejectedToChecker or DocumentAuditAction.RejectedToMaker or DocumentAuditAction.ReturnedForRework or DocumentAuditAction.ChangesRequested ? workflowStatus?.ToString() : null, route = decision?.Route.ToString(), destinationRole = decision?.DestinationRole, destinationQueue = decision?.DestinationQueue, reason = decision?.OverallReason, comments = decision?.Comments, failures, snapshotReference, commentId = comment?.CommentId ?? commentId, referenceType = comment?.ReferenceType, referenceId = comment?.ReferenceId, location = comment?.Location, commentReferences = commentReferences?.Select(x => new { id = x.CommentId, x.ReferenceType, x.ReferenceId, x.Location }).ToArray(), correctionAction = decision?.CorrectionAction }) };
+    }
 }

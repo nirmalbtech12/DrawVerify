@@ -88,7 +88,7 @@ public static class CompositionRoot
     public static AuditLogService CreateAuditLogService()
     {
         var logger = new CentralizedLogger(); var database = DatabasePath();
-        return new(new SqliteAuthenticationAuditRepository(database, logger), Session, Authorization, logger);
+        return new((IDocumentAuditRepository)new SqliteAuditRepository(database), Session, Authorization, logger);
     }
     internal static AuditRetentionService CreateAuditRetentionService() => new(new SqliteAuditRetentionRepository(DatabasePath(), new CentralizedLogger()), AuditLogConfiguration);
     public static async Task<int> ApplySystemRetentionAsync(CancellationToken cancellationToken = default)
