@@ -113,6 +113,8 @@ public sealed class WorkflowService : IWorkflowService
         var configuredRules = _effectiveConfiguration.Notifications.Where(x => x.Event == notificationEvent).ToArray();
         if (configuredRules.Any(rule => rule.Channels.Any(channel => channel != WorkflowNotificationChannel.InApp)))
             throw new NotSupportedException($"Workflow notification event '{notificationEvent}' specifies a channel that is not available in the configured notification service.");
+        if (recipients.Count == 0 && !IsLegacyConfiguration(_effectiveConfiguration))
+            throw new InvalidOperationException($"Workflow notification event '{notificationEvent}' has no configured recipients.");
         if (recipients.Count == 0)
         {
             if (notificationEvent is WorkflowNotificationEvent.Approval or WorkflowNotificationEvent.Rejection or WorkflowNotificationEvent.Return)
