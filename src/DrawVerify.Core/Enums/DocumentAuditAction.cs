@@ -34,4 +34,18 @@ public enum DocumentAuditAction
     ReviewCommentDiscarded = 46,
     RejectedToChecker = 47,
     RejectedToMaker = 48
+    ,DocumentCreated = 49
+    ,FileUploaded = 50
+    ,FileReplaced = 51
+    ,MetadataUpdated = 52
+    ,ExtractionCompleted = 53
+    ,VerificationRunCompleted = 54
+    ,VerificationRunFailed = 55
+    ,SubmittedForReview = 56
+    ,Returned = 57
+    ,DocumentViewed = 58
+    ,DocumentDownloaded = 59
+    ,DocumentPrinted = 60
+    ,DocumentArchived = 61
+    ,DocumentDeleted = 62
 }
