@@ -31,6 +31,9 @@ public sealed class WorkflowService : IWorkflowService
     private readonly IStepUploadFileStore? _stepFiles;
     private readonly IDxfUploadFileStore? _dxfFiles;
 
+    /// <summary>Gets the immutable configuration version most recently resolved for this service operation.</summary>
+    public int? EffectiveConfigurationVersion { get; private set; }
+
     public WorkflowService(IWorkflowRepository workflow, ISessionAuthenticationService authentication, WorkflowConfiguration configuration, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null, IDocumentRepository? documents = null, IVerificationSessionRepository? sessions = null, Func<DateTime>? clock = null, INotificationService? notifications = null, IApprovalSnapshotStore? snapshots = null, IStepUploadFileStore? stepFiles = null, IDxfUploadFileStore? dxfFiles = null, IWorkflowConfigurationRepository? configurationRepository = null)
     {
         _workflow = workflow ?? throw new ArgumentNullException(nameof(workflow)); _authentication = authentication ?? throw new ArgumentNullException(nameof(authentication));
@@ -42,6 +45,7 @@ public sealed class WorkflowService : IWorkflowService
         var effective = await _configurationRepository.GetCurrentAsync(cancellationToken).ConfigureAwait(false);
         if (effective is null) throw new InvalidOperationException("No effective workflow configuration is available.");
         effective.Validate();
+        EffectiveConfigurationVersion = effective.Version;
         _machine = new WorkflowStateMachine(effective);
     }
 
