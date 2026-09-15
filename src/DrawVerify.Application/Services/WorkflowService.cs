@@ -21,7 +21,9 @@ public sealed class WorkflowService : IWorkflowService
     private readonly IVerificationSessionRepository? _sessions;
     private readonly ISessionAuthenticationService _authentication;
     private readonly RoleAuthorization _authorization;
-    private readonly WorkflowStateMachine _machine;
+    private WorkflowStateMachine _machine;
+    private readonly IWorkflowConfigurationRepository? _configurationRepository;
+    private readonly WorkflowConfiguration _startupConfiguration;
     private readonly ICentralizedLogger? _logger;
     private readonly Func<DateTime> _clock;
     private readonly INotificationService? _notifications;
@@ -29,10 +31,18 @@ public sealed class WorkflowService : IWorkflowService
     private readonly IStepUploadFileStore? _stepFiles;
     private readonly IDxfUploadFileStore? _dxfFiles;
 
-    public WorkflowService(IWorkflowRepository workflow, ISessionAuthenticationService authentication, WorkflowConfiguration configuration, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null, IDocumentRepository? documents = null, IVerificationSessionRepository? sessions = null, Func<DateTime>? clock = null, INotificationService? notifications = null, IApprovalSnapshotStore? snapshots = null, IStepUploadFileStore? stepFiles = null, IDxfUploadFileStore? dxfFiles = null)
+    public WorkflowService(IWorkflowRepository workflow, ISessionAuthenticationService authentication, WorkflowConfiguration configuration, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null, IDocumentRepository? documents = null, IVerificationSessionRepository? sessions = null, Func<DateTime>? clock = null, INotificationService? notifications = null, IApprovalSnapshotStore? snapshots = null, IStepUploadFileStore? stepFiles = null, IDxfUploadFileStore? dxfFiles = null, IWorkflowConfigurationRepository? configurationRepository = null)
     {
         _workflow = workflow ?? throw new ArgumentNullException(nameof(workflow)); _authentication = authentication ?? throw new ArgumentNullException(nameof(authentication));
-        _authorization = authorization ?? new RoleAuthorization(); _machine = new WorkflowStateMachine(configuration ?? throw new ArgumentNullException(nameof(configuration))); _logger = logger; _documents = documents; _sessions = sessions; _clock = clock ?? (() => DateTime.UtcNow); _notifications = notifications; _snapshots = snapshots; _stepFiles = stepFiles; _dxfFiles = dxfFiles;
+        _authorization = authorization ?? new RoleAuthorization(); _startupConfiguration = configuration ?? throw new ArgumentNullException(nameof(configuration)); _machine = new WorkflowStateMachine(_startupConfiguration); _configurationRepository = configurationRepository; _logger = logger; _documents = documents; _sessions = sessions; _clock = clock ?? (() => DateTime.UtcNow); _notifications = notifications; _snapshots = snapshots; _stepFiles = stepFiles; _dxfFiles = dxfFiles;
+    }
+    private async Task RefreshEffectiveConfigurationAsync(CancellationToken cancellationToken)
+    {
+        if (_configurationRepository is null) return;
+        var effective = await _configurationRepository.GetCurrentAsync(cancellationToken).ConfigureAwait(false);
+        if (effective is null) throw new InvalidOperationException("No effective workflow configuration is available.");
+        effective.Validate();
+        _machine = new WorkflowStateMachine(effective);
     }
 
     public async Task<SubmissionReadiness> ValidateReadinessAsync(Guid packageId, CancellationToken cancellationToken = default)
@@ -40,6 +50,7 @@ public sealed class WorkflowService : IWorkflowService
         var failures = new List<string>();
         try
         {
+        await RefreshEffectiveConfigurationAsync(cancellationToken).ConfigureAwait(false);
         if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.SubmitForReview)) failures.Add("Only an authenticated Maker can submit a package for review.");
         var state = await _workflow.GetStateAsync(packageId, cancellationToken).ConfigureAwait(false);
         if (state is null) failures.Add("The package has no workflow state and cannot be submitted.");
@@ -256,6 +267,7 @@ public sealed class WorkflowService : IWorkflowService
 
     private async Task<ReviewDecision> FinalDecideCoreAsync(Guid packageId, int revision, ReviewDecisionType decisionType, string? reason, string? comments, ReviewDecisionRoute route, CancellationToken cancellationToken)
     {
+        await RefreshEffectiveConfigurationAsync(cancellationToken).ConfigureAwait(false);
         RequireFinalApprovalPermission();
         if (decisionType is not (ReviewDecisionType.Approve or ReviewDecisionType.Reject or ReviewDecisionType.Return))
             throw new ArgumentOutOfRangeException(nameof(decisionType), "Only Approve, Reject, or Return are valid final decisions.");
@@ -395,6 +407,7 @@ public sealed class WorkflowService : IWorkflowService
 
     private async Task<ReviewDecision> DecideCoreAsync(Guid packageId, int revision, ReviewDecisionType decisionType, string? comments, string? correctionAction, bool requireCorrectionAction, CancellationToken cancellationToken)
     {
+        await RefreshEffectiveConfigurationAsync(cancellationToken).ConfigureAwait(false);
         RequireReviewPermission();
         var package = await _workflow.GetReviewPackageAsync(packageId, revision, cancellationToken).ConfigureAwait(false)
             ?? throw new KeyNotFoundException($"Review package '{packageId}' revision {revision} was not found.");

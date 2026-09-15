@@ -16,7 +16,7 @@ public sealed class WorkflowConfigurationEnforcementTests
     {
         var repository = new MemoryRepository();
         var service = new WorkflowConfigurationService(repository, new Session(new("admin", [SystemRoles.Admin])), new RoleAuthorization());
-        var configuration = Baseline() with { Stages = [new() { Name = "Review", Roles = ["Checker"], RequiredApprovals = 1 }], Triggers = [new() { Name = "Drawing", DocumentTypes = ["drawing"] }], Notifications = [new() { Event = WorkflowNotificationEvent.Submission, RecipientRoles = ["Checker"] }] };
+        var configuration = Baseline() with { Stages = [new() { Name = "Review", Roles = ["Checker"], RequiredApprovals = 1 }], Triggers = [new() { Name = "Drawing", DocumentTypes = ["drawing"] }], Notifications = [new() { Event = WorkflowNotificationEvent.Submission, RecipientRoles = ["Checker"], ContentTemplate = "Preview {document}" }] };
         var result = await service.PreviewAsync(configuration, new WorkflowPreviewMetadata("drawing"));
         var miss = await service.PreviewAsync(configuration, new WorkflowPreviewMetadata("report"));
         Assert.True(result.MatchesTrigger); Assert.Equal(["Review"], result.Stages); Assert.Equal(["Checker"], result.Recipients); Assert.False(miss.MatchesTrigger); Assert.Empty(repository.Saves);
