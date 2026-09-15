@@ -70,7 +70,7 @@ public sealed class StepUploadPersistenceAndStorageTests
 
             var audit = new SqliteAuditRepository(database);
             foreach (var action in Enum.GetValues<DocumentAuditAction>())
-                await audit.WriteAsync(new AuditEntry { DocumentId = action == DocumentAuditAction.Cancelled ? null : id, Action = action, DetailsJson = "{\"fileName\":\"part.step\"}" });
+                await audit.WriteAsync(new AuditEntry { DocumentId = id, UserId = "maker-001", Action = action, DetailsJson = "{\"fileName\":\"part.step\"}" });
             await using (var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={database}"))
             {
                 await connection.OpenAsync();
@@ -83,7 +83,7 @@ public sealed class StepUploadPersistenceAndStorageTests
                     rows++;
                     Assert.False(string.IsNullOrWhiteSpace(reader.GetString(2)));
                     Assert.Contains("fileName", reader.GetString(3));
-                    if ((DocumentAuditAction)reader.GetInt32(0) == DocumentAuditAction.Cancelled) Assert.True(reader.IsDBNull(1));
+                    if ((DocumentAuditAction)reader.GetInt32(0) == DocumentAuditAction.Cancelled) Assert.Equal(id.ToString(), reader.GetString(1));
                 }
                 Assert.Equal(Enum.GetValues<DocumentAuditAction>().Length, rows);
             }

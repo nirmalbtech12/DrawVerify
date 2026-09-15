@@ -6,7 +6,7 @@ public sealed class AuditEntry
 {
     public Guid AuditId { get; init; } = Guid.NewGuid();
     public Guid? DocumentId { get; init; }
-    public string UserId { get; init; } = "Anonymous";
+    public string UserId { get; init; } = string.Empty;
     public string? ActorRole { get; init; }
     public string? DocumentRevision { get; init; }
     public string? DocumentVersion { get; init; }

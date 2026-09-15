@@ -19,7 +19,9 @@ public sealed class SqliteAuditIntegrityRetentionTests
             await repository.VerifyIntegrityAsync(document);
             await using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
             await connection.OpenAsync();
-            await using var command = connection.CreateCommand(); command.CommandText = "UPDATE DocumentAuditLog SET IntegrityHash='tampered' WHERE DocumentId=$id"; command.Parameters.AddWithValue("$id", document.ToString()); await command.ExecuteNonQueryAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "DROP TRIGGER TR_DocumentAuditLog_PreventUpdate; UPDATE DocumentAuditLog SET IntegrityHash='tampered' WHERE DocumentId=$id; CREATE TRIGGER TR_DocumentAuditLog_PreventUpdate BEFORE UPDATE ON DocumentAuditLog BEGIN SELECT RAISE(ABORT, 'Document audit entries are append-only.'); END;";
+            command.Parameters.AddWithValue("$id", document.ToString()); await command.ExecuteNonQueryAsync();
             await Assert.ThrowsAsync<InvalidOperationException>(() => repository.VerifyIntegrityAsync(document));
             await Assert.ThrowsAsync<Microsoft.Data.Sqlite.SqliteException>(async () => { await using var delete = connection.CreateCommand(); delete.CommandText = "DELETE FROM DocumentAuditLog"; await delete.ExecuteNonQueryAsync(); });
         }

@@ -35,9 +35,17 @@ public sealed class SqliteAuditRepository : IAuditLogger, IDocumentAuditReposito
         }
         command.CommandText = "CREATE INDEX IF NOT EXISTS IX_DocumentAuditLog_Query ON DocumentAuditLog(DocumentId,TimestampUtc,Action,UserId,DocumentRevision)"; command.ExecuteNonQuery();
         command.CommandText = "CREATE TRIGGER IF NOT EXISTS TR_DocumentAuditLog_PreventDelete BEFORE DELETE ON DocumentAuditLog BEGIN SELECT RAISE(ABORT, 'Document audit entries are append-only.'); END;"; command.ExecuteNonQuery();
+        command.CommandText = "CREATE TRIGGER IF NOT EXISTS TR_DocumentAuditLog_PreventUpdate BEFORE UPDATE ON DocumentAuditLog BEGIN SELECT RAISE(ABORT, 'Document audit entries are append-only.'); END;"; command.ExecuteNonQuery();
     }
     public async Task WriteAsync(AuditEntry entry, CancellationToken token = default)
     {
+        if (entry.DocumentId.HasValue) entry.Validate();
+        else
+        {
+            if (string.IsNullOrWhiteSpace(entry.UserId)) throw new ArgumentException("Audit actor is required.", nameof(entry.UserId));
+            if (!Enum.IsDefined(entry.Action)) throw new ArgumentException("A supported audit action is required.", nameof(entry.Action));
+            if (entry.TimestampUtc == default && entry.TimestampOffset == default) throw new ArgumentException("Audit timestamp is required.", nameof(entry.TimestampUtc));
+        }
         await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(token);
         await using var cmd = c.CreateCommand();
         var timestamp = entry.TimestampOffset == default ? new DateTimeOffset(DateTime.SpecifyKind(entry.TimestampUtc, DateTimeKind.Utc)) : entry.TimestampOffset;
@@ -63,6 +71,6 @@ public sealed class SqliteAuditRepository : IAuditLogger, IDocumentAuditReposito
     }
     private static string? Text(SqliteDataReader reader, int index) => reader.IsDBNull(index) ? null : reader.GetString(index);
     private static int? ParseAction(string? value) => string.IsNullOrWhiteSpace(value) ? null : Enum.TryParse<DocumentAuditAction>(value, true, out var action) ? (int)action : throw new ArgumentException("Unsupported audit action.", nameof(value));
-    private static async Task<string> ComputeHashAsync(SqliteConnection connection, AuditEntry entry, CancellationToken token) { if (!entry.DocumentId.HasValue) throw new ArgumentException("Document identity is required for integrity hashing.", nameof(entry)); await using var q=connection.CreateCommand(); q.CommandText="SELECT IntegrityHash FROM DocumentAuditLog WHERE DocumentId=$document ORDER BY TimestampUtc DESC,AuditId DESC LIMIT 1"; q.Parameters.AddWithValue("$document",entry.DocumentId.Value.ToString()); var previous=await q.ExecuteScalarAsync(token) as string ?? string.Empty; var timestamp = entry.TimestampOffset == default ? new DateTimeOffset(DateTime.SpecifyKind(entry.TimestampUtc, DateTimeKind.Utc)) : entry.TimestampOffset; var payload=$"{previous}|{entry.AuditId}|{entry.DocumentId}|{entry.Action}|{entry.UserId}|{timestamp:O}|{entry.DocumentRevision}|{entry.EventMetadataJson}|{entry.DetailsJson}"; return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))); }
-    private static string ComputeHash(string previous, DocumentAuditRecord record) { var payload=$"{previous}|{record.AuditId}|{record.DocumentId}|{record.Action}|{record.ActorId}|{record.Timestamp:O}|{record.DocumentRevision}|{record.EventMetadataJson}|{record.DetailsJson}"; return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))); }
+    private static async Task<string> ComputeHashAsync(SqliteConnection connection, AuditEntry entry, CancellationToken token) { if (!entry.DocumentId.HasValue) throw new ArgumentException("Document identity is required for integrity hashing.", nameof(entry)); await using var q=connection.CreateCommand(); q.CommandText="SELECT IntegrityHash FROM DocumentAuditLog WHERE DocumentId=$document ORDER BY TimestampUtc DESC,AuditId DESC LIMIT 1"; q.Parameters.AddWithValue("$document",entry.DocumentId.Value.ToString()); var previous=await q.ExecuteScalarAsync(token) as string ?? string.Empty; var timestamp = entry.TimestampOffset == default ? new DateTimeOffset(DateTime.SpecifyKind(entry.TimestampUtc, DateTimeKind.Utc)) : entry.TimestampOffset; var payload=$"{previous}|{entry.AuditId}|{entry.DocumentId}|{entry.Action}|{entry.UserId}|{timestamp:O}|{entry.DocumentRevision}|{entry.EventMetadataJson}|{entry.DetailsJson}|{entry.ActorRole}|{entry.DocumentVersion}|{entry.PreviousWorkflowStatus}|{entry.NewWorkflowStatus}"; return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))); }
+    private static string ComputeHash(string previous, DocumentAuditRecord record) { var payload=$"{previous}|{record.AuditId}|{record.DocumentId}|{record.Action}|{record.ActorId}|{record.Timestamp:O}|{record.DocumentRevision}|{record.EventMetadataJson}|{record.DetailsJson}|{record.ActorRole}|{record.DocumentVersion}|{record.PreviousWorkflowStatus}|{record.NewWorkflowStatus}"; return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))); }
 }
