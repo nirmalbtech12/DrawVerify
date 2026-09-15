@@ -13,6 +13,15 @@ namespace DrawVerify.App.Tests;
 
 public sealed class ReportViewModelTests
 {
+    [Fact(DisplayName = "TD-09 report content includes the persisted fingerprint")]
+    public void Report_model_renders_fingerprint_for_external_review()
+    {
+        var fingerprint = new DocumentFingerprint { Value = new string('d', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 };
+        var content = new VerificationReport { Fingerprint = fingerprint }.ToMarkdown();
+
+        Assert.Contains(fingerprint.Value, content);
+        Assert.Contains(fingerprint.Algorithm, content);
+    }
     [Fact(DisplayName = "TD-APPUI-EXTRA-002 report ViewModel exposes extra CSV export")]
     public async Task Extra_csv_command_surfaces_extra_rows_and_status()
     {

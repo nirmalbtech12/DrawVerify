@@ -3,6 +3,7 @@
     "version": 1,
     "comment": "Which files are fingerprinted and at which stages. Copy to fingerprint-policy.json to customize.",
     "algorithm": "SHA-256",
+    "canonicalizationVersion": 1,
     "stages": [
       {
         "stage": "OnImport",

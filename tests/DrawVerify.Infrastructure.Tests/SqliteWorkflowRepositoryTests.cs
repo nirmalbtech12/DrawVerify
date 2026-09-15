@@ -11,6 +11,48 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteWorkflowRepositoryTests
 {
+    [Fact(DisplayName = "TD-04 persists fingerprint metadata with the exact submission identity")]
+    public async Task Submission_fingerprint_round_trips_with_submission_fields()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-fingerprint-{Guid.NewGuid():N}.db");
+        try
+        {
+            var package = Guid.NewGuid();
+            var snapshot = Snapshot(package) with { Revision = 8, Fingerprint = new DocumentFingerprint { Value = new string('a', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 } };
+            await new SqliteWorkflowRepository(path).SubmitAtomicallyAsync(new WorkflowState { PackageId = package, Status = WorkflowStatus.Draft, Revision = 8 }, snapshot, Audit(DocumentAuditAction.SubmissionSucceeded, package, "Submitted"));
+            var loaded = Assert.Single(await new SqliteWorkflowRepository(path).GetSubmissionsAsync(package));
+            Assert.Equal(snapshot.Fingerprint, loaded.Fingerprint);
+            Assert.Equal(snapshot.MakerUserId, loaded.MakerUserId);
+            Assert.Equal(snapshot.SubmittedUtc, loaded.SubmittedUtc);
+            Assert.Equal(snapshot.Revision, loaded.Revision);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TD-05 rejects a new submission without a valid fingerprint")]
+    public async Task Missing_fingerprint_cannot_be_persisted()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-missing-fingerprint-{Guid.NewGuid():N}.db");
+        try
+        {
+            var package = Guid.NewGuid();
+            await Assert.ThrowsAsync<InvalidOperationException>(() => new SqliteWorkflowRepository(path).SubmitAtomicallyAsync(new WorkflowState { PackageId = package, Status = WorkflowStatus.Draft, Revision = 1 }, Snapshot(package) with { Fingerprint = null }, Audit(DocumentAuditAction.SubmissionSucceeded, package, "Submitted")));
+            Assert.Empty(await new SqliteWorkflowRepository(path).GetSubmissionsAsync(package));
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TD-10 serializes fingerprint fields for machine-readable submission export")]
+    public void Submission_json_contains_machine_readable_fingerprint_fields()
+    {
+        var submission = Snapshot(Guid.NewGuid());
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(submission));
+        var fingerprint = document.RootElement.GetProperty("Fingerprint");
+
+        Assert.Equal(submission.Fingerprint!.Value, fingerprint.GetProperty("Value").GetString());
+        Assert.Equal("SHA-256", fingerprint.GetProperty("Algorithm").GetString());
+        Assert.Equal(1, fingerprint.GetProperty("CanonicalizationVersion").GetInt32());
+    }
     [Fact(DisplayName = "TD-INFRA-01 atomic submission persists exact snapshot, status, and audit")]
     public async Task Submission_snapshot_round_trips()
     {
@@ -283,7 +325,7 @@ public sealed class SqliteWorkflowRepositoryTests
         Assert.Equal("Fix DIM-4", comment.Text); Assert.Equal(4, comment.Revision); Assert.Equal("DIM-4", comment.ReferenceId); Assert.NotEqual(comment, snapshot);
     }
 
-    private static ReviewSubmission Snapshot(Guid package) => new() { SubmissionId = Guid.NewGuid(), PackageId = package, DxfDocumentId = Guid.Parse("00000000-0000-0000-0000-000000000010"), StepDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000011"), DxfDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000012"), VerificationSessionId = Guid.Parse("00000000-0000-0000-0000-000000000013"), ExtractionEvidenceJson = "{\"extracted\":true}", VerificationEvidenceJson = "{\"verified\":true}", MakerUserId = "maker-001", MakerDisplayName = "Maker One", SubmittedUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), Note = "Please review hole tolerances", Revision = 1 };
+    private static ReviewSubmission Snapshot(Guid package) => new() { SubmissionId = Guid.NewGuid(), PackageId = package, DxfDocumentId = Guid.Parse("00000000-0000-0000-0000-000000000010"), StepDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000011"), DxfDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000012"), VerificationSessionId = Guid.Parse("00000000-0000-0000-0000-000000000013"), ExtractionEvidenceJson = "{\"extracted\":true}", VerificationEvidenceJson = "{\"verified\":true}", MakerUserId = "maker-001", MakerDisplayName = "Maker One", SubmittedUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), Note = "Please review hole tolerances", Revision = 1, Fingerprint = new DocumentFingerprint { Value = new string('a', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 } };
     private static AuditEntry Audit(DocumentAuditAction action, Guid package, string result) => new() { DocumentId = package, UserId = "maker-001", Action = action, TimestampUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), DetailsJson = $"{{\"packageId\":\"{package}\",\"revision\":1,\"result\":\"{result}\",\"maker\":\"Maker One\"}}" };
     private static void Delete(string path)
     {

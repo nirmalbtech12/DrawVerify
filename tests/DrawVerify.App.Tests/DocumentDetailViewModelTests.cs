@@ -16,6 +16,21 @@ namespace DrawVerify.App.Tests;
 
 public sealed class DocumentDetailViewModelTests
 {
+    [Fact(DisplayName = "TD-07 keeps each historical version fingerprint associated with its own revision")]
+    public void Historical_version_read_models_expose_their_own_fingerprints()
+    {
+        var first = new DocumentFingerprint { Value = new string('1', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 };
+        var second = new DocumentFingerprint { Value = new string('2', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 };
+        var versions = new[]
+        {
+            new PriorVersionReview { PackageId = Guid.NewGuid(), Revision = 1, Package = new ReviewPackage { Submission = new ReviewSubmission { Revision = 1, Fingerprint = first } } },
+            new PriorVersionReview { PackageId = Guid.NewGuid(), Revision = 2, Package = new ReviewPackage { Submission = new ReviewSubmission { Revision = 2, Fingerprint = second } } }
+        };
+
+        Assert.Equal(first, versions[0].Package.Fingerprint);
+        Assert.Equal(second, versions[1].Package.Fingerprint);
+        Assert.NotEqual(versions[0].Package.Fingerprint, versions[1].Package.Fingerprint);
+    }
     [Fact(DisplayName = "TD-KAN23-WPF-003 details display all DXF metadata and statuses")]
     public void Dxf_details_expose_required_metadata()
     {

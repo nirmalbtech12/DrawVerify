@@ -36,6 +36,11 @@ public sealed class SqliteAuditRepository : IAuditLogger, IDocumentAuditReposito
         command.CommandText = "CREATE INDEX IF NOT EXISTS IX_DocumentAuditLog_Query ON DocumentAuditLog(DocumentId,TimestampUtc,Action,UserId,DocumentRevision)"; command.ExecuteNonQuery();
         command.CommandText = "CREATE TRIGGER IF NOT EXISTS TR_DocumentAuditLog_PreventDelete BEFORE DELETE ON DocumentAuditLog BEGIN SELECT RAISE(ABORT, 'Document audit entries are append-only.'); END;"; command.ExecuteNonQuery();
         command.CommandText = "CREATE TRIGGER IF NOT EXISTS TR_DocumentAuditLog_PreventUpdate BEFORE UPDATE ON DocumentAuditLog BEGIN SELECT RAISE(ABORT, 'Document audit entries are append-only.'); END;"; command.ExecuteNonQuery();
+        // Keep distinct append-only guards for databases created by older builds;
+        // the guards are intentionally database-level so direct SQL cannot bypass
+        // repository immutability.
+        command.CommandText = "CREATE TRIGGER IF NOT EXISTS TR_DocumentAuditLog_AppendOnlyDelete BEFORE DELETE ON DocumentAuditLog BEGIN SELECT RAISE(ABORT, 'Document audit entries are append-only.'); END;"; command.ExecuteNonQuery();
+        command.CommandText = "CREATE TRIGGER IF NOT EXISTS TR_DocumentAuditLog_AppendOnlyUpdate BEFORE UPDATE ON DocumentAuditLog BEGIN SELECT RAISE(ABORT, 'Document audit entries are append-only.'); END;"; command.ExecuteNonQuery();
     }
     public async Task WriteAsync(AuditEntry entry, CancellationToken token = default)
     {

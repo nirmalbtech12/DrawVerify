@@ -12,6 +12,15 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class ReportServiceStatusTests
 {
+    [Fact(DisplayName = "TD-09 renders the requested version fingerprint in a verification report")]
+    public void Verification_report_includes_fingerprint_and_algorithm()
+    {
+        var fingerprint = new DocumentFingerprint { Value = new string('b', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 };
+        var markdown = new VerificationReport { Fingerprint = fingerprint }.ToMarkdown();
+
+        Assert.Contains(fingerprint.Value, markdown);
+        Assert.Contains("SHA-256", markdown);
+    }
     [Fact(DisplayName = "TD-10 renders a separate GD&T validation report section")]
     public void Markdown_report_includes_not_verified_details_and_comment()
     {

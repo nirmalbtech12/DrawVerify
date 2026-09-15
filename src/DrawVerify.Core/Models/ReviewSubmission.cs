@@ -24,6 +24,7 @@ public sealed record ReviewSubmission
     public bool AvailableToCheckers { get; init; } = true;
     public string? AssignedApproverUserId { get; init; }
     public bool AvailableToApprovers { get; init; } = true;
+    public DocumentFingerprint? Fingerprint { get; init; }
 }
 
 public sealed record SubmissionReadiness(bool IsReady, IReadOnlyList<string> Failures)
