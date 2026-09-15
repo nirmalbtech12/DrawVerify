@@ -103,6 +103,9 @@ public sealed class WorkflowService : IWorkflowService
     {
         if (_notifications is null) return;
         var recipients = _machine.NotificationRecipients(notificationEvent);
+        var configuredRules = _effectiveConfiguration.Notifications.Where(x => x.Event == notificationEvent).ToArray();
+        if (configuredRules.Any(rule => rule.Channels.Any(channel => channel != WorkflowNotificationChannel.InApp)))
+            throw new NotSupportedException($"Workflow notification event '{notificationEvent}' specifies a channel that is not available in the configured notification service.");
         if (recipients.Count == 0)
         {
             if (notificationEvent is WorkflowNotificationEvent.Approval or WorkflowNotificationEvent.Rejection or WorkflowNotificationEvent.Return)
@@ -116,6 +119,7 @@ public sealed class WorkflowService : IWorkflowService
             {
                 if (string.Equals(systemRole, "Maker", StringComparison.OrdinalIgnoreCase)) await _notifications.NotifyMakerAsync(packageId, revision, decision, cancellationToken).ConfigureAwait(false);
                 else if (string.Equals(systemRole, "Checker", StringComparison.OrdinalIgnoreCase)) await _notifications.NotifyCheckerAsync(packageId, revision, decision, cancellationToken).ConfigureAwait(false);
+                else throw new InvalidOperationException($"Workflow notification recipient '{recipient}' does not map to a supported canonical workflow role.");
             }
             catch (Exception exception)
             {
