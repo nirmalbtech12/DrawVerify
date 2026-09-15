@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using DrawVerify.Core.Enums;
+using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
 using DrawVerify.Infrastructure.Persistence;
 using Microsoft.Data.Sqlite;
@@ -248,6 +249,38 @@ public sealed class SqliteWorkflowRepositoryTests
             Assert.NotNull(message); Assert.Contains(package.ToString(), message); Assert.Contains("revision 1", message); Assert.Contains("Rejected", message); Assert.Contains("/comments", message);
         }
         finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TD-INF-01 round trips multiple revisions with exact identifiers and filters")]
+    public async Task Historical_revision_rows_preserve_identity_and_filtering()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-history-{Guid.NewGuid():N}.db");
+        try
+        {
+            _ = new SqliteWorkflowRepository(path);
+            var package = Guid.NewGuid();
+            await using var connection = new SqliteConnection($"Data Source={path}"); await connection.OpenAsync();
+            foreach (var item in new[] { (1, WorkflowStatus.Rejected, "maker-a"), (2, WorkflowStatus.Approved, "maker-b"), (3, WorkflowStatus.Draft, "maker-a") })
+            {
+                await using var command = connection.CreateCommand();
+                command.CommandText = "INSERT INTO ReviewSubmission (SubmissionId,PackageId,DxfDocumentId,StepDocumentVersionId,DxfDocumentVersionId,VerificationSessionId,ExtractionEvidenceJson,VerificationEvidenceJson,Revision,MakerUserId,MakerDisplayName,SubmittedUtc,Note,Status) VALUES ($s,$p,$d,$step,$dxf,$session,$e,$v,$r,$maker,$name,$date,$note,$status)";
+                command.Parameters.AddWithValue("$s", Guid.NewGuid().ToString()); command.Parameters.AddWithValue("$p", package.ToString()); command.Parameters.AddWithValue("$d", Guid.NewGuid().ToString()); command.Parameters.AddWithValue("$step", Guid.NewGuid().ToString()); command.Parameters.AddWithValue("$dxf", Guid.NewGuid().ToString()); command.Parameters.AddWithValue("$session", Guid.NewGuid().ToString()); command.Parameters.AddWithValue("$e", "{}"); command.Parameters.AddWithValue("$v", $"{{\"revision\":{item.Item1}}}"); command.Parameters.AddWithValue("$r", item.Item1); command.Parameters.AddWithValue("$maker", item.Item3); command.Parameters.AddWithValue("$name", item.Item3); command.Parameters.AddWithValue("$date", DateTime.UtcNow.AddDays(item.Item1).ToString("O")); command.Parameters.AddWithValue("$note", $"note-{item.Item1}"); command.Parameters.AddWithValue("$status", (int)item.Item2);
+                await command.ExecuteNonQueryAsync();
+            }
+            var repository = new SqliteWorkflowRepository(path);
+            var all = await ((IWorkflowRepository)repository).GetPriorSubmissionsAsync(package, new PriorVersionFilter { MakerUserId = "MAKER-A" });
+            Assert.Equal(new[] { 3, 1 }, all.Select(x => x.Revision)); Assert.All(all, x => Assert.Equal(package, x.PackageId));
+            Assert.Equal(WorkflowStatus.Rejected, (await repository.GetSubmissionsAsync(package)).Single(x => x.Revision == 1).Status);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TD-INF-02 historical comments remain associated with their original revision")]
+    public void Historical_comment_records_are_immutable_read_models()
+    {
+        var comment = new ReviewComment { PackageId = Guid.NewGuid(), Revision = 4, AuthorUserId = "checker", Text = "Fix DIM-4", ReferenceType = "dimension", ReferenceId = "DIM-4", IsDraft = false };
+        var snapshot = comment with { Text = "changed" };
+        Assert.Equal("Fix DIM-4", comment.Text); Assert.Equal(4, comment.Revision); Assert.Equal("DIM-4", comment.ReferenceId); Assert.NotEqual(comment, snapshot);
     }
 
     private static ReviewSubmission Snapshot(Guid package) => new() { SubmissionId = Guid.NewGuid(), PackageId = package, DxfDocumentId = Guid.Parse("00000000-0000-0000-0000-000000000010"), StepDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000011"), DxfDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000012"), VerificationSessionId = Guid.Parse("00000000-0000-0000-0000-000000000013"), ExtractionEvidenceJson = "{\"extracted\":true}", VerificationEvidenceJson = "{\"verified\":true}", MakerUserId = "maker-001", MakerDisplayName = "Maker One", SubmittedUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), Note = "Please review hole tolerances", Revision = 1 };

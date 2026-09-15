@@ -29,6 +29,8 @@ public sealed record ReviewPackage
     public IReadOnlyList<ReviewComment> PriorComments => Comments.Where(x => x.PriorCommentId is null).ToArray();
     public static ReviewPackage FromSubmission(ReviewSubmission submission, ReviewDecision? priorDecision = null, IReadOnlyList<ReviewComment>? comments = null)
     {
+        ArgumentNullException.ThrowIfNull(submission);
+        var stepDocumentId = submission.PackageId;
         var findings = new List<ReviewFinding>();
         using var json = JsonDocument.Parse(submission.VerificationEvidenceJson);
         if (json.RootElement.TryGetProperty("findings", out var array) && array.ValueKind == JsonValueKind.Array)
@@ -39,7 +41,7 @@ public sealed record ReviewPackage
             }
         return new()
         {
-        PackageId = submission.PackageId, Revision = submission.Revision, Status = submission.Status,
+        PackageId = submission.PackageId, StepDocumentId = stepDocumentId, Revision = submission.Revision, Status = submission.Status,
         DxfDocumentId = submission.DxfDocumentId, VerificationSessionId = submission.VerificationSessionId,
         MakerUserId = submission.MakerUserId, MakerDisplayName = submission.MakerDisplayName, SubmittedUtc = submission.SubmittedUtc,
         Note = submission.Note, StepDocumentVersionId = submission.StepDocumentVersionId, DxfDocumentVersionId = submission.DxfDocumentVersionId,

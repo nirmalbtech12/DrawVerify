@@ -141,9 +141,15 @@ public static class CompositionRoot
         return new DxfDrawingGenerationService(documents, new DocumentFileStore(AppContext.BaseDirectory, StepUploadConfiguration), dxfFiles, new OcctGeometryService(), new SqliteAuditRepository(database), Session, Authorization, logger, users, extraction, new SqliteWorkflowRepository(database, logger, WorkflowConfiguration));
     }
     public static DocumentDetailViewModel CreateDocumentDetailViewModel(DrawVerify.Core.Models.Document document) =>
-        new(document, CreateDxfDimensionExtractionService(), CreateWorkflowService(), null, Session, Authorization);
+        new(document, CreateDxfDimensionExtractionService(), CreateWorkflowService(), null, Session, Authorization, CreateHistoricalDocumentService());
     public static DocumentDetailViewModel CreateDocumentDetailViewModel(DrawVerify.Core.Models.Document document, DrawVerify.Core.Models.SubmissionRequest submissionRequest) =>
-        new(document, CreateDxfDimensionExtractionService(), CreateWorkflowService(), submissionRequest, Session, Authorization);
+        new(document, CreateDxfDimensionExtractionService(), CreateWorkflowService(), submissionRequest, Session, Authorization, CreateHistoricalDocumentService());
+    private static DocumentService CreateHistoricalDocumentService()
+    {
+        var database = DatabasePath();
+        var logger = new CentralizedLogger();
+        return new DocumentService(new SqliteDocumentRepository(database, logger), new SqliteAuditRepository(database), new DocumentFileStore(AppContext.BaseDirectory, StepUploadConfiguration), StepUploadConfiguration, Session, logger, Authorization, users: new SqliteUserRepository(database, logger), workflow: new SqliteWorkflowRepository(database, logger, WorkflowConfiguration), dxfFiles: new DxfDocumentFileStore(AppContext.BaseDirectory, DxfUploadConfiguration));
+    }
     public static DimensionMatchingService CreateDimensionMatchingService()
     {
         var database = DatabasePath();

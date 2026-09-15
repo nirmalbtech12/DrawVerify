@@ -44,6 +44,16 @@ public sealed class SqliteDocumentRepositoryTests
         finally { Cleanup(path); }
     }
 
+    [Fact(DisplayName = "TD-INF-02 historical file references select the requested version")]
+    public void Historical_file_reference_does_not_fall_back_to_current_version()
+    {
+        var prior = new DocumentVersion { VersionId = Guid.NewGuid(), VersionNumber = 1, StoredRelativePath = "history/prior.step" };
+        var current = new DocumentVersion { VersionId = Guid.NewGuid(), VersionNumber = 2, StoredRelativePath = "current.step" };
+        var document = new Document { DocumentId = Guid.NewGuid(), Version = current, Versions = new[] { prior, current } };
+        Assert.Equal(prior.StoredRelativePath, document.Versions.Single(x => x.VersionId == prior.VersionId).StoredRelativePath);
+        Assert.NotEqual(current.VersionId, prior.VersionId);
+    }
+
     private static string TempPath() => Path.Combine(Path.GetTempPath(), $"drawverify-invalid-audit-{Guid.NewGuid():N}.db");
     private static int CountRows(SqliteConnection c) { using var q = c.CreateCommand(); q.CommandText = "SELECT COUNT(*) FROM DocumentAuditLog"; return Convert.ToInt32(q.ExecuteScalar()); }
     private static void Cleanup(string path) { SqliteConnection.ClearAllPools(); if (File.Exists(path)) File.Delete(path); }

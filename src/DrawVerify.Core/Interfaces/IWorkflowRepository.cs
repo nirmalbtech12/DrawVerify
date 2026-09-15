@@ -33,4 +33,14 @@ public interface IWorkflowRepository
     Task LockRevisionAsync(Guid packageId, int revision, CancellationToken cancellationToken = default) => Task.CompletedTask;
     Task<IReadOnlyList<ReviewDecision>> GetDecisionHistoryAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
         => Task.FromResult<IReadOnlyList<ReviewDecision>>(Array.Empty<ReviewDecision>());
+    async Task<IReadOnlyList<ReviewSubmission>> GetPriorSubmissionsAsync(Guid packageId, PriorVersionFilter? filter = null, CancellationToken cancellationToken = default)
+    {
+        filter?.Validate();
+        var submissions = await GetSubmissionsAsync(packageId, cancellationToken).ConfigureAwait(false);
+        return submissions.Where(x => filter?.Status is null || x.Status == filter.Status)
+            .Where(x => filter?.FromUtc is null || x.SubmittedUtc >= filter.FromUtc)
+            .Where(x => filter?.ToUtc is null || x.SubmittedUtc <= filter.ToUtc)
+            .Where(x => string.IsNullOrWhiteSpace(filter?.MakerUserId) || string.Equals(x.MakerUserId, filter.MakerUserId, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(x => x.Revision).ToArray();
+    }
 }

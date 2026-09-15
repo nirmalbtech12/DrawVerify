@@ -16,6 +16,7 @@ public sealed record ReviewSubmission
     public string MakerUserId { get; init; } = string.Empty;
     public string MakerDisplayName { get; init; } = string.Empty;
     public DateTime SubmittedUtc { get; init; } = DateTime.UtcNow;
+    public DateTime CreatedUtc { get; init; } = DateTime.UtcNow;
     public string? Note { get; init; }
     public WorkflowStatus Status { get; init; } = WorkflowStatus.SubmittedForReview;
     public bool MakerAuthorized { get; init; } = true;

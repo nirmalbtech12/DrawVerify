@@ -425,6 +425,7 @@ public sealed class WorkflowService : IWorkflowService
     public async Task<ReviewComment> AddReviewCommentAsync(Guid packageId, int revision, string text, CancellationToken cancellationToken = default)
     {
         RequireReviewPermission();
+        await RequireCurrentRevisionAsync(packageId, revision, cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(text)) throw new ArgumentException("Review comment cannot be blank.", nameof(text));
         var user = _authentication.CurrentUser!; var comment = new ReviewComment { PackageId = packageId, Revision = revision, AuthorUserId = user.UserId, AuthorDisplayName = user.DisplayName, CreatedUtc = _clock().ToUniversalTime(), Text = text.Trim(), IsDraft = true };
         await _workflow.SaveReviewCommentAsync(comment, CreateAudit(packageId, revision, DocumentAuditAction.ReviewCommentDraftSaved, "CommentDraftSaved", comment.CreatedUtc, user, comment: comment), cancellationToken).ConfigureAwait(false);
@@ -434,6 +435,7 @@ public sealed class WorkflowService : IWorkflowService
     public async Task<ReviewComment> SaveReviewCommentDraftAsync(Guid packageId, int revision, string text, string? referenceType = null, string? referenceId = null, string? location = null, CancellationToken cancellationToken = default)
     {
         RequireReviewPermission();
+        await RequireCurrentRevisionAsync(packageId, revision, cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(text)) throw new ArgumentException("Review comment cannot be blank.", nameof(text));
         var package = await _workflow.GetReviewPackageAsync(packageId, revision, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException("The review package was not found.");
         if (package.Status is not (WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview)) throw new ReviewDecisionConflictException(packageId, revision, package.Status, revision, package.PriorDecision);
@@ -448,6 +450,7 @@ public sealed class WorkflowService : IWorkflowService
     {
         RequireReviewPermission();
         var user = _authentication.CurrentUser!;
+        await RequireCurrentRevisionAsync(comment.PackageId, comment.Revision, cancellationToken).ConfigureAwait(false);
         if (!string.Equals(user.UserId, comment.AuthorUserId, StringComparison.OrdinalIgnoreCase)) throw new UnauthorizedAccessException("Only the comment author can edit an unsent review comment.");
         var package = await _workflow.GetReviewPackageAsync(comment.PackageId, comment.Revision, cancellationToken).ConfigureAwait(false);
         if (package is null) throw new KeyNotFoundException($"Review package '{comment.PackageId}' revision {comment.Revision} was not found.");
@@ -462,10 +465,35 @@ public sealed class WorkflowService : IWorkflowService
     {
         RequireReviewPermission();
         var user = _authentication.CurrentUser!;
+        await RequireCurrentRevisionAsync(packageId, revision, cancellationToken).ConfigureAwait(false);
         var package = await _workflow.GetReviewPackageAsync(packageId, revision, cancellationToken).ConfigureAwait(false);
         if (package is null) throw new KeyNotFoundException($"Review package '{packageId}' revision {revision} was not found.");
         if (package.Status is not (WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview)) throw new ReviewDecisionConflictException(packageId, revision, package.Status, revision, package.PriorDecision);
         await _workflow.DiscardReviewCommentAsync(commentId, CreateAudit(packageId, revision, DocumentAuditAction.ReviewCommentDiscarded, "CommentDiscarded", _clock().ToUniversalTime(), user, commentId: commentId, workflowStatus: package?.Status), cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task RequireCurrentRevisionAsync(Guid packageId, int revision, CancellationToken cancellationToken)
+    {
+        if (packageId == Guid.Empty || revision < 1) throw new ArgumentException("A valid current review revision is required.");
+        var submissions = await _workflow.GetSubmissionsAsync(packageId, cancellationToken).ConfigureAwait(false);
+        var current = submissions.OrderByDescending(x => x.Revision).FirstOrDefault();
+        if (current is not null)
+        {
+            if (current.Revision != revision)
+                throw new ReviewDecisionConflictException(packageId, revision, current.Status, current.Revision, null);
+            return;
+        }
+
+        // Some legacy review callers do not expose submission history. Preserve
+        // their current/draft comment contract; persisted repositories enforce
+        // the revision and lock invariant at their mutation boundary.
+        if (submissions.Count == 0) return;
+
+        var package = await _workflow.GetReviewPackageAsync(packageId, revision, cancellationToken).ConfigureAwait(false);
+        if (package is null)
+            throw new ReviewDecisionConflictException(packageId, revision, WorkflowStatus.Draft, 0, null);
+        if (package.Revision != revision || package.Status is not (WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview))
+            throw new ReviewDecisionConflictException(packageId, revision, package.Status, package.Revision, package.PriorDecision);
     }
 
     public async Task<ReviewPackage?> GetReviewPackageForReaderAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
@@ -496,10 +524,171 @@ public sealed class WorkflowService : IWorkflowService
         return packages;
     }
 
+    public async Task<IReadOnlyList<PriorVersionReview>> GetPriorVersionsAsync(Guid packageId, PriorVersionFilter? filter = null, CancellationToken cancellationToken = default)
+    {
+        RequirePriorVersionPermission();
+        if (packageId == Guid.Empty) throw new ArgumentException("Package identifier is required.", nameof(packageId));
+        var submissions = await _workflow.GetPriorSubmissionsAsync(packageId, filter, cancellationToken).ConfigureAwait(false);
+        var result = new List<PriorVersionReview>(submissions.Count);
+        foreach (var submission in submissions)
+        {
+            var package = await BuildPriorVersionAsync(submission, cancellationToken).ConfigureAwait(false);
+            if (package is not null) result.Add(package);
+        }
+        return result;
+    }
+
+    public async Task<PriorVersionReview?> GetPriorVersionAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
+    {
+        RequirePriorVersionPermission();
+        if (packageId == Guid.Empty) throw new ArgumentException("Package identifier is required.", nameof(packageId));
+        if (revision < 1) throw new ArgumentOutOfRangeException(nameof(revision));
+        var submission = (await _workflow.GetSubmissionsAsync(packageId, cancellationToken).ConfigureAwait(false)).FirstOrDefault(x => x.Revision == revision);
+        if (submission is null) return null;
+        var result = await BuildPriorVersionAsync(submission, cancellationToken).ConfigureAwait(false);
+        if (result is null) return null;
+        var user = _authentication.CurrentUser!;
+        var audit = CreateAudit(packageId, revision, DocumentAuditAction.PriorVersionViewed, "PriorVersionViewed", _clock().ToUniversalTime(), user, documentVersionId: submission.StepDocumentVersionId);
+        try
+        {
+            await _workflow.RecordAuditAsync(audit, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            _logger?.Log(exception, "Prior version audit", $"packageId={packageId}; revision={revision}; versionId={submission.StepDocumentVersionId}");
+            throw;
+        }
+        return result;
+    }
+
+    public async Task<VersionComparison> CompareVersionsAsync(Guid packageId, int currentRevision, int priorRevision, CancellationToken cancellationToken = default)
+    {
+        RequirePriorVersionPermission();
+        if (currentRevision < 1 || priorRevision < 1) throw new ArgumentOutOfRangeException(nameof(priorRevision));
+        var submissions = await _workflow.GetSubmissionsAsync(packageId, cancellationToken).ConfigureAwait(false);
+        var current = submissions.FirstOrDefault(x => x.Revision == currentRevision) ?? throw new KeyNotFoundException("The current revision was not found.");
+        var prior = submissions.FirstOrDefault(x => x.Revision == priorRevision) ?? throw new KeyNotFoundException("The prior revision was not found.");
+        var fileChanges = new List<VersionDifference>();
+        AddDifference(fileChanges, "STEP", prior.StepDocumentVersionId, current.StepDocumentVersionId);
+        AddDifference(fileChanges, "DXF", prior.DxfDocumentVersionId, current.DxfDocumentVersionId);
+        var metadata = new List<VersionDifference>();
+        AddDifference(metadata, "Status", prior.Status.ToString(), current.Status.ToString());
+        AddDifference(metadata, "Maker", prior.MakerUserId, current.MakerUserId);
+        AddDifference(metadata, "Note", prior.Note, current.Note);
+        var dimensions = CompareEvidence(prior.VerificationEvidenceJson, current.VerificationEvidenceJson, "Dimension");
+        var gdt = CompareEvidence(prior.VerificationEvidenceJson, current.VerificationEvidenceJson, "Gdt");
+        return new VersionComparison { PackageId = packageId, PriorRevision = priorRevision, CurrentRevision = currentRevision, FileChanges = fileChanges, MetadataChanges = metadata, DimensionChanges = dimensions, GdtChanges = gdt, EvidenceAvailable = prior.VerificationEvidenceJson != "{}" && current.VerificationEvidenceJson != "{}" };
+    }
+
+    private async Task<PriorVersionReview?> BuildPriorVersionAsync(ReviewSubmission submission, CancellationToken cancellationToken)
+    {
+        var package = await _workflow.GetReviewPackageAsync(submission.PackageId, submission.Revision, cancellationToken).ConfigureAwait(false);
+        if (package is null) return null;
+        var decisions = await _workflow.GetDecisionHistoryAsync(submission.PackageId, submission.Revision, cancellationToken).ConfigureAwait(false);
+        var decision = decisions.LastOrDefault() ?? package.PriorDecision;
+        var correction = package.CorrectionAction ?? package.Comments.Select(x => x.CorrectionResponse).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x));
+        return new PriorVersionReview { PackageId = submission.PackageId, SubmissionId = submission.SubmissionId, Revision = submission.Revision, StepDocumentVersionId = submission.StepDocumentVersionId, DxfDocumentVersionId = submission.DxfDocumentVersionId, VerificationSessionId = submission.VerificationSessionId, MakerUserId = submission.MakerUserId, MakerDisplayName = submission.MakerDisplayName, CreatedUtc = submission.CreatedUtc.ToUniversalTime(), SubmittedUtc = submission.SubmittedUtc.ToUniversalTime(), ApprovedUtc = decisions.Where(x => x.DecisionType == ReviewDecisionType.Approve).Select(x => (DateTime?)x.DecidedUtc.ToUniversalTime()).LastOrDefault(), Status = submission.Status, Note = submission.Note, RejectionReason = package.RejectionReason, CorrectionResponse = correction, Decisions = decisions, Comments = package.Comments, Package = package, IsCurrent = submission.Status is WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview };
+    }
+
+    private static void AddDifference(ICollection<VersionDifference> target, string category, Guid previous, Guid current)
+    {
+        if (previous != current) target.Add(new VersionDifference("File", category, "Modified", previous.ToString("D"), current.ToString("D")));
+    }
+
+    private static void AddDifference(ICollection<VersionDifference> target, string identifier, string? previous, string? current)
+    {
+        if (!string.Equals(previous, current, StringComparison.Ordinal)) target.Add(new VersionDifference("Metadata", identifier, "Modified", previous, current));
+    }
+
+    private static IReadOnlyList<VersionDifference> CompareEvidence(string previous, string current, string category)
+    {
+        if (string.Equals(previous, current, StringComparison.Ordinal)) return Array.Empty<VersionDifference>();
+        if (!TryGetEvidenceMap(previous, category, out var previousItems) || !TryGetEvidenceMap(current, category, out var currentItems))
+            return Array.Empty<VersionDifference>();
+
+        var differences = new List<VersionDifference>();
+        foreach (var identifier in previousItems.Keys.Union(currentItems.Keys, StringComparer.OrdinalIgnoreCase).OrderBy(value => value, StringComparer.OrdinalIgnoreCase))
+        {
+            var hasPrevious = previousItems.TryGetValue(identifier, out var previousValue);
+            var hasCurrent = currentItems.TryGetValue(identifier, out var currentValue);
+            if (!hasPrevious)
+                differences.Add(new VersionDifference(category, identifier, "Added", null, currentValue));
+            else if (!hasCurrent)
+                differences.Add(new VersionDifference(category, identifier, "Removed", previousValue, null));
+            else if (!string.Equals(previousValue, currentValue, StringComparison.Ordinal))
+                differences.Add(new VersionDifference(category, identifier, "Modified", previousValue, currentValue));
+        }
+        return differences;
+    }
+
+    private static bool TryGetEvidenceMap(string json, string category, out IReadOnlyDictionary<string, string> values)
+    {
+        values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(json) || json == "{}") return false;
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            var propertyNames = category.Equals("Dimension", StringComparison.OrdinalIgnoreCase)
+                ? new[] { "dimensions", "dimensionMatches", "matches" }
+                : new[] { "gdt", "gdtResults", "gdtControls", "geometricTolerances" };
+            JsonElement collection = default;
+            foreach (var propertyName in propertyNames)
+            {
+                if (TryGetPropertyIgnoreCase(document.RootElement, propertyName, out var candidate) && candidate.ValueKind == JsonValueKind.Array)
+                {
+                    collection = candidate;
+                    break;
+                }
+            }
+            if (collection.ValueKind != JsonValueKind.Array) return false;
+
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in collection.EnumerateArray())
+            {
+                var identifier = GetEvidenceIdentifier(item);
+                if (!string.IsNullOrWhiteSpace(identifier)) result[identifier] = item.GetRawText();
+            }
+            values = result;
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static string? GetEvidenceIdentifier(JsonElement item)
+    {
+        if (item.ValueKind != JsonValueKind.Object) return null;
+        foreach (var propertyName in new[] { "identifier", "id", "dimensionId", "dimensionMatchId", "gdtResultId", "reference", "dxfDimensionReference" })
+            if (TryGetPropertyIgnoreCase(item, propertyName, out var value))
+                return value.ValueKind == JsonValueKind.String ? value.GetString() : value.ToString();
+        return null;
+    }
+
+    private static bool TryGetPropertyIgnoreCase(JsonElement element, string name, out JsonElement value)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+            foreach (var property in element.EnumerateObject())
+                if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = property.Value;
+                    return true;
+                }
+        value = default;
+        return false;
+    }
+
     private void RequireReviewPermission()
     {
         if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ReviewVerification))
             throw new UnauthorizedAccessException("Only an authorized Checker or Approver can review drawing packages.");
+    }
+
+    private void RequirePriorVersionPermission()
+    {
+        if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ViewPriorVersions))
+            throw new UnauthorizedAccessException("Only an authorized Checker or Approver can access prior versions.");
     }
     private void RequireFinalApprovalPermission()
     {
