@@ -31,7 +31,6 @@ public sealed class WorkflowService : IWorkflowService
     private readonly IApprovalSnapshotStore? _snapshots;
     private readonly IStepUploadFileStore? _stepFiles;
     private readonly IDxfUploadFileStore? _dxfFiles;
-    private readonly Dictionary<Guid, int> _capturedConfigurationVersions = new();
 
     /// <summary>Gets the immutable configuration version most recently resolved for this service operation.</summary>
     public int? EffectiveConfigurationVersion { get; private set; }
@@ -56,14 +55,48 @@ public sealed class WorkflowService : IWorkflowService
 
     private async Task ResolveWorkflowConfigurationAsync(Guid packageId, CancellationToken cancellationToken)
     {
-        if (_capturedConfigurationVersions.TryGetValue(packageId, out var capturedVersion))
+        var capturedVersion = await ReadPersistedConfigurationVersionAsync(packageId, cancellationToken).ConfigureAwait(false);
+        if (capturedVersion.HasValue)
         {
             await RefreshEffectiveConfigurationAsync(cancellationToken, capturedVersion).ConfigureAwait(false);
             return;
         }
 
         await RefreshEffectiveConfigurationAsync(cancellationToken).ConfigureAwait(false);
-        if (EffectiveConfigurationVersion.HasValue) _capturedConfigurationVersions[packageId] = EffectiveConfigurationVersion.Value;
+    }
+
+    private async Task<int?> ReadPersistedConfigurationVersionAsync(Guid packageId, CancellationToken cancellationToken)
+    {
+        if (_configurationRepository is null) return null;
+        var method = _configurationRepository.GetType().GetMethod("GetWorkflowVersionAsync", new[] { typeof(string), typeof(CancellationToken) });
+        if (method is null) return null;
+        try
+        {
+            var task = method.Invoke(_configurationRepository, new object[] { packageId.ToString(), cancellationToken }) as Task<int?>;
+            return task is null ? null : await task.ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            _logger?.Log(exception, "Workflow configuration version resolution", $"Unable to resolve persisted configuration version for packageId={packageId}.");
+            throw;
+        }
+    }
+
+    private async Task CapturePersistedConfigurationVersionAsync(Guid packageId, int? version, CancellationToken cancellationToken)
+    {
+        if (_configurationRepository is null || !version.HasValue) return;
+        var method = _configurationRepository.GetType().GetMethod("CaptureWorkflowVersionAsync", new[] { typeof(string), typeof(int?), typeof(CancellationToken) });
+        if (method is null) return;
+        try
+        {
+            var task = method.Invoke(_configurationRepository, new object[] { packageId.ToString(), version, cancellationToken }) as Task;
+            if (task is not null) await task.ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            _logger?.Log(exception, "Workflow configuration version capture", $"Unable to persist configuration version={version} for packageId={packageId}.");
+            throw;
+        }
     }
 
     private async Task NotifyConfiguredAsync(Guid packageId, int revision, ReviewDecision decision, WorkflowNotificationEvent notificationEvent, CancellationToken cancellationToken)
@@ -253,11 +286,11 @@ public sealed class WorkflowService : IWorkflowService
         if (state is null)
             return new(false, "The package has no workflow state and cannot be submitted.", Failures: new[] { "The package has no workflow state and cannot be submitted." });
         var now = _clock().ToUniversalTime();
-        if (EffectiveConfigurationVersion.HasValue) _capturedConfigurationVersions[request.PackageId] = EffectiveConfigurationVersion.Value;
         var submission = new ReviewSubmission { PackageId = request.PackageId, DxfDocumentId = request.DxfDocumentId, Revision = state.Revision, MakerUserId = user!.UserId, MakerDisplayName = user.DisplayName, MakerAuthorized = true, SubmittedUtc = now, Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim(), StepDocumentVersionId = request.StepDocumentVersionId, DxfDocumentVersionId = request.DxfDocumentVersionId, VerificationSessionId = request.VerificationSessionId, ExtractionEvidenceJson = request.ExtractionEvidenceJson, VerificationEvidenceJson = request.VerificationEvidenceJson };
         try
         {
             var saved = await _workflow.SubmitAtomicallyAsync(state, submission, CreateAudit(request.PackageId, state.Revision, DocumentAuditAction.SubmissionSucceeded, "Submitted", now, user, documentVersionId: request.StepDocumentVersionId, previousWorkflowStatus: state.Status, workflowStatus: WorkflowStatus.SubmittedForReview), cancellationToken).ConfigureAwait(false);
+            await CapturePersistedConfigurationVersionAsync(request.PackageId, EffectiveConfigurationVersion, cancellationToken).ConfigureAwait(false);
             return new(true, "The drawing was submitted for review.", state with { Status = WorkflowStatus.SubmittedForReview, UpdatedUtc = now }, saved);
         }
         catch (Exception exception)
