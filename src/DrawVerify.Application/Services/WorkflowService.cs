@@ -53,7 +53,7 @@ public sealed class WorkflowService : IWorkflowService
         _machine = new WorkflowStateMachine(effective);
     }
 
-    private async Task ResolveWorkflowConfigurationAsync(Guid packageId, CancellationToken cancellationToken)
+    private async Task ResolveWorkflowConfigurationAsync(Guid packageId, CancellationToken cancellationToken, bool allowCurrentForNewSubmission = false)
     {
         if (_configurationRepository is null && !IsLegacyConfiguration(_effectiveConfiguration))
             throw new InvalidOperationException("Configured workflow execution requires a persistent configuration repository; no workflow operation was applied.");
@@ -65,6 +65,8 @@ public sealed class WorkflowService : IWorkflowService
         }
 
         await RefreshEffectiveConfigurationAsync(cancellationToken).ConfigureAwait(false);
+        if (!allowCurrentForNewSubmission && !IsLegacyConfiguration(_effectiveConfiguration))
+            throw new InvalidOperationException($"Workflow package '{packageId}' has no captured configuration version; the active workflow was not evaluated.");
     }
 
     private static bool IsLegacyConfiguration(WorkflowConfiguration configuration) =>
@@ -144,7 +146,7 @@ public sealed class WorkflowService : IWorkflowService
         var failures = new List<string>();
         try
         {
-        await ResolveWorkflowConfigurationAsync(packageId, cancellationToken).ConfigureAwait(false);
+        await ResolveWorkflowConfigurationAsync(packageId, cancellationToken, allowCurrentForNewSubmission: true).ConfigureAwait(false);
         if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.SubmitForReview)) failures.Add("Only an authenticated Maker can submit a package for review.");
         var state = await _workflow.GetStateAsync(packageId, cancellationToken).ConfigureAwait(false);
         if (state is null) failures.Add("The package has no workflow state and cannot be submitted.");
