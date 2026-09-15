@@ -15,6 +15,8 @@ public sealed class RoleMenuBuilder(ISessionAuthenticationService session, RoleA
     private MenuItem? BuildItem(MenuDefinition definition, Action<string> navigate, Func<Task> logout, Action<string> denied)
     {
         var allowed = definition.Permission is null || authorization.IsAllowed(session.CurrentUser, definition.Permission.Value);
+        if (definition.Target == "Admin" && definition.Children is not null)
+            allowed = definition.Children.Any(child => child.Permission is null || authorization.IsAllowed(session.CurrentUser, child.Permission.Value));
         if (definition.RequiredRole is not null) allowed &= session.CurrentUser?.Roles.Any(x => string.Equals(x, definition.RequiredRole, StringComparison.OrdinalIgnoreCase)) == true;
         if (definition.Children is null || definition.Children.Count == 0)
         {

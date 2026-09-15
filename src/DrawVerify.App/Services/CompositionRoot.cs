@@ -67,6 +67,7 @@ public static class CompositionRoot
         var database = DatabasePath(); var logger = new CentralizedLogger();
         return new WorkflowService(new SqliteWorkflowRepository(database, logger, WorkflowConfiguration), Session, WorkflowConfiguration, Authorization, logger, new SqliteDocumentRepository(database, logger), new SqliteVerificationSessionRepository(database), notifications: new InAppNotificationService(database), snapshots: new ApprovalSnapshotFileStore(Path.Combine(AppContext.BaseDirectory, "approval-snapshots")), stepFiles: new DocumentFileStore(AppContext.BaseDirectory, StepUploadConfiguration), dxfFiles: new DxfDocumentFileStore(AppContext.BaseDirectory, DxfUploadConfiguration));
     }
+    public static IWorkflowConfigurationService CreateWorkflowConfigurationService() => new WorkflowConfigurationService(new SqliteWorkflowConfigurationRepository(DatabasePath()), Session, Authorization, new CentralizedLogger());
     public static DimensionMatchingConfiguration ConfiguredDimensionMatching => DimensionMatchingConfiguration;
     public static GdtValidator CreateGdtValidator()
     {
