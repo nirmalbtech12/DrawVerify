@@ -25,6 +25,31 @@ public sealed class AuditFailureObservabilityTests
         Assert.Equal(0, repository.Calls);
     }
 
+    [Fact(DisplayName = "TD-010 audit failures retain actual exception and document context")]
+    public async Task Checker_audit_failure_keeps_diagnostics_and_does_not_succeed()
+    {
+        var logger = new LoggerFake();
+        var document = Guid.NewGuid();
+        var session = new SessionAuthenticationService();
+        session.SignIn(new AuthenticatedUser("administrator", new[] { "Admin" }));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new AuditLogService(new FailingRepository(), session, logger: logger).QueryDocumentAsync(document));
+        Assert.Contains(document.ToString(), logger.Context);
+        Assert.NotNull(logger.Exception);
+        Assert.Equal("integrity failure", logger.Exception!.Message);
+        Assert.Equal("Document audit query", logger.Operation);
+    }
+
+    [Fact(DisplayName = "TD-010 Checker diagnostics retain context without raw signature payload")]
+    public void Checker_diagnostic_contract_does_not_place_payload_in_context()
+    {
+        const string rawPayload = "typed-checker-signature-sensitive-content";
+        var logger = new LoggerFake();
+        logger.Log(new InvalidOperationException(rawPayload), "Checker signature", "Unable to persist Checker signature for document doc-001 revision 2.");
+        Assert.Equal(rawPayload, logger.Exception!.Message);
+        Assert.DoesNotContain(rawPayload, logger.Context!);
+        Assert.Contains("document doc-001 revision 2", logger.Context);
+    }
+
     private sealed class FailingRepository : IDocumentAuditRepository
     {
         public int Calls { get; private set; }
@@ -34,7 +59,9 @@ public sealed class AuditFailureObservabilityTests
     }
     private sealed class LoggerFake : ICentralizedLogger
     {
-        public string? Operation { get; private set; } public string? Context { get; private set; }
-        public void Log(Exception exception, string operation, string context) => (Operation, Context) = (operation, context);
+        public Exception? Exception { get; private set; }
+        public string? Operation { get; private set; }
+        public string? Context { get; private set; }
+        public void Log(Exception exception, string operation, string context) => (Exception, Operation, Context) = (exception, operation, context);
     }
 }

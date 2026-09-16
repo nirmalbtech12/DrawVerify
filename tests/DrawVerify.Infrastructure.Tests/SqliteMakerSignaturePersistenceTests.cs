@@ -61,6 +61,38 @@ public sealed class SqliteMakerSignaturePersistenceTests
         Assert.Contains("RAISE(FAIL", source, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact(DisplayName = "TD-003 Checker audit round-trip retains version, identity, method, and digest reference")]
+    public async Task Checker_signature_audit_round_trips_without_raw_payload_logging()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-checker-signature-{Guid.NewGuid():N}.db");
+        var document = Guid.NewGuid();
+        try
+        {
+            var repository = new SqliteAuditRepository(path);
+            var signature = SignatureData.CreateChecker(SignatureMethod.Typed, "deterministic-signature", "checker-001", "Checker One", document, 2, new DateTimeOffset(2026, 9, 16, 10, 0, 0, TimeSpan.Zero));
+            var entry = new AuditEntry { DocumentId = document, UserId = signature.CheckerUserId, ActorRole = signature.Role, DocumentRevision = "2", DocumentVersion = document.ToString("D"), Action = DocumentAuditAction.CheckerSignatureApplied, TimestampUtc = signature.TimestampUtc.UtcDateTime, DetailsJson = JsonSerializer.Serialize(new { documentId = document, revision = 2, checkerUserId = signature.CheckerUserId, checkerDisplayName = signature.CheckerDisplayName, checkerRole = signature.Role, checkerSignatureMethod = signature.Method.ToString(), checkerSignatureTimestampUtc = signature.TimestampUtc, checkerSignatureHash = signature.IntegrityHash }) };
+            await repository.AppendAsync(entry);
+            var record = Assert.Single(await repository.QueryAsync(new AuditLogQuery(DocumentId: document)));
+            Assert.Equal(DocumentAuditAction.CheckerSignatureApplied, record.Action);
+            Assert.Equal("checker-001", record.ActorId);
+            Assert.Equal("Checker", record.ActorRole);
+            Assert.Contains(signature.IntegrityHash, record.DetailsJson);
+            Assert.DoesNotContain(signature.Payload, record.DetailsJson);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TD-003 persistence source declares immutable Checker columns and validation")]
+    public void Checker_persistence_contract_declares_round_trip_guards()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Infrastructure", "Persistence", "SqliteWorkflowRepository.cs")));
+        Assert.Contains("CheckerSignatureJson", source);
+        Assert.Contains("CheckerSignatureFinalized", source);
+        Assert.Contains("Checker signature does not match the current document version", source);
+        Assert.Contains("CheckerSignatureApplied", source);
+        Assert.Contains("checkerSignature.Validate", source);
+    }
+
     private static void Delete(string path)
     {
         SqliteConnection.ClearAllPools();

@@ -61,6 +61,33 @@ public sealed class MakerSignatureWorkflowServiceTests
         Assert.Contains("dxfDocumentVersionId", source);
     }
 
+    [Fact(DisplayName = "TD-006 Checker workflow contract uses authenticated identity and versioned signature")]
+    public void Checker_workflow_contract_is_authenticated_and_version_bound()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "WorkflowService.cs")));
+        Assert.Contains("_authentication.CurrentUser", source);
+        Assert.Contains("SystemRoles.Checker", source);
+        Assert.Contains("SignatureData.CreateChecker", source);
+        Assert.Contains("packageId, revision", source);
+        Assert.Contains("CheckerSignatureApplied", source);
+    }
+
+    [Fact(DisplayName = "REV-KAN65-001 blocked Checker signing performs prerequisite checks before persistence")]
+    public void Checker_prerequisites_precede_signature_persistence()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "WorkflowService.cs")));
+        var methodStart = source.IndexOf("ApplyCheckerSignatureAsync", StringComparison.Ordinal);
+        var saveIndex = source.IndexOf("SaveCheckerSignatureAsync", methodStart, StringComparison.Ordinal);
+        Assert.True(methodStart >= 0);
+        Assert.True(saveIndex > methodStart);
+        var method = source[methodStart..saveIndex];
+        Assert.Contains("makerSignature.DocumentId", method);
+        Assert.Contains("makerSignature.Revision", method);
+        Assert.Contains("ApprovedByChecker", method);
+        Assert.Contains("PendingFinalApproval", method);
+        Assert.Contains("Maker signature required before Checker signature", method);
+    }
+
     private sealed class FakeSession(AuthenticatedUser? user) : ISessionAuthenticationService
     {
         public AuthenticatedUser? CurrentUser => user;

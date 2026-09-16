@@ -81,6 +81,27 @@ public sealed class SqliteFinalApprovalPersistenceTests
         try { var repo = new SqliteWorkflowRepository(path); await repo.RecordAuditAsync(Audit(Guid.NewGuid(), DocumentAuditAction.AccessChanged)); }
         finally { TryDelete(path); }
     }
+
+    [Fact(DisplayName = "TD-009 new revisions retain independent Checker signature persistence")]
+    public void Checker_revision_contract_is_version_scoped()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Infrastructure", "Persistence", "SqliteWorkflowRepository.cs")));
+        Assert.Contains("CheckerSignatureJson", source);
+        Assert.Contains("CheckerSignatureFinalized IS NULL", source);
+        Assert.Contains("signature.Revision != package.Revision", source);
+        Assert.Contains("CheckerSignature = checkerSignature", source);
+    }
+
+    private static string FindRepositoryFile(string relativePath)
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var index = 0; index < 10 && current is not null; index++, current = current.Parent)
+        {
+            var candidate = Path.Combine(current.FullName, relativePath);
+            if (File.Exists(candidate)) return candidate;
+        }
+        throw new FileNotFoundException(relativePath);
+    }
     private static ReviewSubmission Submission(Guid id) => new() { PackageId = id, Revision = 1, Status = WorkflowStatus.Draft, StepDocumentVersionId = Guid.NewGuid(), DxfDocumentVersionId = Guid.NewGuid(), VerificationSessionId = Guid.NewGuid(), ExtractionEvidenceJson = "{\"extraction\":true}", VerificationEvidenceJson = "{\"verification\":true}", MakerUserId = "maker", MakerDisplayName = "Maker", SubmittedUtc = DateTime.UtcNow, MakerAuthorized = true, Fingerprint = new DocumentFingerprint { Value = new string('a', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 } };
     private static ReviewDecision Decision(Guid id, ReviewDecisionType type) => new() { PackageId = id, Revision = 1, ApproverUserId = "approver", ApproverDisplayName = "Approver", CheckerUserId = "approver", CheckerDisplayName = "Approver", IsFinalApproval = true, DecisionType = type, SnapshotReference = "snapshot", SnapshotJson = "{\"reviewed\":true}", DecidedUtc = DateTime.UtcNow };
     private static AuditEntry Audit(Guid id, DocumentAuditAction action, string userId = "approver") => new() { AuditId = Guid.NewGuid(), DocumentId = id, Action = action, UserId = userId, TimestampUtc = DateTime.UtcNow, DetailsJson = "{\"package\":\"safe\"}" };

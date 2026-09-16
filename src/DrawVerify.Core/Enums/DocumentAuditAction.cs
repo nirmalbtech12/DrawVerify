@@ -51,4 +51,5 @@ public enum DocumentAuditAction
     ,PriorVersionViewed = 63
     ,IntegrityCheckFailed = 64
     ,MakerSignatureApplied = 65
+    ,CheckerSignatureApplied = 66
 }

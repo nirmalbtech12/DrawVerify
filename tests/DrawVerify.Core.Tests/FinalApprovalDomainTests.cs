@@ -51,4 +51,26 @@ public sealed class FinalApprovalDomainTests
         Assert.Equal(WorkflowStatus.ReturnedForRework, WorkflowStatus.ReturnedForRework);
         Assert.Throws<ArgumentOutOfRangeException>(() => (baseDecision with { Revision = 0 }).Validate());
     }
+
+    [Fact(DisplayName = "TD-001 approved-only Checker association is explicit")]
+    public void Checker_signature_is_associated_only_with_approved_decisions()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "WorkflowService.cs")));
+        Assert.Contains("decisionType == ReviewDecisionType.Approve", source);
+        Assert.Contains("CheckerSignature", source);
+        Assert.Contains("Checker signature required before approval", source);
+        Assert.Contains("Rejected", source);
+        Assert.Contains("ReturnedForRework", source);
+    }
+
+    private static string FindRepositoryFile(string relativePath)
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var index = 0; index < 10 && current is not null; index++, current = current.Parent)
+        {
+            var candidate = Path.Combine(current.FullName, relativePath);
+            if (File.Exists(candidate)) return candidate;
+        }
+        throw new FileNotFoundException(relativePath);
+    }
 }

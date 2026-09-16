@@ -39,6 +39,14 @@ public sealed class ReportAuthorizationTests
         if (allowed) Assert.Contains("Verification Report", await task); else await Assert.ThrowsAsync<UnauthorizedAccessException>(() => task);
     }
 
+    [Fact(DisplayName = "TD-008 unauthorized export does not expose Checker signature data")]
+    public void Unauthorized_export_policy_is_not_granted_by_report_roles()
+    {
+        var authorization = new RoleAuthorization();
+        Assert.False(authorization.IsAllowed(new AuthenticatedUser("reviewer-001", new[] { "Viewer" }), RolePermission.ViewDimensionMatchResults));
+        Assert.True(authorization.IsAllowed(new AuthenticatedUser("auditor-001", new[] { "Checker" }), RolePermission.ViewDimensionMatchResults));
+    }
+
     private sealed class Sessions : IVerificationSessionRepository
     {
         public Task<VerificationSession?> GetAsync(Guid id, CancellationToken token = default) => Task.FromResult<VerificationSession?>(new VerificationSession { VerificationSessionId = id });

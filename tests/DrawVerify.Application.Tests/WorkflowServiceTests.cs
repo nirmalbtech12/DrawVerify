@@ -621,8 +621,11 @@ public sealed class WorkflowServiceTests
     private sealed class RecordingFingerprintService : IDocumentFingerprintService
     {
         public DocumentFingerprintContext? Context { get; private set; }
-        public Task<DocumentFingerprint> ComputeAsync(DocumentFingerprintContext context, IReadOnlyCollection<DocumentFingerprintArtifact> artifacts, IProgress<long>? progress = null, CancellationToken cancellationToken = default) =>
-            Task.FromResult(new DocumentFingerprint { Value = new string('2', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 });
+        public Task<DocumentFingerprint> ComputeAsync(DocumentFingerprintContext context, IReadOnlyCollection<DocumentFingerprintArtifact> artifacts, IProgress<long>? progress = null, CancellationToken cancellationToken = default)
+        {
+            Context = context;
+            return Task.FromResult(new DocumentFingerprint { Value = new string('2', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 });
+        }
         public Task<FingerprintVerificationResult> VerifyAsync(DocumentFingerprint expected, DocumentFingerprintContext context, IReadOnlyCollection<DocumentFingerprintArtifact> artifacts, CancellationToken cancellationToken = default)
         {
             Context = context;
