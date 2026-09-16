@@ -184,6 +184,13 @@ public sealed class WorkflowService : IWorkflowService
         {
         var readiness = await ValidateReadinessAsync(request.PackageId, cancellationToken).ConfigureAwait(false);
         var failures = new List<string>(readiness.Failures);
+        if (request.MakerSignature is null)
+            failures.Add("Maker signature required before submission");
+        else
+        {
+            try { request.MakerSignature.Validate(); }
+            catch (Exception exception) when (exception is ArgumentException or UnauthorizedAccessException or InvalidOperationException) { failures.Add(exception.Message); }
+        }
         await ValidatePersistedPackageAsync(request, failures, cancellationToken).ConfigureAwait(false);
         ValidateRequestPayload(request, failures);
         if (_documents is not null)
@@ -314,7 +321,7 @@ public sealed class WorkflowService : IWorkflowService
                 var dxf = dxfDocument?.Versions.FirstOrDefault(x => x.VersionId == request.DxfDocumentVersionId) ?? throw new FileNotFoundException("The submitted DXF version was not found.");
                 await using var stepStream = await _stepFiles.OpenReadAsync(step.StoredRelativePath, cancellationToken).ConfigureAwait(false);
                 await using var dxfStream = await _dxfFiles.OpenReadAsync(dxf.StoredRelativePath, cancellationToken).ConfigureAwait(false);
-                fingerprint = await _fingerprintService.ComputeAsync(new DocumentFingerprintContext(request.PackageId, state.Revision, request.StepDocumentVersionId, request.DxfDocumentVersionId, new Dictionary<string, string> { ["makerUserId"] = user!.UserId, ["extractionEvidence"] = request.ExtractionEvidenceJson, ["verificationEvidence"] = request.VerificationEvidenceJson }), new[] { new DocumentFingerprintArtifact(step.StoredRelativePath, stepStream, step.FileSizeBytes), new DocumentFingerprintArtifact(dxf.StoredRelativePath, dxfStream, dxf.FileSizeBytes) }, request.FingerprintProgress, cancellationToken).ConfigureAwait(false);
+                fingerprint = await _fingerprintService.ComputeAsync(new DocumentFingerprintContext(request.PackageId, state.Revision, request.StepDocumentVersionId, request.DxfDocumentVersionId, new Dictionary<string, string> { ["makerUserId"] = user!.UserId, ["extractionEvidence"] = request.ExtractionEvidenceJson, ["verificationEvidence"] = request.VerificationEvidenceJson, ["signatureHash"] = request.MakerSignature!.PayloadHash, ["signatureMethod"] = request.MakerSignature.Method.ToString(), ["signatureTimestampUtc"] = request.MakerSignature.TimestampUtc.ToString("O") }), new[] { new DocumentFingerprintArtifact(step.StoredRelativePath, stepStream, step.FileSizeBytes), new DocumentFingerprintArtifact(dxf.StoredRelativePath, dxfStream, dxf.FileSizeBytes) }, request.FingerprintProgress, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception exception)
             {
@@ -325,12 +332,14 @@ public sealed class WorkflowService : IWorkflowService
         }
         try
         {
-            var submission = new ReviewSubmission { PackageId = request.PackageId, DxfDocumentId = request.DxfDocumentId, Revision = state.Revision, MakerUserId = user!.UserId, MakerDisplayName = user.DisplayName, MakerAuthorized = true, SubmittedUtc = now, Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim(), StepDocumentVersionId = request.StepDocumentVersionId, DxfDocumentVersionId = request.DxfDocumentVersionId, VerificationSessionId = request.VerificationSessionId, ExtractionEvidenceJson = request.ExtractionEvidenceJson, VerificationEvidenceJson = request.VerificationEvidenceJson, Fingerprint = fingerprint };
+            var signature = request.MakerSignature! with { DocumentId = request.PackageId, Revision = state.Revision, MakerUserId = user!.UserId, MakerDisplayName = user.DisplayName, Role = SystemRoles.Maker, TimestampUtc = request.MakerSignature.TimestampUtc.ToUniversalTime(), IsFinalized = true };
+            signature.Validate();
+            var submission = new ReviewSubmission { PackageId = request.PackageId, DxfDocumentId = request.DxfDocumentId, Revision = state.Revision, MakerUserId = user.UserId, MakerDisplayName = user.DisplayName, MakerAuthorized = true, SubmittedUtc = now, Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim(), StepDocumentVersionId = request.StepDocumentVersionId, DxfDocumentVersionId = request.DxfDocumentVersionId, VerificationSessionId = request.VerificationSessionId, ExtractionEvidenceJson = request.ExtractionEvidenceJson, VerificationEvidenceJson = request.VerificationEvidenceJson, Fingerprint = fingerprint, MakerSignature = signature };
             // Establish the durable version reference before the workflow transaction
             // can commit. A capture failure therefore cannot leave a submitted package
             // without the configuration version that governs it.
             await CapturePersistedConfigurationVersionAsync(request.PackageId, EffectiveConfigurationVersion, cancellationToken).ConfigureAwait(false);
-            var saved = await _workflow.SubmitAtomicallyAsync(state, submission, CreateAudit(request.PackageId, state.Revision, DocumentAuditAction.SubmissionSucceeded, "Submitted", now, user, documentVersionId: request.StepDocumentVersionId, previousWorkflowStatus: state.Status, workflowStatus: WorkflowStatus.SubmittedForReview, fingerprint: fingerprint), cancellationToken).ConfigureAwait(false);
+            var saved = await _workflow.SubmitAtomicallyAsync(state, submission, CreateAudit(request.PackageId, state.Revision, DocumentAuditAction.MakerSignatureApplied, "Submitted", now, user, documentVersionId: request.StepDocumentVersionId, previousWorkflowStatus: state.Status, workflowStatus: WorkflowStatus.SubmittedForReview, fingerprint: fingerprint), cancellationToken).ConfigureAwait(false);
             return new(true, "The drawing was submitted for review.", state with { Status = WorkflowStatus.SubmittedForReview, UpdatedUtc = now }, saved);
         }
         catch (Exception exception)
@@ -384,7 +393,9 @@ public sealed class WorkflowService : IWorkflowService
             var dxf = dxfDocument?.Versions.FirstOrDefault(x => x.VersionId == submission.DxfDocumentVersionId) ?? throw new FileNotFoundException("The stored DXF version was not found.");
             await using var stepStream = await _stepFiles.OpenReadAsync(step.StoredRelativePath, cancellationToken).ConfigureAwait(false);
             await using var dxfStream = await _dxfFiles.OpenReadAsync(dxf.StoredRelativePath, cancellationToken).ConfigureAwait(false);
-            result = await _fingerprintService.VerifyAsync(submission.Fingerprint, new DocumentFingerprintContext(packageId, revision, submission.StepDocumentVersionId, submission.DxfDocumentVersionId, new Dictionary<string, string> { ["makerUserId"] = submission.MakerUserId, ["extractionEvidence"] = submission.ExtractionEvidenceJson, ["verificationEvidence"] = submission.VerificationEvidenceJson }), new[] { new DocumentFingerprintArtifact(step.StoredRelativePath, stepStream, step.FileSizeBytes), new DocumentFingerprintArtifact(dxf.StoredRelativePath, dxfStream, dxf.FileSizeBytes) }, cancellationToken).ConfigureAwait(false);
+            var metadata = new Dictionary<string, string> { ["makerUserId"] = submission.MakerUserId, ["extractionEvidence"] = submission.ExtractionEvidenceJson, ["verificationEvidence"] = submission.VerificationEvidenceJson };
+            if (submission.MakerSignature is not null) { submission.MakerSignature.Validate(); metadata["signatureHash"] = submission.MakerSignature.PayloadHash; metadata["signatureMethod"] = submission.MakerSignature.Method.ToString(); metadata["signatureTimestampUtc"] = submission.MakerSignature.TimestampUtc.ToString("O"); }
+            result = await _fingerprintService.VerifyAsync(submission.Fingerprint, new DocumentFingerprintContext(packageId, revision, submission.StepDocumentVersionId, submission.DxfDocumentVersionId, metadata), new[] { new DocumentFingerprintArtifact(step.StoredRelativePath, stepStream, step.FileSizeBytes), new DocumentFingerprintArtifact(dxf.StoredRelativePath, dxfStream, dxf.FileSizeBytes) }, cancellationToken).ConfigureAwait(false);
             }
             result = result with { Stored = result.Stored ?? submission.Fingerprint, VerifiedUtc = new DateTimeOffset(_clock().ToUniversalTime()), VerifierUserId = _authentication.CurrentUser!.UserId, VerifierDisplayName = _authentication.CurrentUser.DisplayName, SubmissionTimestampUtc = submission.SubmittedUtc, MakerUserId = submission.MakerUserId, MakerDisplayName = submission.MakerDisplayName, DocumentId = packageId, Revision = revision, StepDocumentVersionId = submission.StepDocumentVersionId, DxfDocumentVersionId = submission.DxfDocumentVersionId };
             auditWriteStarted = true;

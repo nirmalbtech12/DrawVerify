@@ -25,6 +25,7 @@ public sealed record ReviewSubmission
     public string? AssignedApproverUserId { get; init; }
     public bool AvailableToApprovers { get; init; } = true;
     public DocumentFingerprint? Fingerprint { get; init; }
+    public SignatureData? MakerSignature { get; init; }
 }
 
 public sealed record SubmissionReadiness(bool IsReady, IReadOnlyList<string> Failures)
@@ -47,6 +48,7 @@ public sealed record SubmissionRequest(Guid PackageId, string? Note = null)
     public string? ProcessingError { get; init; }
     public string? VerificationError { get; init; }
     public IProgress<long>? FingerprintProgress { get; init; }
+    public SignatureData? MakerSignature { get; init; }
 }
 public sealed record SubmissionResult(bool Succeeded, string Message, WorkflowState? State = null, ReviewSubmission? Submission = null, IReadOnlyList<string>? Failures = null)
 {

@@ -103,7 +103,7 @@ public sealed class ReportService
         var fingerprint = await GetFingerprintAsync(sessionId, cancellationToken).ConfigureAwait(false);
         var submission = _workflow is null ? null : (await _workflow.GetSubmissionsAsync(Guid.Empty, cancellationToken).ConfigureAwait(false)).FirstOrDefault(x => x.VerificationSessionId == sessionId);
         var verification = submission is null ? null : await _workflow!.GetFingerprintVerificationAsync(submission.PackageId, submission.Revision, cancellationToken).ConfigureAwait(false);
-        return new VerificationReport { DimensionMatches = matches, GdtResults = gdtResults, Fingerprint = fingerprint, FingerprintVerification = verification };
+        return new VerificationReport { DimensionMatches = matches, GdtResults = gdtResults, Fingerprint = fingerprint, FingerprintVerification = verification, MakerSignature = submission?.MakerSignature };
     }
     private static string Escape(string? value) { value ??= string.Empty; return value.IndexOfAny(new[] { ',', '"', '\r', '\n' }) >= 0 ? '"' + value.Replace("\"", "\"\"") + '"' : value; }
 }
