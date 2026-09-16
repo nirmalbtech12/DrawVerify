@@ -34,6 +34,7 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     private DateTime? _priorToUtc;
     private string? _priorMakerFilter;
     private FingerprintVerificationResult? _fingerprintVerification;
+    private PriorVersionReview? _submittedRevisionSnapshot;
 
     public DocumentDetailViewModel()
     {
@@ -118,9 +119,12 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     public ICommand OpenHistoricalStepCommand { get; }
     public ICommand OpenHistoricalDxfCommand { get; }
     public bool CanOpenHistoricalFiles => _documentService is not null && CanViewPriorVersions;
-    public bool CanVerifyFingerprint => _workflowService is not null && _authentication?.IsAuthenticated == true && _authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ViewDimensionMatchResults) && _document is not null;
+    public bool CanVerifyFingerprint => _workflowService is not null && _authentication?.IsAuthenticated == true && _authorization.IsAllowed(_authentication.CurrentUser, RolePermission.VerifyFingerprint) && _document is not null;
     public FingerprintVerificationResult? FingerprintVerification => _fingerprintVerification;
     public string FingerprintVerificationMessage => _fingerprintVerification?.Message ?? string.Empty;
+    public string SubmittedMakerDisplayName => _submittedRevisionSnapshot?.MakerDisplayName ?? "Unavailable";
+    public DateTime? SubmittedTimestampUtc => _submittedRevisionSnapshot?.SubmittedUtc;
+    public string SubmittedFingerprintDisplay => _submittedRevisionSnapshot?.Package.Fingerprint?.Value ?? "Unavailable";
     public ICommand VerifyFingerprintCommand { get; }
     public bool CanEscalateFingerprintMismatch => _workflowService is not null && _authentication?.IsAuthenticated == true && _authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ReviewVerification) && _fingerprintVerification?.Status == FingerprintVerificationStatus.Mismatch && _document is not null;
     public ICommand FlagFingerprintMismatchCommand { get; }
@@ -163,6 +167,7 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
         Changed(nameof(VerificationStatusDisplay)); Changed(nameof(GeometryStatus)); Changed(nameof(GeometryError)); Changed(nameof(CurrentVersion));
         Changed(nameof(Fingerprint)); Changed(nameof(FingerprintDisplay)); Changed(nameof(CanVerifyFingerprint));
         Changed(nameof(CanEscalateFingerprintMismatch));
+        Changed(nameof(SubmittedMakerDisplayName)); Changed(nameof(SubmittedTimestampUtc)); Changed(nameof(SubmittedFingerprintDisplay));
         Changed(nameof(CanExtractDimensions)); Changed(nameof(IsAuthorized)); Changed(nameof(Dimensions));
         Changed(nameof(DimensionResults)); Changed(nameof(ExtractedDimensions));
         Changed(nameof(CanSubmitForReview));
@@ -175,6 +180,22 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
         ((RelayCommand)FlagFingerprintMismatchCommand).Raise();
         ((RelayCommand)RejectFingerprintMismatchCommand).Raise();
         ((RelayCommand)ReturnFingerprintMismatchCommand).Raise();
+        _ = LoadSubmittedRevisionSnapshotAsync();
+    }
+
+    private async Task LoadSubmittedRevisionSnapshotAsync()
+    {
+        if (_workflowService is null || _document is null || !CanVerifyFingerprint) return;
+        try
+        {
+            _submittedRevisionSnapshot = await _workflowService.GetPriorVersionAsync(_document.DocumentId, _document.CurrentVersion).ConfigureAwait(true);
+            Changed(nameof(SubmittedMakerDisplayName)); Changed(nameof(SubmittedTimestampUtc)); Changed(nameof(SubmittedFingerprintDisplay));
+        }
+        catch (UnauthorizedAccessException) { }
+        catch (Exception exception)
+        {
+            _logger?.Log(exception, "Fingerprint submission snapshot", $"Unable to load submitted snapshot for documentId={_document.DocumentId}, revision={_document.CurrentVersion}.");
+        }
     }
 
     private async Task VerifyFingerprintAsync()
