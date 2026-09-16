@@ -39,6 +39,17 @@ public sealed class AuditFailureObservabilityTests
         Assert.Equal("Document audit query", logger.Operation);
     }
 
+    [Fact(DisplayName = "TD-010 Checker diagnostics retain context without raw signature payload")]
+    public void Checker_diagnostic_contract_does_not_place_payload_in_context()
+    {
+        const string rawPayload = "typed-checker-signature-sensitive-content";
+        var logger = new LoggerFake();
+        logger.Log(new InvalidOperationException(rawPayload), "Checker signature", "Unable to persist Checker signature for document doc-001 revision 2.");
+        Assert.Equal(rawPayload, logger.Exception!.Message);
+        Assert.DoesNotContain(rawPayload, logger.Context!);
+        Assert.Contains("document doc-001 revision 2", logger.Context);
+    }
+
     private sealed class FailingRepository : IDocumentAuditRepository
     {
         public int Calls { get; private set; }
