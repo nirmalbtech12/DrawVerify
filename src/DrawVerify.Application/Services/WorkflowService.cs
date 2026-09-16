@@ -401,7 +401,10 @@ public sealed class WorkflowService : IWorkflowService
             var metadata = submission.MakerSignature is null ? new Dictionary<string, string> { ["makerUserId"] = submission.MakerUserId, ["extractionEvidence"] = submission.ExtractionEvidenceJson, ["verificationEvidence"] = submission.VerificationEvidenceJson } : SignatureMetadata(submission.MakerSignature, submission.ExtractionEvidenceJson, submission.VerificationEvidenceJson);
             metadata["stepDocumentVersionId"] = submission.StepDocumentVersionId.ToString("D");
             metadata["dxfDocumentVersionId"] = submission.DxfDocumentVersionId.ToString("D");
-            result = await _fingerprintService.VerifyAsync(submission.Fingerprint, new DocumentFingerprintContext(packageId, revision, submission.StepDocumentVersionId, submission.DxfDocumentVersionId, metadata), new[] { new DocumentFingerprintArtifact(step.StoredRelativePath, stepStream, step.FileSizeBytes), new DocumentFingerprintArtifact(dxf.StoredRelativePath, dxfStream, dxf.FileSizeBytes) }, cancellationToken).ConfigureAwait(false);
+            var computedBase = await _fingerprintService.ComputeAsync(new DocumentFingerprintContext(packageId, revision, submission.StepDocumentVersionId, submission.DxfDocumentVersionId, metadata), new[] { new DocumentFingerprintArtifact(step.StoredRelativePath, stepStream, step.FileSizeBytes), new DocumentFingerprintArtifact(dxf.StoredRelativePath, dxfStream, dxf.FileSizeBytes) }, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var computed = submission.CheckerSignature is null ? computedBase : CreateSignedStateFingerprint(computedBase, submission.CheckerSignature);
+            var matches = CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(submission.Fingerprint.Value.ToLowerInvariant()), Encoding.ASCII.GetBytes(computed.Value));
+            result = new FingerprintVerificationResult(matches ? FingerprintVerificationStatus.Match : FingerprintVerificationStatus.Mismatch, computed, matches ? "Fingerprint Verified - Document Unchanged" : "Fingerprint Mismatch - Document May Have Been Altered") { Stored = submission.Fingerprint };
             }
             result = result with { Stored = result.Stored ?? submission.Fingerprint, VerifiedUtc = new DateTimeOffset(_clock().ToUniversalTime()), VerifierUserId = _authentication.CurrentUser!.UserId, VerifierDisplayName = _authentication.CurrentUser.DisplayName, SubmissionTimestampUtc = submission.SubmittedUtc, MakerUserId = submission.MakerUserId, MakerDisplayName = submission.MakerDisplayName, DocumentId = packageId, Revision = revision, StepDocumentVersionId = submission.StepDocumentVersionId, DxfDocumentVersionId = submission.DxfDocumentVersionId };
             auditWriteStarted = true;
@@ -445,13 +448,15 @@ public sealed class WorkflowService : IWorkflowService
         var user = _authentication.CurrentUser!;
         if (!user.HasRole(SystemRoles.Checker)) throw new UnauthorizedAccessException("Only a Checker can apply a Checker signature.");
         var package = await _workflow.GetReviewPackageAsync(packageId, revision, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException($"Review package '{packageId}' revision {revision} was not found.");
-        if (package.Status is not (WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview or WorkflowStatus.ApprovedByChecker or WorkflowStatus.PendingFinalApproval)) throw new InvalidOperationException($"The package is currently '{package.Status}' and cannot be signed.");
+        if (package.Status is not (WorkflowStatus.ApprovedByChecker or WorkflowStatus.PendingFinalApproval) || package.PriorDecision?.Revision != revision || package.PriorDecision.DecisionType != ReviewDecisionType.Approve || package.PriorDecision.IsFinalApproval) throw new InvalidOperationException("A Checker signature can only be applied after the current revision has been approved by the Checker.");
         if (package.Submission.MakerSignature is null) throw new InvalidOperationException("Maker signature required before Checker signature.");
-        package.Submission.MakerSignature.Validate();
+        var makerSignature = package.Submission.MakerSignature;
+        makerSignature.Validate();
+        if (makerSignature.DocumentId != packageId || makerSignature.Revision != revision || !string.Equals(makerSignature.MakerUserId, package.MakerUserId, StringComparison.Ordinal) || !string.Equals(makerSignature.MakerDisplayName, package.MakerDisplayName, StringComparison.Ordinal)) throw new InvalidOperationException("The current revision Maker signature does not match the package.");
         if (package.Submission.CheckerSignature is not null) throw new InvalidOperationException("A Checker signature already exists for this document version.");
         var signature = SignatureData.CreateChecker(method, payload, user.UserId, user.DisplayName, packageId, revision, _clock().ToUniversalTime(), title, department);
         var fingerprint = package.Fingerprint ?? throw new InvalidOperationException("A document fingerprint is required before Checker signing.");
-        var signedFingerprint = fingerprint with { Value = SignatureData.ComputePayloadHash($"{fingerprint.Value}|{signature.CanonicalRepresentation}") };
+        var signedFingerprint = CreateSignedStateFingerprint(fingerprint, signature);
         var audit = CreateAudit(packageId, revision, DocumentAuditAction.CheckerSignatureApplied, "CheckerSignatureApplied", signature.TimestampUtc.UtcDateTime, user, snapshotReference: package.SnapshotReference, documentVersionId: package.StepDocumentVersionId, fingerprint: signedFingerprint, signature: signature);
         try { var saved = await _workflow.SaveCheckerSignatureAsync(package, signature, signedFingerprint, audit, cancellationToken).ConfigureAwait(false); return saved.CheckerSignature ?? throw new InvalidOperationException("Checker signature persistence returned no signature."); }
         catch (Exception exception) { _logger?.Log(exception, "Checker signature", $"Unable to persist Checker signature for packageId={packageId}, revision={revision}."); throw; }
@@ -478,8 +483,12 @@ public sealed class WorkflowService : IWorkflowService
         if (package.Status is not (WorkflowStatus.ApprovedByChecker or WorkflowStatus.PendingFinalApproval))
             throw new InvalidOperationException($"The package is currently '{package.Status}' and is not pending final approval.");
         var user = _authentication.CurrentUser!;
-        if (decisionType == ReviewDecisionType.Approve && user.HasRole(SystemRoles.Checker) && package.Submission.CheckerSignature is null)
-            throw new InvalidOperationException("Checker signature required before approval");
+        if (decisionType == ReviewDecisionType.Approve)
+        {
+            var checkerSignature = package.Submission.CheckerSignature ?? throw new InvalidOperationException("Checker signature required before approval");
+            checkerSignature.Validate();
+            if (checkerSignature.DocumentId != packageId || checkerSignature.Revision != revision) throw new InvalidOperationException("The current revision Checker signature does not match the package.");
+        }
         if (_snapshots is null) throw new NotSupportedException("Final approval cannot proceed because immutable snapshot storage is unavailable.");
         if (_documents is null || _stepFiles is null || _dxfFiles is null) throw new NotSupportedException("Final approval cannot proceed because versioned artifact access is unavailable.");
         var stepDocument = await _documents.GetAsync(package.PackageId, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException("The persisted STEP artifact was not found.");
@@ -924,6 +933,7 @@ public sealed class WorkflowService : IWorkflowService
         try { await _workflow.RecordAuditAsync(audit, cancellationToken).ConfigureAwait(false); }
         catch (Exception exception) { _logger?.Log(exception, "Workflow audit", $"Unable to record unauthenticated submission rejection for packageId={packageId}, revision={revision}."); throw; }
     }
+    private static DocumentFingerprint CreateSignedStateFingerprint(DocumentFingerprint baseFingerprint, SignatureData checkerSignature) => baseFingerprint with { Value = SignatureData.ComputePayloadHash($"{baseFingerprint.Value}|{checkerSignature.CanonicalRepresentation}") };
     private static Dictionary<string, string> SignatureMetadata(SignatureData signature, string extractionEvidence, string verificationEvidence) => new() { ["makerUserId"] = signature.MakerUserId, ["makerDisplayName"] = signature.MakerDisplayName, ["makerRole"] = signature.Role, ["signatureMethod"] = signature.Method.ToString(), ["signatureTimestampUtc"] = signature.TimestampUtc.ToString("O"), ["signaturePayloadHash"] = signature.PayloadHash, ["signatureCanonical"] = signature.CanonicalRepresentation, ["signatureDocumentId"] = signature.DocumentId.ToString("D"), ["signatureRevision"] = signature.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture), ["signatureTitle"] = signature.Title ?? string.Empty, ["signatureDepartment"] = signature.Department ?? string.Empty, ["extractionEvidence"] = extractionEvidence, ["verificationEvidence"] = verificationEvidence };
     private static AuditEntry CreateAudit(Guid packageId, int revision, DocumentAuditAction action, string result, DateTime timestamp, AuthenticatedUser? user, IReadOnlyList<string>? failures = null, string? snapshotReference = null, ReviewComment? comment = null, Guid? commentId = null, WorkflowStatus? workflowStatus = null, IReadOnlyList<ReviewComment>? commentReferences = null, ReviewDecision? decision = null, Guid? documentVersionId = null, Guid? dxfDocumentVersionId = null, WorkflowStatus? previousWorkflowStatus = null, DocumentFingerprint? fingerprint = null, SignatureData? signature = null) {
         var actor = user ?? throw new UnauthorizedAccessException("An authenticated workflow actor is required for auditing."); var role = actor.Roles.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? throw new InvalidOperationException("The authenticated workflow actor has no role.");

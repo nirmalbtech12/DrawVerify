@@ -27,6 +27,7 @@ public partial class SignatureStampControl : UserControl, INotifyPropertyChanged
     public bool IsMaker { get => (bool)GetValue(IsMakerProperty); set => SetValue(IsMakerProperty, value); }
     public bool IsChecker { get => (bool)GetValue(IsCheckerProperty); set => SetValue(IsCheckerProperty, value); }
     public bool IsSignatureVisible => IsMaker || IsChecker;
+    public string SignatureLabel => IsChecker ? "Checker Signature" : "Maker Signature";
     public string MakerUserId { get => (string)GetValue(MakerUserIdProperty); set => SetValue(MakerUserIdProperty, value); }
     public string MakerDisplayName { get => (string)GetValue(MakerDisplayNameProperty); set => SetValue(MakerDisplayNameProperty, value); }
     public SignatureData? FinalizedSignature { get => (SignatureData?)GetValue(FinalizedSignatureProperty); set => SetValue(FinalizedSignatureProperty, value); }
@@ -42,6 +43,8 @@ public partial class SignatureStampControl : UserControl, INotifyPropertyChanged
     public bool IsPreviewVisible => HasPreview;
     public string PreviewText { get; private set; } = string.Empty;
     public string ErrorText { get; private set; } = string.Empty;
+    public SignatureData? PendingSignature { get; private set; }
+    public event EventHandler? SignatureFinalizationRequested;
     public string MetadataText => FinalizedSignature is null ? string.Empty : string.Join(" · ", new[] { FinalizedSignature.IsChecker ? FinalizedSignature.CheckerDisplayName : FinalizedSignature.MakerDisplayName, FinalizedSignature.Role, $"{FinalizedSignature.TimestampUtc:O}", FinalizedSignature.Method.ToString(), FinalizedSignature.Title, FinalizedSignature.Department }.Where(value => !string.IsNullOrWhiteSpace(value)));
     public event PropertyChangedEventHandler? PropertyChanged;
     public SignatureStampControl() { InitializeComponent(); }
@@ -83,7 +86,9 @@ public partial class SignatureStampControl : UserControl, INotifyPropertyChanged
             var separator = PreviewText.IndexOf(": ", StringComparison.Ordinal);
             var method = Enum.Parse<SignatureMethod>(PreviewText[..separator]);
             var payload = PreviewText[(separator + 2)..];
-            FinalizedSignature = IsChecker ? SignatureData.CreateChecker(method, payload, MakerUserId, MakerDisplayName, DocumentId, Revision, DateTimeOffset.UtcNow, Title, Department) : SignatureData.Create(method, payload, MakerUserId, MakerDisplayName, DocumentId, Revision, DateTimeOffset.UtcNow, Title, Department);
+            var signature = IsChecker ? SignatureData.CreateChecker(method, payload, MakerUserId, MakerDisplayName, DocumentId, Revision, DateTimeOffset.UtcNow, Title, Department) : SignatureData.Create(method, payload, MakerUserId, MakerDisplayName, DocumentId, Revision, DateTimeOffset.UtcNow, Title, Department);
+            if (IsChecker) { PendingSignature = signature; SignatureFinalizationRequested?.Invoke(this, EventArgs.Empty); }
+            else FinalizedSignature = signature;
             ErrorText = string.Empty; NotifyState();
         }
         catch (Exception exception) { ShowCaptureError(exception); }
@@ -96,6 +101,6 @@ public partial class SignatureStampControl : UserControl, INotifyPropertyChanged
         NotifyState();
     }
     private void ShowCaptureError(Exception exception) { Logger?.Log(exception, "WPF signature capture", $"Unable to capture signature for documentId={DocumentId}, revision={Revision}."); ErrorText = "Failed to capture signature. Please try again."; NotifyState(); }
-    private void NotifyState() { Raise(nameof(IsFinalized)); Raise(nameof(CanEdit)); Raise(nameof(IsSignatureVisible)); Raise(nameof(HasPreview)); Raise(nameof(IsPreviewVisible)); Raise(nameof(PreviewText)); Raise(nameof(ErrorText)); Raise(nameof(MetadataText)); }
+    private void NotifyState() { Raise(nameof(IsFinalized)); Raise(nameof(CanEdit)); Raise(nameof(IsSignatureVisible)); Raise(nameof(SignatureLabel)); Raise(nameof(HasPreview)); Raise(nameof(IsPreviewVisible)); Raise(nameof(PreviewText)); Raise(nameof(ErrorText)); Raise(nameof(MetadataText)); }
     private void Raise([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

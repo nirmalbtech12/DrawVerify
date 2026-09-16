@@ -420,6 +420,31 @@ public sealed class DocumentDetailViewModelTests
         Assert.NotEqual(first.Revision, second.Revision);
     }
 
+    [Fact(DisplayName = "REV-KAN65-003 review ViewModel connects Checker draft and persisted signature state")]
+    public void Review_viewmodel_exposes_checker_signature_finalization_path()
+    {
+        var view = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Views", "WorkflowView.xaml")));
+        var viewModel = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "ViewModels", "WorkflowViewModel.cs")));
+        Assert.Contains("ReviewPackage.PackageId", view);
+        Assert.Contains("ReviewPackage.Revision", view);
+        Assert.Contains("CheckerSignature", view);
+        Assert.Contains("SetCheckerSignatureAsync", viewModel);
+        Assert.Contains("ApplyCheckerSignatureAsync", viewModel);
+        Assert.Contains("CheckerSignature = ReviewPackage?.Submission.CheckerSignature", viewModel);
+        Assert.Contains("CheckerSignature is not null", viewModel);
+    }
+
+    private static string FindRepositoryFile(string relativePath)
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var index = 0; index < 10 && current is not null; index++, current = current.Parent)
+        {
+            var candidate = Path.Combine(current.FullName, relativePath);
+            if (File.Exists(candidate)) return candidate;
+        }
+        throw new FileNotFoundException(relativePath);
+    }
+
     private static PriorVersionReview Snapshot(Guid packageId, string maker, DateTime submittedUtc, string fingerprintValue) => new()
     {
         PackageId = packageId, Revision = 1, MakerUserId = maker.ToLowerInvariant().Replace(' ', '-'), MakerDisplayName = maker, SubmittedUtc = submittedUtc,

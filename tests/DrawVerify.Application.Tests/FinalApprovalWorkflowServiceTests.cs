@@ -130,7 +130,7 @@ public sealed class FinalApprovalWorkflowServiceTests
     {
         var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "WorkflowService.cs")));
         Assert.Contains("Checker signature required before approval", source);
-        Assert.Contains("package.Submission.CheckerSignature is null", source);
+        Assert.Contains("CheckerSignature", source);
         Assert.Contains("SaveCheckerSignatureAsync", source);
         Assert.Contains("fingerprint", source, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("audit", source, StringComparison.OrdinalIgnoreCase);
@@ -142,7 +142,7 @@ public sealed class FinalApprovalWorkflowServiceTests
         var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "WorkflowService.cs")));
         Assert.Contains("Only a Checker can apply a Checker signature", source);
         Assert.Contains("package.Submission.MakerSignature is null", source);
-        Assert.Contains("package.Submission.MakerSignature.Validate()", source);
+        Assert.Contains("makerSignature.Validate();", source);
         Assert.Contains("package.Submission.CheckerSignature is not null", source);
     }
 
@@ -166,12 +166,33 @@ public sealed class FinalApprovalWorkflowServiceTests
         Assert.DoesNotContain("return signature;", source);
     }
 
+    [Fact(DisplayName = "REV-KAN65-001 Checker signing requires current Maker signature and approved state")]
+    public void Checker_signing_requires_current_maker_and_approved_decision()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "WorkflowService.cs")));
+        Assert.Contains("makerSignature.DocumentId != packageId", source);
+        Assert.Contains("makerSignature.Revision != revision", source);
+        Assert.Contains("package.Status is not (WorkflowStatus.ApprovedByChecker or WorkflowStatus.PendingFinalApproval)", source);
+        Assert.Contains("package.PriorDecision.DecisionType != ReviewDecisionType.Approve", source);
+        Assert.Contains("WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview", source);
+    }
+
+    [Fact(DisplayName = "REV-KAN65-002 every approved final approval actor requires persisted Checker signature")]
+    public void Approved_finalization_requires_checker_signature_for_all_actors()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "WorkflowService.cs")));
+        Assert.Contains("decisionType == ReviewDecisionType.Approve", source);
+        Assert.Contains("package.Submission.CheckerSignature ?? throw", source);
+        Assert.DoesNotContain("user.HasRole(SystemRoles.Checker) && package.Submission.CheckerSignature", source);
+        Assert.Contains("CreateSignedStateFingerprint", source);
+    }
+
     private sealed class Fixture
     {
         public Guid Package { get; } = Guid.NewGuid(); public FakeRepository Repository { get; } = new(); public FakeAuth Auth { get; } = new();
         public WorkflowService Service => new(Repository, Auth, new WorkflowConfiguration { PermittedInitialStates = new[] { WorkflowStatus.Draft, WorkflowStatus.InPreparation }, DuplicateSubmissionStates = new[] { WorkflowStatus.SubmittedForReview, WorkflowStatus.UnderReview, WorkflowStatus.Approved } }, new RoleAuthorization(), documents: new FakeDocuments(Package, DxfDocument, Repository.Package!.StepDocumentVersionId, Repository.Package.DxfDocumentVersionId), clock: () => new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), snapshots: new FakeSnapshotStore(), stepFiles: new FakeStepFiles(), dxfFiles: new FakeDxfFiles());
         private static readonly Guid DxfDocument = Guid.Parse("00000000-0000-0000-0000-0000000000d1");
-        public static Fixture Create() { var f = new Fixture(); f.Repository.Package = ReviewPackage.FromSubmission(new ReviewSubmission { PackageId = f.Package, DxfDocumentId = DxfDocument, Revision = 1, Status = WorkflowStatus.PendingFinalApproval, StepDocumentVersionId = Guid.NewGuid(), DxfDocumentVersionId = Guid.NewGuid(), VerificationSessionId = Guid.NewGuid(), ExtractionEvidenceJson = "{\"extraction\":\"complete\"}", VerificationEvidenceJson = "{\"verification\":\"passed\"}", MakerUserId = "maker-1", MakerDisplayName = "Maker One", Note = "review" }); return f; }
+        public static Fixture Create() { var f = new Fixture(); f.Repository.Package = ReviewPackage.FromSubmission(new ReviewSubmission { PackageId = f.Package, DxfDocumentId = DxfDocument, Revision = 1, Status = WorkflowStatus.PendingFinalApproval, StepDocumentVersionId = Guid.NewGuid(), DxfDocumentVersionId = Guid.NewGuid(), VerificationSessionId = Guid.NewGuid(), ExtractionEvidenceJson = "{\"extraction\":\"complete\"}", VerificationEvidenceJson = "{\"verification\":\"passed\"}", MakerUserId = "maker-1", MakerDisplayName = "Maker One", Note = "review", CheckerSignature = SignatureData.CreateChecker(SignatureMethod.Typed, "checker approval", "checker-001", "Checker One", f.Package, 1, new DateTimeOffset(2026, 9, 16, 10, 0, 0, TimeSpan.Zero)) }); return f; }
     }
     private sealed class FakeAuth : ISessionAuthenticationService { public AuthenticatedUser? CurrentUser { get; } = new("approver", new[] { SystemRoles.Approver }) { UserId = "approver-1", DisplayName = "Approver One" }; public bool IsAuthenticated => true; public void SignIn(AuthenticatedUser user) { } public void SignOut() { } }
     private sealed class FakeSnapshotStore : IApprovalSnapshotStore

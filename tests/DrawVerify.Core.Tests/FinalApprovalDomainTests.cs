@@ -57,7 +57,8 @@ public sealed class FinalApprovalDomainTests
     {
         var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "WorkflowService.cs")));
         Assert.Contains("decisionType == ReviewDecisionType.Approve", source);
-        Assert.Contains("package.Submission.CheckerSignature is null", source);
+        Assert.Contains("CheckerSignature", source);
+        Assert.Contains("Checker signature required before approval", source);
         Assert.Contains("Rejected", source);
         Assert.Contains("ReturnedForRework", source);
     }

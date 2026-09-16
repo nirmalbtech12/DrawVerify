@@ -72,6 +72,22 @@ public sealed class MakerSignatureWorkflowServiceTests
         Assert.Contains("CheckerSignatureApplied", source);
     }
 
+    [Fact(DisplayName = "REV-KAN65-001 blocked Checker signing performs prerequisite checks before persistence")]
+    public void Checker_prerequisites_precede_signature_persistence()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "WorkflowService.cs")));
+        var methodStart = source.IndexOf("ApplyCheckerSignatureAsync", StringComparison.Ordinal);
+        var saveIndex = source.IndexOf("SaveCheckerSignatureAsync", methodStart, StringComparison.Ordinal);
+        Assert.True(methodStart >= 0);
+        Assert.True(saveIndex > methodStart);
+        var method = source[methodStart..saveIndex];
+        Assert.Contains("makerSignature.DocumentId", method);
+        Assert.Contains("makerSignature.Revision", method);
+        Assert.Contains("ApprovedByChecker", method);
+        Assert.Contains("PendingFinalApproval", method);
+        Assert.Contains("Maker signature required before Checker signature", method);
+    }
+
     private sealed class FakeSession(AuthenticatedUser? user) : ISessionAuthenticationService
     {
         public AuthenticatedUser? CurrentUser => user;

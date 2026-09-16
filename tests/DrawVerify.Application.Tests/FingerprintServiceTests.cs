@@ -143,6 +143,25 @@ public class FingerprintServiceTests
         Assert.NotEqual(first.Value, signed.Value);
     }
 
+    [Fact(DisplayName = "REV-KAN65-002 fingerprint verification uses the persisted Checker signed-state input")]
+    public void Checker_signed_fingerprint_verification_includes_canonical_signature()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "WorkflowService.cs")));
+        Assert.Contains("CreateSignedStateFingerprint", source);
+        Assert.Contains("submission.CheckerSignature is null ? computedBase", source);
+    }
+
+    private static string FindRepositoryFile(string relativePath)
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var index = 0; index < 10 && current is not null; index++, current = current.Parent)
+        {
+            var candidate = Path.Combine(current.FullName, relativePath);
+            if (File.Exists(candidate)) return candidate;
+        }
+        throw new FileNotFoundException(relativePath);
+    }
+
 
     private static DocumentFingerprintContext Context(int revision = 1, IReadOnlyDictionary<string, string>? metadata = null) =>
         new(DocumentId, revision, StepVersion, DxfVersion, metadata ?? new Dictionary<string, string> { ["makerUserId"] = "maker-001", ["timestamp"] = "2026-01-01T00:00:00Z" });

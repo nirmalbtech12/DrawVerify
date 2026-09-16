@@ -10,7 +10,9 @@ public sealed class SignatureStampControlTests
     {
         var path = FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Controls", "SignatureStampControl.xaml"));
         var xaml = File.ReadAllText(path);
-        Assert.Contains("Maker Signature", xaml);
+        var code = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Controls", "SignatureStampControl.xaml.cs")));
+        Assert.Contains("SignatureLabel", xaml);
+        Assert.Contains("Maker Signature", code);
         Assert.Contains("legally binding", xaml, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("tamper-evident", xaml, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("typed name", xaml, StringComparison.OrdinalIgnoreCase);
@@ -78,7 +80,9 @@ public sealed class SignatureStampControlTests
     {
         var xaml = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Controls", "SignatureStampControl.xaml")));
         var code = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Controls", "SignatureStampControl.xaml.cs")));
-        Assert.Contains("Checker Signature", xaml);
+        var labelCode = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Controls", "SignatureStampControl.xaml.cs")));
+        Assert.Contains("SignatureLabel", xaml);
+        Assert.Contains("Checker Signature", labelCode);
         Assert.Contains("IsSignatureVisible", xaml);
         Assert.Contains("IsChecker", code);
         Assert.Contains("CanEdit", code);
@@ -107,6 +111,17 @@ public sealed class SignatureStampControlTests
         Assert.Contains("Logger?.Log", code);
         Assert.Contains("DocumentId", code);
         Assert.Contains("Revision", code);
+    }
+
+    [Fact(DisplayName = "REV-KAN65-003 Checker signature control is bound in the review approval section")]
+    public void Checker_control_is_bound_to_review_package_and_finalization()
+    {
+        var xaml = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Views", "WorkflowView.xaml")));
+        Assert.Contains("Checker approval signature", xaml);
+        Assert.Contains("SignatureStampControl", xaml);
+        Assert.Contains("IsChecker=\"{Binding IsChecker}\"", xaml);
+        Assert.Contains("FinalizedSignature=\"{Binding CheckerSignature", xaml);
+        Assert.Contains("SignatureFinalizationRequested=\"CheckerSignatureFinalizationRequested\"", xaml);
     }
 
     private static string FindRepositoryFile(string relativePath)
