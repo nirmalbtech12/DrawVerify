@@ -49,6 +49,20 @@ public sealed class SignatureStampControlTests
         Assert.Contains("IsMaker", code, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact(DisplayName = "TD-KAN64-APPUI-001 bound state and capture failures remain observable")]
+    public void Signature_control_contract_declares_notifications_metadata_and_contextual_logging()
+    {
+        var code = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Controls", "SignatureStampControl.xaml.cs")));
+        Assert.Contains("INotifyPropertyChanged", code);
+        Assert.Contains("PropertyChanged", code);
+        Assert.Contains("FinalizedSignature.Title", code);
+        Assert.Contains("FinalizedSignature.Department", code);
+        Assert.Contains("Logger?.Log", code);
+        Assert.Contains("documentId={DocumentId}", code);
+        Assert.Contains("revision={Revision}", code);
+        Assert.Contains("Failed to capture signature. Please try again.", code);
+    }
+
     private static string FindRepositoryFile(string relativePath)
     {
         var current = new DirectoryInfo(AppContext.BaseDirectory);

@@ -1,22 +1,28 @@
 using System.IO;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Ink;
 using Microsoft.Win32;
 using DrawVerify.Core.Enums;
+using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
 
 namespace DrawVerify.App.Controls;
 
-public partial class SignatureStampControl : UserControl
+public partial class SignatureStampControl : UserControl, INotifyPropertyChanged
 {
-    public static readonly DependencyProperty IsMakerProperty = DependencyProperty.Register(nameof(IsMaker), typeof(bool), typeof(SignatureStampControl), new PropertyMetadata(false));
+    public static readonly DependencyProperty IsMakerProperty = DependencyProperty.Register(nameof(IsMaker), typeof(bool), typeof(SignatureStampControl), new PropertyMetadata(false, OnIsMakerChanged));
     public static readonly DependencyProperty MakerUserIdProperty = DependencyProperty.Register(nameof(MakerUserId), typeof(string), typeof(SignatureStampControl), new PropertyMetadata(string.Empty));
     public static readonly DependencyProperty MakerDisplayNameProperty = DependencyProperty.Register(nameof(MakerDisplayName), typeof(string), typeof(SignatureStampControl), new PropertyMetadata(string.Empty));
     public static readonly DependencyProperty FinalizedSignatureProperty = DependencyProperty.Register(nameof(FinalizedSignature), typeof(SignatureData), typeof(SignatureStampControl), new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault, OnFinalizedChanged));
     public static readonly DependencyProperty DraftNameProperty = DependencyProperty.Register(nameof(DraftName), typeof(string), typeof(SignatureStampControl), new PropertyMetadata(string.Empty));
     public static readonly DependencyProperty TitleProperty = DependencyProperty.Register(nameof(Title), typeof(string), typeof(SignatureStampControl), new PropertyMetadata(string.Empty));
     public static readonly DependencyProperty DepartmentProperty = DependencyProperty.Register(nameof(Department), typeof(string), typeof(SignatureStampControl), new PropertyMetadata(string.Empty));
+    public static readonly DependencyProperty LoggerProperty = DependencyProperty.Register(nameof(Logger), typeof(ICentralizedLogger), typeof(SignatureStampControl), new PropertyMetadata(null));
+    public static readonly DependencyProperty DocumentIdProperty = DependencyProperty.Register(nameof(DocumentId), typeof(Guid), typeof(SignatureStampControl), new PropertyMetadata(Guid.Empty));
+    public static readonly DependencyProperty RevisionProperty = DependencyProperty.Register(nameof(Revision), typeof(int), typeof(SignatureStampControl), new PropertyMetadata(0));
     public bool IsMaker { get => (bool)GetValue(IsMakerProperty); set => SetValue(IsMakerProperty, value); }
     public string MakerUserId { get => (string)GetValue(MakerUserIdProperty); set => SetValue(MakerUserIdProperty, value); }
     public string MakerDisplayName { get => (string)GetValue(MakerDisplayNameProperty); set => SetValue(MakerDisplayNameProperty, value); }
@@ -24,14 +30,19 @@ public partial class SignatureStampControl : UserControl
     public string DraftName { get => (string)GetValue(DraftNameProperty); set => SetValue(DraftNameProperty, value); }
     public string Title { get => (string)GetValue(TitleProperty); set => SetValue(TitleProperty, value); }
     public string Department { get => (string)GetValue(DepartmentProperty); set => SetValue(DepartmentProperty, value); }
+    public ICentralizedLogger? Logger { get => (ICentralizedLogger?)GetValue(LoggerProperty); set => SetValue(LoggerProperty, value); }
+    public Guid DocumentId { get => (Guid)GetValue(DocumentIdProperty); set => SetValue(DocumentIdProperty, value); }
+    public int Revision { get => (int)GetValue(RevisionProperty); set => SetValue(RevisionProperty, value); }
     public bool IsFinalized => FinalizedSignature is not null;
     public bool CanEdit => IsMaker && !IsFinalized;
     public bool HasPreview => !string.IsNullOrWhiteSpace(PreviewText);
     public bool IsPreviewVisible => HasPreview;
     public string PreviewText { get; private set; } = string.Empty;
     public string ErrorText { get; private set; } = string.Empty;
-    public string MetadataText => FinalizedSignature is null ? string.Empty : $"{FinalizedSignature.MakerDisplayName} · {FinalizedSignature.Role} · {FinalizedSignature.TimestampUtc:O} · {FinalizedSignature.Method}";
+    public string MetadataText => FinalizedSignature is null ? string.Empty : string.Join(" · ", new[] { FinalizedSignature.MakerDisplayName, FinalizedSignature.Role, $"{FinalizedSignature.TimestampUtc:O}", FinalizedSignature.Method.ToString(), FinalizedSignature.Title, FinalizedSignature.Department }.Where(value => !string.IsNullOrWhiteSpace(value)));
+    public event PropertyChangedEventHandler? PropertyChanged;
     public SignatureStampControl() { InitializeComponent(); }
+    private static void OnIsMakerChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) { ((SignatureStampControl)d).NotifyState(); }
     private static void OnFinalizedChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) { ((SignatureStampControl)d).NotifyState(); }
     private void PreviewTyped_Click(object sender, RoutedEventArgs e) => Preview(SignatureMethod.Typed, DraftName);
     private void PreviewDrawing_Click(object sender, RoutedEventArgs e)
@@ -78,7 +89,7 @@ public partial class SignatureStampControl : UserControl
         ErrorText = string.Empty;
         NotifyState();
     }
-    private void ShowCaptureError(Exception exception) { ErrorText = "Failed to capture signature. Please try again."; NotifyState(); }
-    private void NotifyState() { Raise(nameof(IsFinalized)); Raise(nameof(CanEdit)); Raise(nameof(HasPreview)); Raise(nameof(PreviewText)); Raise(nameof(ErrorText)); Raise(nameof(MetadataText)); }
-    private void Raise(string name) => GetBindingExpression(ContentProperty)?.UpdateTarget();
+    private void ShowCaptureError(Exception exception) { Logger?.Log(exception, "WPF signature capture", $"Unable to capture signature for documentId={DocumentId}, revision={Revision}."); ErrorText = "Failed to capture signature. Please try again."; NotifyState(); }
+    private void NotifyState() { Raise(nameof(IsFinalized)); Raise(nameof(CanEdit)); Raise(nameof(HasPreview)); Raise(nameof(IsPreviewVisible)); Raise(nameof(PreviewText)); Raise(nameof(ErrorText)); Raise(nameof(MetadataText)); }
+    private void Raise([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

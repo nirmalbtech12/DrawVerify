@@ -49,6 +49,7 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     public bool IsMaker => _authentication?.CurrentUser?.HasRole(SystemRoles.Maker) == true;
     public string MakerUserId => _authentication?.CurrentUser?.UserId ?? string.Empty;
     public string MakerDisplayName => _authentication?.CurrentUser?.DisplayName ?? string.Empty;
+    public ICentralizedLogger? Logger => _logger;
     public string SignatureError { get => _signatureError; private set { _signatureError = value; RaisePropertyChanged(nameof(SignatureError)); } }
     public void SetMakerSignature(SignatureData signature) { if (!IsMaker) { SignatureError = "Only a Maker can finalize a Maker signature."; return; } signature.Validate(); MakerSignature = signature; }
     public string Message { get => _message; private set { _message = value; RaisePropertyChanged(nameof(Message)); } }

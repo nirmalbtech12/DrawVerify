@@ -43,6 +43,16 @@ public sealed class MakerSignatureReportTests
         Assert.Contains("UnauthorizedAccessException", auditService);
     }
 
+    [Fact(DisplayName = "TD-KAN64-REPORT-001 report contract resolves one persisted submission revision")]
+    public void Report_contract_does_not_mix_submission_revisions()
+    {
+        var reportService = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "ReportService.cs")));
+        Assert.Contains("GetSubmissionsAsync", reportService);
+        Assert.Contains("submission.PackageId", reportService);
+        Assert.Contains("submission.Revision", reportService);
+        Assert.Contains("OrderByDescending(x => x.Revision)", reportService);
+    }
+
     private static string FindRepositoryFile(string relativePath)
     {
         var current = new DirectoryInfo(AppContext.BaseDirectory);
