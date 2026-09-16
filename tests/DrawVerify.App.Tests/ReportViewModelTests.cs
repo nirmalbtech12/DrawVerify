@@ -13,6 +13,23 @@ namespace DrawVerify.App.Tests;
 
 public sealed class ReportViewModelTests
 {
+    [Fact(DisplayName = "TD-08 report model surfaces verification fields for external review")]
+    public void Report_model_contains_result_values_timestamp_and_verifier()
+    {
+        var fingerprint = new DocumentFingerprint { Value = new string('e', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 };
+        var report = new VerificationReport
+        {
+            FingerprintVerification = new FingerprintVerificationResult(FingerprintVerificationStatus.Match, fingerprint, "Fingerprint Verified - Document Unchanged")
+            {
+                Stored = fingerprint, VerifiedUtc = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero), VerifierDisplayName = "Checker One", Revision = 2
+            }
+        };
+        var content = report.ToMarkdown();
+        Assert.Contains("Match", content);
+        Assert.Contains(fingerprint.Value, content);
+        Assert.Contains("Checker One", content);
+        Assert.Contains("2026-01-01", content);
+    }
     [Fact(DisplayName = "TD-09 report content includes the persisted fingerprint")]
     public void Report_model_renders_fingerprint_for_external_review()
     {
@@ -49,7 +66,7 @@ public sealed class ReportViewModelTests
         });
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
-        thread.Join();
+        Assert.True(thread.Join(TimeSpan.FromSeconds(2)), "WPF binding assertion thread did not finish within the bound.");
 
         if (failure is not null) throw new Xunit.Sdk.XunitException("Report content binding assertion failed.", failure);
     }

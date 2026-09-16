@@ -3,6 +3,7 @@ namespace DrawVerify.Core.Models;
 public sealed class VerificationReport
 {
     public DocumentFingerprint? Fingerprint { get; init; }
+    public FingerprintVerificationResult? FingerprintVerification { get; init; }
     public IReadOnlyList<DimensionMatch> DimensionMatches { get; init; } = Array.Empty<DimensionMatch>();
     public IReadOnlyList<GdtResult> GdtResults { get; init; } = Array.Empty<GdtResult>();
     public ComparisonSummary ComparisonSummary => DrawVerify.Core.Models.ComparisonSummary.From(DimensionMatches, GdtResults);
@@ -12,7 +13,8 @@ public sealed class VerificationReport
     public string ToMarkdown()
     {
         var summary = ComparisonSummary;
-        var lines = new List<string> { "# Verification Report", string.Empty, $"- Fingerprint: {Fingerprint?.Value ?? "Unavailable"}", $"- Fingerprint algorithm: {Fingerprint?.Algorithm ?? "Unavailable"}", string.Empty, "## Comparison Summary", string.Empty,
+        var verification = FingerprintVerification;
+        var lines = new List<string> { "# Verification Report", string.Empty, $"- Fingerprint: {Fingerprint?.Value ?? "Unavailable"}", $"- Fingerprint algorithm: {Fingerprint?.Algorithm ?? "Unavailable"}", $"- Fingerprint verification: {verification?.Status.ToString() ?? "Unavailable"}", $"- Stored fingerprint: {verification?.Stored?.Value ?? Fingerprint?.Value ?? "Unavailable"}", $"- Recomputed fingerprint: {verification?.Computed?.Value ?? "Unavailable"}", $"- Verification timestamp: {verification?.VerifiedUtc?.ToString("O") ?? "Unavailable"}", $"- Verifier: {verification?.VerifierDisplayName ?? verification?.VerifierUserId ?? "Unavailable"}", string.Empty, "## Comparison Summary", string.Empty,
             $"- Total Dimensions: {summary.TotalDimensions}",
             $"- Matched: {summary.MatchedDimensions}",
             $"- Mismatched: {summary.MismatchedDimensions}",

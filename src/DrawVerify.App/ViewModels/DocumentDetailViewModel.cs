@@ -34,6 +34,9 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     private DateTime? _priorToUtc;
     private string? _priorMakerFilter;
     private FingerprintVerificationResult? _fingerprintVerification;
+    private PriorVersionReview? _submittedRevisionSnapshot;
+    private string? _submittedSnapshotError;
+    private long _snapshotLoadGeneration;
 
     public DocumentDetailViewModel()
     {
@@ -46,6 +49,9 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
         OpenHistoricalStepCommand = new RelayCommand(async _ => await OpenHistoricalFileAsync(false).ConfigureAwait(true), _ => CanOpenHistoricalFiles && SelectedPriorVersion is not null && !IsBusy);
         OpenHistoricalDxfCommand = new RelayCommand(async _ => await OpenHistoricalFileAsync(true).ConfigureAwait(true), _ => CanOpenHistoricalFiles && SelectedPriorVersion is not null && !IsBusy);
         VerifyFingerprintCommand = new RelayCommand(async _ => await VerifyFingerprintAsync().ConfigureAwait(true), _ => CanVerifyFingerprint && !IsBusy);
+        FlagFingerprintMismatchCommand = new RelayCommand(async _ => await FlagFingerprintMismatchAsync().ConfigureAwait(true), _ => CanEscalateFingerprintMismatch && !IsBusy);
+        RejectFingerprintMismatchCommand = new RelayCommand(async _ => await DecideFingerprintMismatchAsync(ReviewDecisionType.Reject).ConfigureAwait(true), _ => CanEscalateFingerprintMismatch && !IsBusy);
+        ReturnFingerprintMismatchCommand = new RelayCommand(async _ => await DecideFingerprintMismatchAsync(ReviewDecisionType.Return).ConfigureAwait(true), _ => CanEscalateFingerprintMismatch && !IsBusy);
     }
 
     public DocumentDetailViewModel(Document document) : this(document, null) { }
@@ -93,7 +99,7 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     public bool IsAuthorized => CanViewDimensions;
     public bool CanViewDimensions => _dimensionService?.CanViewDimensions == true;
     public bool CanExtractDimensions => _dimensionService?.CanExtractDimensions == true && DocumentType == CoreDocumentType.DxfDrawing && UploadStatus == CoreUploadStatus.Uploaded;
-    public bool IsBusy { get => _isBusy; private set { if (_isBusy == value) return; _isBusy = value; Changed(); Changed(nameof(CanExtractDimensions)); ((RelayCommand)ExtractDimensionsCommand).Raise(); ((RelayCommand)OpenHistoricalStepCommand).Raise(); ((RelayCommand)OpenHistoricalDxfCommand).Raise(); } }
+    public bool IsBusy { get => _isBusy; private set { if (_isBusy == value) return; _isBusy = value; Changed(); Changed(nameof(CanExtractDimensions)); ((RelayCommand)ExtractDimensionsCommand).Raise(); ((RelayCommand)OpenHistoricalStepCommand).Raise(); ((RelayCommand)OpenHistoricalDxfCommand).Raise(); ((RelayCommand)FlagFingerprintMismatchCommand).Raise(); ((RelayCommand)RejectFingerprintMismatchCommand).Raise(); ((RelayCommand)ReturnFingerprintMismatchCommand).Raise(); } }
     public string Message { get => _message; private set { if (_message == value) return; _message = value; Changed(); } }
     public string ErrorMessage { get => _errorMessage; private set { if (_errorMessage == value) return; _errorMessage = value; Changed(); } }
     public ICommand ExtractDimensionsCommand { get; }
@@ -115,10 +121,24 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     public ICommand OpenHistoricalStepCommand { get; }
     public ICommand OpenHistoricalDxfCommand { get; }
     public bool CanOpenHistoricalFiles => _documentService is not null && CanViewPriorVersions;
-    public bool CanVerifyFingerprint => _workflowService is not null && _authentication?.IsAuthenticated == true && _authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ViewDimensionMatchResults) && _document is not null;
+    public bool CanVerifyFingerprint => _workflowService is not null && _authentication?.IsAuthenticated == true && _authorization.IsAllowed(_authentication.CurrentUser, RolePermission.VerifyFingerprint) && _document is not null;
     public FingerprintVerificationResult? FingerprintVerification => _fingerprintVerification;
     public string FingerprintVerificationMessage => _fingerprintVerification?.Message ?? string.Empty;
+    public string SubmittedMakerDisplayName => _submittedRevisionSnapshot?.MakerDisplayName ?? "Unavailable";
+    public DateTime? SubmittedTimestampUtc => _submittedRevisionSnapshot?.SubmittedUtc;
+    public string SubmittedFingerprintDisplay => _submittedRevisionSnapshot?.Package.Fingerprint?.Value ?? "Unavailable";
+    public string SubmittedFingerprintAlgorithm => _submittedRevisionSnapshot?.Package.Fingerprint?.Algorithm ?? "Unavailable";
+    public string SubmittedFingerprintCanonicalizationVersion => _submittedRevisionSnapshot?.Package.Fingerprint is { } fingerprint ? fingerprint.CanonicalizationVersion.ToString(System.Globalization.CultureInfo.InvariantCulture) : "Unavailable";
+    public string SubmittedSnapshotStatus => _submittedRevisionSnapshot is null ? "Unavailable" : "Loaded";
+    public string SubmittedSnapshotError => _submittedSnapshotError ?? string.Empty;
     public ICommand VerifyFingerprintCommand { get; }
+    public bool CanEscalateFingerprintMismatch => _workflowService is not null && _authentication?.IsAuthenticated == true && _authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ReviewVerification) && _fingerprintVerification?.Status == FingerprintVerificationStatus.Mismatch && _document is not null;
+    public ICommand FlagFingerprintMismatchCommand { get; }
+    public ICommand RejectFingerprintMismatchCommand { get; }
+    public ICommand ReturnFingerprintMismatchCommand { get; }
+    public ICommand FlagForInvestigationCommand => FlagFingerprintMismatchCommand;
+    public ICommand RejectForIntegrityCommand => RejectFingerprintMismatchCommand;
+    public ICommand ReturnForIntegrityCommand => ReturnFingerprintMismatchCommand;
     public int HistoricalStepBytesRead { get; private set; }
     public int HistoricalDxfBytesRead { get; private set; }
 
@@ -143,6 +163,12 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
 
     public void Load(Document document)
     {
+        _snapshotLoadGeneration++;
+        _submittedRevisionSnapshot = null;
+        _submittedSnapshotError = null;
+        _fingerprintVerification = null;
+        Changed(nameof(SubmittedMakerDisplayName)); Changed(nameof(SubmittedTimestampUtc)); Changed(nameof(SubmittedFingerprintDisplay)); Changed(nameof(SubmittedFingerprintAlgorithm)); Changed(nameof(SubmittedFingerprintCanonicalizationVersion)); Changed(nameof(SubmittedSnapshotStatus)); Changed(nameof(SubmittedSnapshotError));
+        Changed(nameof(FingerprintVerification)); Changed(nameof(FingerprintVerificationMessage)); Changed(nameof(CanEscalateFingerprintMismatch));
         _document = document ?? throw new ArgumentNullException(nameof(document));
         if (!CanViewDimensions)
             _dimensions = Array.Empty<DimensionData>();
@@ -152,6 +178,8 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
         Changed(nameof(UploaderUserId)); Changed(nameof(UploaderDisplayName)); Changed(nameof(UploaderDisplayNameSnapshot));
         Changed(nameof(VerificationStatusDisplay)); Changed(nameof(GeometryStatus)); Changed(nameof(GeometryError)); Changed(nameof(CurrentVersion));
         Changed(nameof(Fingerprint)); Changed(nameof(FingerprintDisplay)); Changed(nameof(CanVerifyFingerprint));
+        Changed(nameof(CanEscalateFingerprintMismatch));
+        Changed(nameof(SubmittedMakerDisplayName)); Changed(nameof(SubmittedTimestampUtc)); Changed(nameof(SubmittedFingerprintDisplay));
         Changed(nameof(CanExtractDimensions)); Changed(nameof(IsAuthorized)); Changed(nameof(Dimensions));
         Changed(nameof(DimensionResults)); Changed(nameof(ExtractedDimensions));
         Changed(nameof(CanSubmitForReview));
@@ -161,6 +189,40 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
         ((RelayCommand)SubmitForReviewCommand).Raise();
         ((RelayCommand)LoadPriorVersionsCommand).Raise();
         ((RelayCommand)VerifyFingerprintCommand).Raise();
+        ((RelayCommand)FlagFingerprintMismatchCommand).Raise();
+        ((RelayCommand)RejectFingerprintMismatchCommand).Raise();
+        ((RelayCommand)ReturnFingerprintMismatchCommand).Raise();
+        _ = LoadSubmittedRevisionSnapshotAsync(_document.DocumentId, _document.CurrentVersion, _snapshotLoadGeneration);
+    }
+
+    private async Task LoadSubmittedRevisionSnapshotAsync(Guid documentId, int revision, long generation)
+    {
+        if (_workflowService is null || !CanVerifyFingerprint) return;
+        try
+        {
+            var snapshot = await _workflowService.GetPriorVersionAsync(documentId, revision).ConfigureAwait(true);
+            if (_snapshotLoadGeneration != generation || _document?.DocumentId != documentId || _document.CurrentVersion != revision) return;
+            _submittedRevisionSnapshot = snapshot;
+            _submittedSnapshotError = snapshot is null ? "The submitted revision snapshot is unavailable." : null;
+            Changed(nameof(SubmittedMakerDisplayName)); Changed(nameof(SubmittedTimestampUtc)); Changed(nameof(SubmittedFingerprintDisplay)); Changed(nameof(SubmittedFingerprintAlgorithm)); Changed(nameof(SubmittedFingerprintCanonicalizationVersion));
+            Changed(nameof(SubmittedSnapshotStatus)); Changed(nameof(SubmittedSnapshotError));
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            if (_snapshotLoadGeneration != generation || _document?.DocumentId != documentId || _document.CurrentVersion != revision) return;
+            _submittedRevisionSnapshot = null;
+            _submittedSnapshotError = "The submitted revision snapshot is unavailable.";
+            _logger?.Log(exception, "Fingerprint submission snapshot", $"Snapshot access was not authorized for documentId={documentId}, revision={revision}.");
+            Changed(nameof(SubmittedMakerDisplayName)); Changed(nameof(SubmittedTimestampUtc)); Changed(nameof(SubmittedFingerprintDisplay)); Changed(nameof(SubmittedFingerprintAlgorithm)); Changed(nameof(SubmittedFingerprintCanonicalizationVersion)); Changed(nameof(SubmittedSnapshotStatus)); Changed(nameof(SubmittedSnapshotError));
+        }
+        catch (Exception exception)
+        {
+            if (_snapshotLoadGeneration != generation || _document?.DocumentId != documentId || _document.CurrentVersion != revision) return;
+            _submittedRevisionSnapshot = null;
+            _submittedSnapshotError = "The submitted revision snapshot is unavailable.";
+            _logger?.Log(exception, "Fingerprint submission snapshot", $"Unable to load submitted snapshot for documentId={documentId}, revision={revision}.");
+            Changed(nameof(SubmittedMakerDisplayName)); Changed(nameof(SubmittedTimestampUtc)); Changed(nameof(SubmittedFingerprintDisplay)); Changed(nameof(SubmittedFingerprintAlgorithm)); Changed(nameof(SubmittedFingerprintCanonicalizationVersion)); Changed(nameof(SubmittedSnapshotStatus)); Changed(nameof(SubmittedSnapshotError));
+        }
     }
 
     private async Task VerifyFingerprintAsync()
@@ -171,13 +233,39 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
         {
             _fingerprintVerification = await _workflowService.VerifyFingerprintAsync(_document.DocumentId, _document.CurrentVersion).ConfigureAwait(true);
             Message = _fingerprintVerification.Message;
-            ErrorMessage = _fingerprintVerification.Status == FingerprintVerificationStatus.Mismatch ? _fingerprintVerification.Message : string.Empty;
-            Changed(nameof(FingerprintVerification)); Changed(nameof(FingerprintVerificationMessage));
+            ErrorMessage = _fingerprintVerification.Status is FingerprintVerificationStatus.Mismatch or FingerprintVerificationStatus.Error ? _fingerprintVerification.Message : string.Empty;
+            Changed(nameof(FingerprintVerification)); Changed(nameof(FingerprintVerificationMessage)); Changed(nameof(CanEscalateFingerprintMismatch));
+            ((RelayCommand)FlagFingerprintMismatchCommand).Raise(); ((RelayCommand)RejectFingerprintMismatchCommand).Raise(); ((RelayCommand)ReturnFingerprintMismatchCommand).Raise();
         }
         catch (Exception exception)
         {
             _logger?.Log(exception, "Fingerprint verification", $"Unable to verify documentId={_document.DocumentId}, revision={_document.CurrentVersion}.");
             Message = ErrorMessage = "Unable to verify the fingerprint for this version.";
+        }
+        finally { IsBusy = false; }
+    }
+
+    private async Task FlagFingerprintMismatchAsync()
+    {
+        if (!CanEscalateFingerprintMismatch || _workflowService is null || _document is null) return;
+        await RunFingerprintEscalationAsync(async () => await _workflowService.AddReviewCommentAsync(_document.DocumentId, _document.CurrentVersion, "Fingerprint Mismatch - Document May Have Been Altered. Flagged for investigation.").ConfigureAwait(true), "Fingerprint mismatch flagged for investigation.").ConfigureAwait(true);
+    }
+
+    private async Task DecideFingerprintMismatchAsync(ReviewDecisionType decisionType)
+    {
+        if (!CanEscalateFingerprintMismatch || _workflowService is null || _document is null) return;
+        var note = "Fingerprint Mismatch - Document May Have Been Altered. Integrity verification failed.";
+        await RunFingerprintEscalationAsync(async () => await _workflowService.DecideAsync(_document.DocumentId, _document.CurrentVersion, decisionType, note).ConfigureAwait(true), decisionType == ReviewDecisionType.Reject ? "Document rejected for fingerprint mismatch." : "Document returned for fingerprint investigation.").ConfigureAwait(true);
+    }
+
+    private async Task RunFingerprintEscalationAsync<T>(Func<Task<T>> action, string successMessage)
+    {
+        IsBusy = true; ErrorMessage = string.Empty;
+        try { await action().ConfigureAwait(true); Message = successMessage; }
+        catch (Exception exception)
+        {
+            if (_document is not null) _logger?.Log(exception, "Fingerprint mismatch escalation", $"Unable to escalate fingerprint mismatch for documentId={_document.DocumentId}, revision={_document.CurrentVersion}.");
+            ErrorMessage = Message = "Unable to update the workflow for this fingerprint mismatch.";
         }
         finally { IsBusy = false; }
     }

@@ -16,6 +16,129 @@ namespace DrawVerify.App.Tests;
 
 public sealed class DocumentDetailViewModelTests
 {
+    [Fact(DisplayName = "TD-07 exposes fingerprint metadata and exact verification states")]
+    public void Fingerprint_metadata_and_result_messages_are_distinct()
+    {
+        var fingerprint = new DocumentFingerprint { Value = new string('f', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 };
+        var document = new Document { DocumentId = Guid.NewGuid(), CurrentVersion = 4, OriginalFileName = "drawing.step", Version = new DocumentVersion { Fingerprint = fingerprint } };
+        var viewModel = new DocumentDetailViewModel(document);
+        var match = new FingerprintVerificationResult(FingerprintVerificationStatus.Match, fingerprint, "Fingerprint Verified - Document Unchanged");
+        var mismatch = new FingerprintVerificationResult(FingerprintVerificationStatus.Mismatch, fingerprint, "Fingerprint Mismatch - Document May Have Been Altered");
+        var error = new FingerprintVerificationResult(FingerprintVerificationStatus.Error, null, "Cannot verify fingerprint - file(s) missing or corrupted");
+
+        Assert.Equal(fingerprint.Value, viewModel.Fingerprint);
+        Assert.Equal(fingerprint.Value, viewModel.FingerprintDisplay);
+        Assert.Equal("Fingerprint Verified - Document Unchanged", match.Message);
+        Assert.Equal("Fingerprint Mismatch - Document May Have Been Altered", mismatch.Message);
+        Assert.NotEqual(match.Message, mismatch.Message);
+        Assert.Contains("missing or corrupted", error.Message);
+    }
+
+    [Theory(DisplayName = "TD-07 fingerprint verification command follows the authorized role matrix")]
+    [InlineData(SystemRoles.Checker, true)]
+    [InlineData(SystemRoles.Approver, true)]
+    [InlineData(SystemRoles.Maker, false)]
+    [InlineData(SystemRoles.Viewer, false)]
+    [InlineData(SystemRoles.Admin, false)]
+    public async Task Verify_command_is_enabled_only_for_authorized_roles(string role, bool allowed)
+    {
+        var authentication = new SessionAuthenticationService();
+        authentication.SignIn(new AuthenticatedUser(role, new[] { role }) { UserId = role + "-001", DisplayName = role });
+        var workflow = new FingerprintWorkflowStub();
+        var document = new Document { DocumentId = Guid.NewGuid(), CurrentVersion = 4, Version = new DocumentVersion { VersionId = Guid.NewGuid() } };
+        var viewModel = new DocumentDetailViewModel(document, null, workflow, authentication: authentication);
+
+        Assert.Equal(allowed, viewModel.CanVerifyFingerprint);
+        Assert.Equal(allowed, viewModel.VerifyFingerprintCommand.CanExecute(null));
+        viewModel.VerifyFingerprintCommand.Execute(null);
+        await Task.Delay(25);
+        Assert.Equal(allowed ? 1 : 0, workflow.VerifyCalls);
+    }
+
+    [Theory(DisplayName = "TD-07 submitted revision metadata is available before and after verification")]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Submitted_metadata_is_loaded_for_current_and_legacy_fingerprints(bool hasFingerprint)
+    {
+        var packageId = Guid.NewGuid();
+        var submittedUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var fingerprint = hasFingerprint ? new DocumentFingerprint { Value = new string('a', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 } : null;
+        var workflow = new FingerprintWorkflowStub
+        {
+            Snapshot = new PriorVersionReview
+            {
+                PackageId = packageId, Revision = 4, MakerUserId = "maker-001", MakerDisplayName = "Maker One", SubmittedUtc = submittedUtc,
+                Package = new ReviewPackage { Submission = new ReviewSubmission { Revision = 4, MakerUserId = "maker-001", MakerDisplayName = "Maker One", SubmittedUtc = submittedUtc, Fingerprint = fingerprint } }
+            },
+            Verification = new FingerprintVerificationResult(FingerprintVerificationStatus.Error, null, "Cannot verify fingerprint - file(s) missing or corrupted")
+        };
+        var authentication = new SessionAuthenticationService();
+        authentication.SignIn(new AuthenticatedUser("checker", new[] { SystemRoles.Checker }) { UserId = "checker-001", DisplayName = "Checker One" });
+        var viewModel = new DocumentDetailViewModel(new Document { DocumentId = packageId, CurrentVersion = 4, Version = new DocumentVersion { VersionId = Guid.NewGuid() } }, null, workflow, authentication: authentication);
+
+        await WaitUntilAsync(() => viewModel.SubmittedTimestampUtc is not null);
+        Assert.Equal("Maker One", viewModel.SubmittedMakerDisplayName);
+        Assert.Equal(submittedUtc, viewModel.SubmittedTimestampUtc);
+        Assert.Equal(hasFingerprint ? fingerprint!.Value : "Unavailable", viewModel.SubmittedFingerprintDisplay);
+        Assert.Equal(hasFingerprint ? "SHA-256" : "Unavailable", viewModel.SubmittedFingerprintAlgorithm);
+        Assert.Equal(hasFingerprint ? "1" : "Unavailable", viewModel.SubmittedFingerprintCanonicalizationVersion);
+
+        viewModel.VerifyFingerprintCommand.Execute(null);
+        await WaitUntilAsync(() => workflow.VerifyCalls == 1);
+        Assert.Equal(FingerprintVerificationStatus.Error, viewModel.FingerprintVerification!.Status);
+        Assert.Equal("Maker One", viewModel.SubmittedMakerDisplayName);
+        Assert.Equal(submittedUtc, viewModel.SubmittedTimestampUtc);
+        Assert.Equal(hasFingerprint ? fingerprint!.Value : "Unavailable", viewModel.SubmittedFingerprintDisplay);
+        Assert.Equal(hasFingerprint ? "SHA-256" : "Unavailable", viewModel.SubmittedFingerprintAlgorithm);
+        Assert.Equal(hasFingerprint ? "1" : "Unavailable", viewModel.SubmittedFingerprintCanonicalizationVersion);
+    }
+
+    [Fact(DisplayName = "TD-07 clears old submitted metadata while a reused view model loads a new document")]
+    public async Task Reusing_view_model_does_not_show_stale_snapshot_metadata()
+    {
+        var firstId = Guid.NewGuid();
+        var secondId = Guid.NewGuid();
+        var secondSnapshot = new TaskCompletionSource<PriorVersionReview?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var workflow = new FingerprintWorkflowStub
+        {
+            SnapshotProvider = (id, _) => id == firstId
+                ? Task.FromResult<PriorVersionReview?>(Snapshot(firstId, "First Maker", new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), "1"))
+                : secondSnapshot.Task
+        };
+        var authentication = AuthorizedChecker();
+        var viewModel = new DocumentDetailViewModel(Document(firstId, 1), null, workflow, authentication: authentication);
+
+        await WaitUntilAsync(() => viewModel.SubmittedMakerDisplayName == "First Maker");
+        viewModel.Load(Document(secondId, 2));
+
+        Assert.Equal("Unavailable", viewModel.SubmittedMakerDisplayName);
+        Assert.Null(viewModel.SubmittedTimestampUtc);
+        Assert.Equal("Unavailable", viewModel.SubmittedFingerprintDisplay);
+        secondSnapshot.SetResult(Snapshot(secondId, "Second Maker", new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc), "2"));
+        await WaitUntilAsync(() => viewModel.SubmittedMakerDisplayName == "Second Maker");
+        Assert.Equal("Second Maker", viewModel.SubmittedMakerDisplayName);
+        Assert.Equal(secondId, viewModel.Document!.DocumentId);
+    }
+
+    [Fact(DisplayName = "TD-07 failed submitted snapshot retrieval is explicit and logged")]
+    public async Task Failed_snapshot_retrieval_clears_metadata_and_exposes_unavailable_state()
+    {
+        var logger = new SnapshotLogger();
+        var workflow = new FingerprintWorkflowStub
+        {
+            SnapshotProvider = (_, _) => Task.FromException<PriorVersionReview?>(new InvalidOperationException("snapshot store unavailable"))
+        };
+        var viewModel = new DocumentDetailViewModel(Document(Guid.NewGuid(), 1), null, workflow, authentication: AuthorizedChecker(), logger: logger);
+
+        await WaitUntilAsync(() => logger.Context.Contains("documentId=", StringComparison.Ordinal));
+        Assert.Equal("Unavailable", viewModel.SubmittedMakerDisplayName);
+        Assert.Null(viewModel.SubmittedTimestampUtc);
+        Assert.Equal("Unavailable", viewModel.SubmittedFingerprintDisplay);
+        Assert.Contains("snapshot", logger.Context, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("documentId=", logger.Context, StringComparison.Ordinal);
+        Assert.Contains("unavailable", viewModel.SubmittedSnapshotError!, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact(DisplayName = "TD-07 keeps each historical version fingerprint associated with its own revision")]
     public void Historical_version_read_models_expose_their_own_fingerprints()
     {
@@ -247,6 +370,54 @@ public sealed class DocumentDetailViewModelTests
             await Task.Delay(1);
         }
         throw new TimeoutException("The document-detail extraction command did not complete.");
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        while (!condition())
+            await Task.Delay(1, timeout.Token);
+    }
+
+    private static SessionAuthenticationService AuthorizedChecker()
+    {
+        var authentication = new SessionAuthenticationService();
+        authentication.SignIn(new AuthenticatedUser("checker", new[] { SystemRoles.Checker }) { UserId = "checker-001", DisplayName = "Checker One" });
+        return authentication;
+    }
+
+    private static Document Document(Guid id, int revision) => new() { DocumentId = id, CurrentVersion = revision, Version = new DocumentVersion { VersionId = Guid.NewGuid() } };
+
+    private static PriorVersionReview Snapshot(Guid packageId, string maker, DateTime submittedUtc, string fingerprintValue) => new()
+    {
+        PackageId = packageId, Revision = 1, MakerUserId = maker.ToLowerInvariant().Replace(' ', '-'), MakerDisplayName = maker, SubmittedUtc = submittedUtc,
+        Package = new ReviewPackage { Submission = new ReviewSubmission { Revision = 1, MakerUserId = maker, MakerDisplayName = maker, SubmittedUtc = submittedUtc, Fingerprint = new DocumentFingerprint { Value = new string(fingerprintValue[0], 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 } } }
+    };
+
+    private sealed class FingerprintWorkflowStub : IWorkflowService
+    {
+        public PriorVersionReview? Snapshot { get; init; }
+        public Func<Guid, int, Task<PriorVersionReview?>>? SnapshotProvider { get; init; }
+        public FingerprintVerificationResult Verification { get; init; } = new(FingerprintVerificationStatus.Match, null, "Fingerprint Verified - Document Unchanged");
+        public int VerifyCalls { get; private set; }
+        public Task<SubmissionReadiness> ValidateReadinessAsync(Guid packageId, CancellationToken cancellationToken = default) => Task.FromResult(SubmissionReadiness.Ready);
+        public Task<SubmissionResult> SubmitForReviewAsync(SubmissionRequest request, CancellationToken cancellationToken = default) => Task.FromResult(new SubmissionResult(false, "not used"));
+        public Task RecordCancellationAsync(Guid packageId, int revision, string? note, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<WorkflowState?> GetPackageAsync(Guid packageId, CancellationToken cancellationToken = default) => Task.FromResult<WorkflowState?>(null);
+        public Task<IReadOnlyList<ReviewSubmission>> GetSubmittedPackagesAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ReviewSubmission>>(Array.Empty<ReviewSubmission>());
+        public Task<IReadOnlyList<WorkflowQueueItem>> GetCheckerQueueAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<WorkflowQueueItem>>(Array.Empty<WorkflowQueueItem>());
+        public Task<PriorVersionReview?> GetPriorVersionAsync(Guid packageId, int revision, CancellationToken cancellationToken = default) => SnapshotProvider?.Invoke(packageId, revision) ?? Task.FromResult(Snapshot);
+        public Task<FingerprintVerificationResult> VerifyFingerprintAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
+        {
+            VerifyCalls++;
+            return Task.FromResult(Verification);
+        }
+    }
+
+    private sealed class SnapshotLogger : ICentralizedLogger
+    {
+        public string Context { get; private set; } = string.Empty;
+        public void Log(Exception exception, string operation, string context) => Context = context;
     }
 
     private static Scenario CreateScenario(string? role, DxfDimensionExtractionResult result, IEnumerable<DimensionData>? initialDimensions = null)

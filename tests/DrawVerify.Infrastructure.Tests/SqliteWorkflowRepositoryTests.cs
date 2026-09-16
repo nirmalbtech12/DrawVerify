@@ -11,6 +11,37 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteWorkflowRepositoryTests
 {
+    [Fact(DisplayName = "TD-03 migrates verification audit records additively and reads the latest outcome")]
+    public async Task Verification_record_round_trips_from_sqlite_audit_history()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-verification-{Guid.NewGuid():N}.db");
+        try
+        {
+            var package = Guid.NewGuid();
+            var repository = new SqliteWorkflowRepository(path);
+            await repository.RecordAuditAsync(new AuditEntry
+            {
+                DocumentId = package, UserId = "checker-001", ActorRole = "Checker", DocumentRevision = "4",
+                DocumentVersion = "step-version", Action = DocumentAuditAction.VerificationRunCompleted,
+                TimestampUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                DetailsJson = "{\"result\":\"Match\",\"storedFingerprint\":\"aaa\",\"recomputedFingerprint\":\"aaa\",\"checkerUserId\":\"checker-001\",\"checkerDisplayName\":\"Checker One\",\"fingerprintAlgorithm\":\"SHA-256\",\"fingerprintCanonicalizationVersion\":1}"
+            });
+            await repository.RecordAuditAsync(new AuditEntry
+            {
+                DocumentId = package, UserId = "checker-001", ActorRole = "Checker", DocumentRevision = "4",
+                DocumentVersion = "step-version", Action = DocumentAuditAction.IntegrityCheckFailed,
+                TimestampUtc = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc),
+                DetailsJson = "{\"result\":\"Mismatch\",\"storedFingerprint\":\"aaa\",\"recomputedFingerprint\":\"bbb\",\"checkerUserId\":\"checker-001\",\"checkerDisplayName\":\"Checker One\",\"fingerprintAlgorithm\":\"SHA-256\",\"fingerprintCanonicalizationVersion\":1}"
+            });
+            var result = await repository.GetFingerprintVerificationAsync(package, 4);
+            Assert.NotNull(result);
+            Assert.Equal(FingerprintVerificationStatus.Mismatch, result!.Status);
+            Assert.Equal("aaa", result.Stored!.Value);
+            Assert.Equal("bbb", result.Computed!.Value);
+            Assert.Equal("checker-001", result.VerifierUserId);
+        }
+        finally { Delete(path); }
+    }
     [Fact(DisplayName = "TD-04 persists fingerprint metadata with the exact submission identity")]
     public async Task Submission_fingerprint_round_trips_with_submission_fields()
     {

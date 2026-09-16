@@ -367,24 +367,45 @@ public sealed class WorkflowService : IWorkflowService
     public async Task<IReadOnlyList<ReviewSubmission>> GetSubmittedPackagesAsync(CancellationToken cancellationToken = default) => (await _workflow.GetSubmissionsAsync(Guid.Empty, cancellationToken).ConfigureAwait(false)).Where(x => x.Status == WorkflowStatus.SubmittedForReview).ToArray();
     public async Task<FingerprintVerificationResult> VerifyFingerprintAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
     {
-        if (!_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ViewDimensionMatchResults)) throw new UnauthorizedAccessException("Fingerprint verification is not authorized.");
+        if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.VerifyFingerprint)) throw new UnauthorizedAccessException("Fingerprint verification is not authorized.");
         if (_fingerprintService is null || _documents is null || _stepFiles is null || _dxfFiles is null) throw new InvalidOperationException("Fingerprint verification is not configured.");
+        ReviewSubmission? submission = null;
+        var auditWriteStarted = false;
         try
         {
-            var submission = (await _workflow.GetSubmissionsAsync(packageId, cancellationToken).ConfigureAwait(false)).FirstOrDefault(x => x.Revision == revision) ?? throw new KeyNotFoundException("The submitted version was not found.");
-            if (submission.Fingerprint is null) return new FingerprintVerificationResult(FingerprintVerificationStatus.Unavailable, null, "The submitted version has no stored fingerprint.");
+            submission = (await _workflow.GetSubmissionsAsync(packageId, cancellationToken).ConfigureAwait(false)).FirstOrDefault(x => x.Revision == revision) ?? throw new KeyNotFoundException("The submitted version was not found.");
+            FingerprintVerificationResult result;
+            if (submission.Fingerprint is null)
+                result = new FingerprintVerificationResult(FingerprintVerificationStatus.Error, null, "Cannot verify fingerprint - file(s) missing or corrupted") { ErrorDetails = "The submitted version has no stored fingerprint." };
+            else
+            {
             var step = await _documents.GetVersionAsync(packageId, submission.StepDocumentVersionId, cancellationToken).ConfigureAwait(false) ?? throw new FileNotFoundException("The stored STEP version was not found.");
             var dxfDocument = await _documents.GetAsync(submission.DxfDocumentId, cancellationToken).ConfigureAwait(false);
             var dxf = dxfDocument?.Versions.FirstOrDefault(x => x.VersionId == submission.DxfDocumentVersionId) ?? throw new FileNotFoundException("The stored DXF version was not found.");
             await using var stepStream = await _stepFiles.OpenReadAsync(step.StoredRelativePath, cancellationToken).ConfigureAwait(false);
             await using var dxfStream = await _dxfFiles.OpenReadAsync(dxf.StoredRelativePath, cancellationToken).ConfigureAwait(false);
-            return await _fingerprintService.VerifyAsync(submission.Fingerprint, new DocumentFingerprintContext(packageId, revision, submission.StepDocumentVersionId, submission.DxfDocumentVersionId, new Dictionary<string, string> { ["makerUserId"] = submission.MakerUserId, ["extractionEvidence"] = submission.ExtractionEvidenceJson, ["verificationEvidence"] = submission.VerificationEvidenceJson }), new[] { new DocumentFingerprintArtifact(step.StoredRelativePath, stepStream, step.FileSizeBytes), new DocumentFingerprintArtifact(dxf.StoredRelativePath, dxfStream, dxf.FileSizeBytes) }, cancellationToken).ConfigureAwait(false);
+            result = await _fingerprintService.VerifyAsync(submission.Fingerprint, new DocumentFingerprintContext(packageId, revision, submission.StepDocumentVersionId, submission.DxfDocumentVersionId, new Dictionary<string, string> { ["makerUserId"] = submission.MakerUserId, ["extractionEvidence"] = submission.ExtractionEvidenceJson, ["verificationEvidence"] = submission.VerificationEvidenceJson }), new[] { new DocumentFingerprintArtifact(step.StoredRelativePath, stepStream, step.FileSizeBytes), new DocumentFingerprintArtifact(dxf.StoredRelativePath, dxfStream, dxf.FileSizeBytes) }, cancellationToken).ConfigureAwait(false);
+            }
+            result = result with { Stored = result.Stored ?? submission.Fingerprint, VerifiedUtc = new DateTimeOffset(_clock().ToUniversalTime()), VerifierUserId = _authentication.CurrentUser!.UserId, VerifierDisplayName = _authentication.CurrentUser.DisplayName, SubmissionTimestampUtc = submission.SubmittedUtc, MakerUserId = submission.MakerUserId, MakerDisplayName = submission.MakerDisplayName, DocumentId = packageId, Revision = revision, StepDocumentVersionId = submission.StepDocumentVersionId, DxfDocumentVersionId = submission.DxfDocumentVersionId };
+            auditWriteStarted = true;
+            await RecordFingerprintAuditAsync(result, submission, cancellationToken).ConfigureAwait(false);
+            return result;
         }
         catch (Exception exception) when (exception is not UnauthorizedAccessException and not OperationCanceledException)
         {
             _logger?.Log(exception, "Fingerprint verification", $"Unable to verify packageId={packageId}, revision={revision}.");
-            throw;
+            if (auditWriteStarted) throw;
+            var result = new FingerprintVerificationResult(FingerprintVerificationStatus.Error, null, "Cannot verify fingerprint - file(s) missing or corrupted") { Stored = submission?.Fingerprint, ErrorDetails = exception.Message, VerifiedUtc = new DateTimeOffset(_clock().ToUniversalTime()), VerifierUserId = _authentication.CurrentUser?.UserId, VerifierDisplayName = _authentication.CurrentUser?.DisplayName, DocumentId = packageId, Revision = revision, StepDocumentVersionId = submission?.StepDocumentVersionId ?? Guid.Empty, DxfDocumentVersionId = submission?.DxfDocumentVersionId ?? Guid.Empty };
+            if (submission is not null) await RecordFingerprintAuditAsync(result, submission, cancellationToken).ConfigureAwait(false);
+            return result;
         }
+    }
+
+    private async Task RecordFingerprintAuditAsync(FingerprintVerificationResult result, ReviewSubmission submission, CancellationToken cancellationToken)
+    {
+        var action = result.Status == FingerprintVerificationStatus.Mismatch ? DocumentAuditAction.IntegrityCheckFailed : result.Status == FingerprintVerificationStatus.Error ? DocumentAuditAction.VerificationRunFailed : DocumentAuditAction.VerificationRunCompleted;
+        var audit = new AuditEntry { DocumentId = submission.PackageId, UserId = result.VerifierUserId ?? throw new InvalidOperationException("An authenticated verifier is required."), ActorRole = _authentication.CurrentUser?.Roles.FirstOrDefault(), DocumentRevision = submission.Revision.ToString(), DocumentVersion = submission.StepDocumentVersionId.ToString("D"), Action = action, TimestampUtc = result.VerifiedUtc?.UtcDateTime ?? _clock().ToUniversalTime(), DetailsJson = JsonSerializer.Serialize(new { packageId = submission.PackageId, revision = submission.Revision, submissionId = submission.SubmissionId, stepDocumentVersionId = submission.StepDocumentVersionId, dxfDocumentVersionId = submission.DxfDocumentVersionId, checkerUserId = result.VerifierUserId, checkerDisplayName = result.VerifierDisplayName, result = result.Status.ToString(), storedFingerprint = result.Stored?.Value, recomputedFingerprint = result.Computed?.Value, fingerprintAlgorithm = result.Stored?.Algorithm, fingerprintCanonicalizationVersion = result.Stored?.CanonicalizationVersion, error = result.ErrorDetails }) };
+        await _workflow.RecordAuditAsync(audit, cancellationToken).ConfigureAwait(false);
     }
     public Task<IReadOnlyList<WorkflowQueueItem>> GetCheckerQueueAsync(CancellationToken cancellationToken = default)
     {

@@ -50,8 +50,14 @@ public sealed class DocumentFingerprintService : IDocumentFingerprintService
     public async Task<FingerprintVerificationResult> VerifyAsync(DocumentFingerprint expected, DocumentFingerprintContext context, IReadOnlyCollection<DocumentFingerprintArtifact> artifacts, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(expected);
-        var computed = await ComputeAsync(context, artifacts, cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (!expected.IsValid || !string.Equals(expected.Algorithm, _policy.Algorithm, StringComparison.OrdinalIgnoreCase) || expected.CanonicalizationVersion != _policy.CanonicalizationVersion)
+            return new FingerprintVerificationResult(FingerprintVerificationStatus.Error, null, "Cannot verify fingerprint - stored fingerprint policy is invalid.") { Stored = expected, ErrorDetails = "Stored fingerprint is invalid or uses an unsupported policy." };
+        DocumentFingerprint computed;
+        try { computed = await ComputeAsync(context, artifacts, cancellationToken: cancellationToken).ConfigureAwait(false); }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or ArgumentException)
+        { return new FingerprintVerificationResult(FingerprintVerificationStatus.Error, null, "Cannot verify fingerprint - file(s) missing or corrupted") { Stored = expected, ErrorDetails = exception.Message }; }
         var matches = CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(expected.Value.ToLowerInvariant()), Encoding.ASCII.GetBytes(computed.Value));
-        return new FingerprintVerificationResult(matches ? FingerprintVerificationStatus.Match : FingerprintVerificationStatus.Mismatch, computed, matches ? "Fingerprint matches the submitted version." : "Fingerprint Mismatch - Version May Have Been Altered");
+        return new FingerprintVerificationResult(matches ? FingerprintVerificationStatus.Match : FingerprintVerificationStatus.Mismatch, computed, matches ? "Fingerprint Verified - Document Unchanged" : "Fingerprint Mismatch - Document May Have Been Altered") { Stored = expected };
     }
 }

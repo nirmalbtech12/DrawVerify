@@ -12,6 +12,30 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class ReportServiceStatusTests
 {
+    [Theory(DisplayName = "TD-05 reports every fingerprint verification outcome")]
+    [InlineData(FingerprintVerificationStatus.Match, "Fingerprint Verified - Document Unchanged")]
+    [InlineData(FingerprintVerificationStatus.Mismatch, "Fingerprint Mismatch - Document May Have Been Altered")]
+    [InlineData(FingerprintVerificationStatus.Error, "Cannot verify fingerprint - file(s) missing or corrupted")]
+    public void Markdown_report_contains_verification_details(FingerprintVerificationStatus status, string message)
+    {
+        var stored = new DocumentFingerprint { Value = new string('1', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 };
+        var report = new VerificationReport
+        {
+            Fingerprint = stored,
+            FingerprintVerification = new FingerprintVerificationResult(status, status == FingerprintVerificationStatus.Error ? null : stored, message)
+            {
+                Stored = stored, VerifiedUtc = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
+                VerifierUserId = "checker-001", VerifierDisplayName = "Checker One", Revision = 3,
+                StepDocumentVersionId = Guid.Parse("22222222-2222-2222-2222-222222222222"), DxfDocumentVersionId = Guid.Parse("33333333-3333-3333-3333-333333333333")
+            }
+        };
+
+        var markdown = report.ToMarkdown();
+        Assert.Contains(status.ToString(), markdown);
+        Assert.Contains(stored.Value, markdown);
+        Assert.Contains("Checker One", markdown);
+        Assert.Contains("2026-01-01", markdown);
+    }
     [Fact(DisplayName = "TD-09 renders the requested version fingerprint in a verification report")]
     public void Verification_report_includes_fingerprint_and_algorithm()
     {

@@ -20,9 +20,22 @@ public sealed record DocumentFingerprintContext(
 
 public sealed record DocumentFingerprintArtifact(string RelativeName, Stream Content, long Length);
 
-public enum FingerprintVerificationStatus { Match, Mismatch, Unavailable }
+public enum FingerprintVerificationStatus { Match, Mismatch, Error, Unavailable }
 
 public sealed record FingerprintVerificationResult(FingerprintVerificationStatus Status, DocumentFingerprint? Computed, string Message)
 {
+    public DocumentFingerprint? Stored { get; init; }
+    public DateTimeOffset? VerifiedUtc { get; init; }
+    public string? VerifierUserId { get; init; }
+    public string? VerifierDisplayName { get; init; }
+    public DateTime? SubmissionTimestampUtc { get; init; }
+    public string? MakerUserId { get; init; }
+    public string? MakerDisplayName { get; init; }
+    public Guid DocumentId { get; init; }
+    public int Revision { get; init; }
+    public Guid StepDocumentVersionId { get; init; }
+    public Guid DxfDocumentVersionId { get; init; }
+    public string? ErrorDetails { get; init; }
+    public bool IsIntegrityFailure => Status == FingerprintVerificationStatus.Mismatch;
     public bool IsMatch => Status == FingerprintVerificationStatus.Match;
 }
