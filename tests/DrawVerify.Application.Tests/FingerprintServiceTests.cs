@@ -64,6 +64,15 @@ public class FingerprintServiceTests
         Assert.All(variants, variant => Assert.NotEqual(baseline.Value, variant.Value));
     }
 
+    [Theory(DisplayName = "TD-02 rejects malformed fingerprint metadata")]
+    [InlineData("gg00000000000000000000000000000000000000000000000000000000000000", "SHA-256", 1)]
+    [InlineData("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "MD5", 1)]
+    [InlineData("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "SHA-256", 0)]
+    public void Malformed_fingerprint_is_invalid(string value, string algorithm, int version)
+    {
+        Assert.False(new DocumentFingerprint { Value = value, Algorithm = algorithm, CanonicalizationVersion = version }.IsValid);
+    }
+
     [Fact(DisplayName = "TD-06 reports match, mismatch, and unavailable material distinctly")]
     public async Task Verification_reports_match_and_mismatch_without_fallback()
     {

@@ -42,6 +42,52 @@ public sealed class SqliteWorkflowRepositoryTests
         finally { Delete(path); }
     }
 
+    [Theory(DisplayName = "TD-04 rejects malformed fingerprints before persistence")]
+    [InlineData("gg00000000000000000000000000000000000000000000000000000000000000", "SHA-256", 1)]
+    [InlineData("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "MD5", 1)]
+    [InlineData("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "SHA-256", 0)]
+    public async Task Malformed_fingerprint_cannot_be_persisted(string value, string algorithm, int version)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-invalid-fingerprint-{Guid.NewGuid():N}.db");
+        try
+        {
+            var package = Guid.NewGuid();
+            var submission = Snapshot(package) with { Fingerprint = new DocumentFingerprint { Value = value, Algorithm = algorithm, CanonicalizationVersion = version } };
+            await Assert.ThrowsAsync<InvalidOperationException>(() => new SqliteWorkflowRepository(path).SubmitAtomicallyAsync(new WorkflowState { PackageId = package, Status = WorkflowStatus.Draft, Revision = 1 }, submission, Audit(DocumentAuditAction.SubmissionSucceeded, package, "Submitted")));
+            Assert.Empty(await new SqliteWorkflowRepository(path).GetSubmissionsAsync(package));
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TD-05 rejected fingerprint mutation records a security audit event")]
+    public async Task Rejected_fingerprint_update_records_context_and_rethrows()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-fingerprint-security-{Guid.NewGuid():N}.db");
+        try
+        {
+            var package = Guid.NewGuid();
+            var submission = Snapshot(package);
+            await new SqliteWorkflowRepository(path).SubmitAtomicallyAsync(new WorkflowState { PackageId = package, Status = WorkflowStatus.Draft, Revision = 1 }, submission, Audit(DocumentAuditAction.SubmissionSucceeded, package, "Submitted"));
+            await using var connection = new SqliteConnection($"Data Source={path}");
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE ReviewSubmission SET FingerprintJson=$fingerprint WHERE SubmissionId=$id";
+            command.Parameters.AddWithValue("$fingerprint", JsonSerializer.Serialize(new DocumentFingerprint { Value = new string('b', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 }));
+            command.Parameters.AddWithValue("$id", submission.SubmissionId.ToString());
+            var exception = await Assert.ThrowsAsync<SqliteException>(() => command.ExecuteNonQueryAsync());
+            Assert.Contains("immutable", exception.Message, StringComparison.OrdinalIgnoreCase);
+            await using var audit = connection.CreateCommand();
+            audit.CommandText = "SELECT DetailsJson FROM DocumentAuditLog WHERE DocumentId=$package AND DetailsJson LIKE '%fingerprint-mutation-rejected%'";
+            audit.Parameters.AddWithValue("$package", package.ToString());
+            var details = Convert.ToString(await audit.ExecuteScalarAsync());
+            Assert.Contains("UPDATE", details, StringComparison.Ordinal);
+            Assert.Contains(submission.SubmissionId.ToString(), details, StringComparison.Ordinal);
+            var loaded = Assert.Single(await new SqliteWorkflowRepository(path).GetSubmissionsAsync(package));
+            Assert.Equal(submission.Fingerprint, loaded.Fingerprint);
+        }
+        finally { Delete(path); }
+    }
+
     [Fact(DisplayName = "TD-10 serializes fingerprint fields for machine-readable submission export")]
     public void Submission_json_contains_machine_readable_fingerprint_fields()
     {

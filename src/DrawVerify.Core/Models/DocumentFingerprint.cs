@@ -5,7 +5,10 @@ public sealed record DocumentFingerprint
     public string Value { get; init; } = string.Empty;
     public string Algorithm { get; init; } = string.Empty;
     public int CanonicalizationVersion { get; init; }
-    public bool IsValid => !string.IsNullOrWhiteSpace(Value) && Value.Length == 64;
+    public bool IsValid => Value.Length == 64
+        && Value.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F')
+        && string.Equals(Algorithm, "SHA-256", StringComparison.OrdinalIgnoreCase)
+        && CanonicalizationVersion > 0;
 }
 
 public sealed record DocumentFingerprintContext(
