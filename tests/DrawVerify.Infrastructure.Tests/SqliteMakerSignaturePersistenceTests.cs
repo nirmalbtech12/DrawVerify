@@ -10,6 +10,8 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteMakerSignaturePersistenceTests
 {
+    private const string ValidPngPayload = "iVBORw0KGgo=";
+
     [Fact(DisplayName = "TD-KAN64-INFRA-001 audit persistence records MakerSignatureApplied with integrity")]
     public async Task Maker_signature_audit_round_trips_and_is_append_only()
     {
@@ -39,7 +41,7 @@ public sealed class SqliteMakerSignaturePersistenceTests
     public void Signature_stamp_service_validates_preview_and_tamper_evidence()
     {
         var service = new SignatureStampService();
-        var signature = SignatureData.Create(SignatureMethod.Uploaded, "small-png-reference", "maker-001", "Maker One", Guid.Parse("11111111-1111-1111-1111-111111111111"), 2, new DateTimeOffset(2026, 1, 10, 8, 0, 0, TimeSpan.Zero), "Engineering", "Design");
+        var signature = SignatureData.Create(SignatureMethod.Uploaded, ValidPngPayload, "maker-001", "Maker One", Guid.Parse("11111111-1111-1111-1111-111111111111"), 2, new DateTimeOffset(2026, 1, 10, 8, 0, 0, TimeSpan.Zero), "Engineering", "Design");
         Assert.Equal(signature.CanonicalRepresentation, service.Canonicalize(signature));
         Assert.Equal(signature.Payload, service.Preview(signature));
         Assert.True(service.VerifyIntegrity(signature));

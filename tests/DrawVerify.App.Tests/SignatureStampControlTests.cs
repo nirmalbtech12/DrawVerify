@@ -49,6 +49,16 @@ public sealed class SignatureStampControlTests
         Assert.Contains("IsMaker", code, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact(DisplayName = "TD-KAN64-APPUI-001 uploaded capture validates image bytes before preview")]
+    public void Signature_control_contract_validates_uploaded_payloads_at_capture_boundary()
+    {
+        var code = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Controls", "SignatureStampControl.xaml.cs")));
+        Assert.Contains("Upload_Click", code);
+        Assert.Contains("ValidateUploadedPayload", code);
+        Assert.Contains("Preview(SignatureMethod.Uploaded", code);
+        Assert.Contains("Failed to capture signature. Please try again.", code);
+    }
+
     [Fact(DisplayName = "TD-KAN64-APPUI-001 bound state and capture failures remain observable")]
     public void Signature_control_contract_declares_notifications_metadata_and_contextual_logging()
     {

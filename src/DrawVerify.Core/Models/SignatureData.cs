@@ -25,6 +25,7 @@ public sealed record SignatureData
     {
         if (!Enum.IsDefined(Method)) throw new ArgumentException("Unsupported signature method.", nameof(Method));
         if (string.IsNullOrWhiteSpace(Payload)) throw new ArgumentException("Signature payload is required.", nameof(Payload));
+        if (Method == SignatureMethod.Uploaded) ValidateUploadedPayload(Payload);
         if (string.IsNullOrWhiteSpace(MakerUserId) || string.IsNullOrWhiteSpace(MakerDisplayName)) throw new ArgumentException("Maker identity is required.", nameof(MakerUserId));
         if (!string.Equals(Role, SystemRoles.Maker, StringComparison.OrdinalIgnoreCase)) throw new UnauthorizedAccessException("Only a Maker can apply a Maker signature.");
         if (DocumentId == Guid.Empty || Revision <= 0) throw new ArgumentException("Document and revision identity are required.");
@@ -32,6 +33,19 @@ public sealed record SignatureData
         if (requireFinalized && !IsFinalized) throw new InvalidOperationException("The signature must be finalized before submission.");
         if (requireFinalized && !IsTamperEvident) throw new InvalidOperationException("The signature integrity hash is invalid.");
     }
+    public static void ValidateUploadedPayload(string payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload)) throw new ArgumentException("Uploaded signature payload is required.", nameof(payload));
+        byte[] bytes;
+        try { bytes = Convert.FromBase64String(payload); }
+        catch (FormatException exception) { throw new ArgumentException("Uploaded signature payload is not valid image data.", nameof(payload), exception); }
+        if (bytes.Length == 0 || bytes.Length > 5 * 1024 * 1024) throw new ArgumentException("Uploaded signature image is empty or exceeds the supported size.", nameof(payload));
+        var supported = IsPng(bytes) || IsJpeg(bytes) || IsBmp(bytes);
+        if (!supported) throw new ArgumentException("Uploaded signature payload is not a supported PNG, JPEG, or BMP image.", nameof(payload));
+    }
+    private static bool IsPng(byte[] bytes) => bytes.Length >= 8 && bytes.AsSpan(0, 8).SequenceEqual(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A });
+    private static bool IsJpeg(byte[] bytes) => bytes.Length >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF;
+    private static bool IsBmp(byte[] bytes) => bytes.Length >= 2 && bytes[0] == (byte)'B' && bytes[1] == (byte)'M';
     public static SignatureData Create(SignatureMethod method, string payload, string makerUserId, string makerDisplayName, Guid documentId, int revision, DateTimeOffset timestampUtc, string? title = null, string? department = null)
     {
         var value = new SignatureData { Method = method, Payload = payload.Trim(), PayloadHash = ComputePayloadHash(payload.Trim()), MakerUserId = makerUserId.Trim(), MakerDisplayName = makerDisplayName.Trim(), TimestampUtc = timestampUtc.ToUniversalTime(), Title = string.IsNullOrWhiteSpace(title) ? null : title.Trim(), Department = string.IsNullOrWhiteSpace(department) ? null : department.Trim(), DocumentId = documentId, Revision = revision, IsFinalized = true };

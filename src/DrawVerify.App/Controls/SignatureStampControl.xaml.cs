@@ -58,7 +58,9 @@ public partial class SignatureStampControl : UserControl, INotifyPropertyChanged
             if (dialog.ShowDialog() != true) return;
             var bytes = File.ReadAllBytes(dialog.FileName);
             if (bytes.Length == 0 || bytes.Length > 5 * 1024 * 1024) throw new InvalidDataException("The signature image is empty or exceeds the supported size.");
-            Preview(SignatureMethod.Uploaded, Convert.ToBase64String(bytes));
+            var payload = Convert.ToBase64String(bytes);
+            SignatureData.ValidateUploadedPayload(payload);
+            Preview(SignatureMethod.Uploaded, payload);
         }
         catch (Exception exception) { ShowCaptureError(exception); }
     }
@@ -66,6 +68,7 @@ public partial class SignatureStampControl : UserControl, INotifyPropertyChanged
     {
         if (!CanEdit) return;
         if (string.IsNullOrWhiteSpace(payload)) throw new ArgumentException("Signature input is required.");
+        if (method == SignatureMethod.Uploaded) SignatureData.ValidateUploadedPayload(payload);
         PreviewText = $"{method}: {payload}"; ErrorText = string.Empty; NotifyState();
     }
     private void Finalize_Click(object sender, RoutedEventArgs e)

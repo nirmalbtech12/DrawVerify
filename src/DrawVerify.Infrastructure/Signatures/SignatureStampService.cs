@@ -8,8 +8,13 @@ using DrawVerify.Core.Models;
 /// </summary>
 public sealed class SignatureStampService : ISignatureService
 {
-    public SignatureData Finalize(SignatureData signature) { signature.Validate(); return signature; }
-    public string Canonicalize(SignatureData signature) { signature.Validate(); return signature.CanonicalRepresentation; }
+    public SignatureData Finalize(SignatureData signature) { Validate(signature); return signature; }
+    public string Canonicalize(SignatureData signature) { Validate(signature); return signature.CanonicalRepresentation; }
     public bool VerifyIntegrity(SignatureData signature) => signature.IsTamperEvident;
-    public string Preview(SignatureData signature) { signature.Validate(requireFinalized: false); return signature.Payload; }
+    public string Preview(SignatureData signature) { Validate(signature, requireFinalized: false); return signature.Payload; }
+    private static void Validate(SignatureData signature, bool requireFinalized = true)
+    {
+        signature.Validate(requireFinalized);
+        if (signature.Method == DrawVerify.Core.Enums.SignatureMethod.Uploaded) SignatureData.ValidateUploadedPayload(signature.Payload);
+    }
 }

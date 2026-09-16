@@ -10,19 +10,36 @@ public sealed class MakerSignatureContractTests
 {
     private static readonly Guid Document = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private static readonly DateTimeOffset SignedAt = new(2026, 1, 10, 8, 0, 0, TimeSpan.Zero);
+    private static readonly string MinimalPngPayload = Convert.ToBase64String(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A });
 
     [Fact(DisplayName = "TD-KAN64-CORE-001 supported methods retain canonical metadata")]
     public void Supported_methods_are_finalized_and_canonical()
     {
         foreach (var method in new[] { SignatureMethod.Typed, SignatureMethod.Drawn, SignatureMethod.Uploaded })
         {
-            var signature = SignatureData.Create(method, method == SignatureMethod.Drawn ? "stroke:1,2;3,4" : "Maker One", "maker-001", "Maker One", Document, 1, SignedAt, "Engineering", "Design");
+            var payload = method switch
+            {
+                SignatureMethod.Drawn => "stroke:1,2;3,4",
+                SignatureMethod.Uploaded => MinimalPngPayload,
+                _ => "Maker One"
+            };
+            var signature = SignatureData.Create(method, payload, "maker-001", "Maker One", Document, 1, SignedAt, "Engineering", "Design");
             signature.Validate();
             Assert.True(signature.IsTamperEvident);
             Assert.Contains("maker-001", signature.CanonicalRepresentation);
             Assert.Equal(signature.CanonicalRepresentation, (signature with { }).CanonicalRepresentation);
             Assert.Equal(signature.PayloadHash, SignatureData.ComputePayloadHash(signature.Payload));
         }
+    }
+
+    [Fact(DisplayName = "TD-KAN64-CORE-001 uploaded payload validation rejects corrupt and unsupported data")]
+    public void Uploaded_payload_validation_rejects_invalid_image_data()
+    {
+        Assert.Throws<ArgumentException>(() => SignatureData.ValidateUploadedPayload(Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("not an image"))));
+        Assert.Throws<ArgumentException>(() => SignatureData.ValidateUploadedPayload(string.Empty));
+        Assert.Throws<ArgumentException>(() => SignatureData.ValidateUploadedPayload(Convert.ToBase64String(new byte[] { 0x00, 0x01, 0x02 })));
+        Assert.Throws<ArgumentException>(() => SignatureData.ValidateUploadedPayload(Convert.ToBase64String(new byte[5 * 1024 * 1024 + 1])));
+        SignatureData.ValidateUploadedPayload(MinimalPngPayload);
     }
 
     [Fact(DisplayName = "TD-KAN64-CORE-001 invalid or unauthorized signatures are rejected")]

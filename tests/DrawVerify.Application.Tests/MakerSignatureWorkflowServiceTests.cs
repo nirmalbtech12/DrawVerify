@@ -11,6 +11,7 @@ public sealed class MakerSignatureWorkflowServiceTests
 {
     private static readonly Guid Document = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private static readonly DateTimeOffset SignedAt = new(2026, 1, 10, 8, 0, 0, TimeSpan.Zero);
+    private const string ValidPngPayload = "iVBORw0KGgo=";
 
     [Fact(DisplayName = "TD-KAN64-APP-001 only the authenticated Maker can finalize")]
     public void Finalize_requires_matching_maker_identity_and_role()
@@ -27,7 +28,7 @@ public sealed class MakerSignatureWorkflowServiceTests
     [Fact(DisplayName = "TD-KAN64-APP-001 submission request carries finalized signature data")]
     public void Submission_request_preserves_signature_and_revision_data()
     {
-        var signature = SignatureData.Create(SignatureMethod.Uploaded, "png-bytes", "maker-001", "Maker One", Document, 2, SignedAt, "Engineering", "Design");
+        var signature = SignatureData.Create(SignatureMethod.Uploaded, ValidPngPayload, "maker-001", "Maker One", Document, 2, SignedAt, "Engineering", "Design");
         var request = new SubmissionRequest(Document) { MakerSignature = signature };
         Assert.NotNull(request.MakerSignature);
         Assert.Equal(2, request.MakerSignature!.Revision);
