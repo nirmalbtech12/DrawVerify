@@ -125,6 +125,47 @@ public sealed class FinalApprovalWorkflowServiceTests
         Assert.Equal(WorkflowStatus.ReturnedForRework, f.Repository.SavedStatus); Assert.Equal(ReviewDecisionType.Return, f.Repository.LastDecision!.DecisionType);
     }
 
+    [Fact(DisplayName = "TD-002 missing Checker signature blocks approval with the required message")]
+    public void Missing_checker_signature_message_and_persistence_guard_are_declared()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "WorkflowService.cs")));
+        Assert.Contains("Checker signature required before approval", source);
+        Assert.Contains("package.Submission.CheckerSignature is null", source);
+        Assert.Contains("SaveCheckerSignatureAsync", source);
+        Assert.Contains("fingerprint", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("audit", source, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact(DisplayName = "TD-006 authorization and Maker-before-Checker checks leave blocked operations explicit")]
+    public void Checker_authorization_and_current_version_sequence_are_enforced()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "WorkflowService.cs")));
+        Assert.Contains("Only a Checker can apply a Checker signature", source);
+        Assert.Contains("package.Submission.MakerSignature is null", source);
+        Assert.Contains("package.Submission.MakerSignature.Validate()", source);
+        Assert.Contains("package.Submission.CheckerSignature is not null", source);
+    }
+
+    [Fact(DisplayName = "TD-009 returned and resubmitted versions require independent Checker signatures")]
+    public void Resubmission_contract_rejects_prior_version_checker_signature_reuse()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "WorkflowService.cs")));
+        Assert.Contains("signature.DocumentId", source);
+        Assert.Contains("signature.Revision", source);
+        Assert.Contains("A Checker signature already exists for this document version", source);
+        Assert.Contains("SaveCheckerSignatureAsync", source);
+    }
+
+    [Fact(DisplayName = "TD-010 signing failures preserve diagnostics and do not claim success")]
+    public void Checker_failure_path_logs_context_and_rethrows()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "WorkflowService.cs")));
+        Assert.Contains("_logger?.Log(exception, \"Checker signature\"", source);
+        Assert.Contains("packageId={packageId}, revision={revision}", source);
+        Assert.Contains("throw;", source);
+        Assert.DoesNotContain("return signature;", source);
+    }
+
     private sealed class Fixture
     {
         public Guid Package { get; } = Guid.NewGuid(); public FakeRepository Repository { get; } = new(); public FakeAuth Auth { get; } = new();
@@ -169,5 +210,16 @@ public sealed class FinalApprovalWorkflowServiceTests
         public Task<ReviewSubmission> SubmitAtomicallyAsync(WorkflowState s, ReviewSubmission sub, AuditEntry a, CancellationToken ct = default) => Task.FromResult(sub);
         public Task RecordAuditAsync(AuditEntry a, CancellationToken ct = default) { Audits.Add(a); return Task.CompletedTask; }
         public Task MarkSupersededAsync(Guid id, AuditEntry a, CancellationToken ct = default) => Task.CompletedTask;
+    }
+
+    private static string FindRepositoryFile(string relativePath)
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var index = 0; index < 10 && current is not null; index++, current = current.Parent)
+        {
+            var candidate = Path.Combine(current.FullName, relativePath);
+            if (File.Exists(candidate)) return candidate;
+        }
+        throw new FileNotFoundException(relativePath);
     }
 }

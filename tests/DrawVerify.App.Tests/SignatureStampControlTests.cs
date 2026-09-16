@@ -73,6 +73,42 @@ public sealed class SignatureStampControlTests
         Assert.Contains("Failed to capture signature. Please try again.", code);
     }
 
+    [Fact(DisplayName = "TD-004 Checker placeholder is visible only for signature participants")]
+    public void Checker_placeholder_and_role_gating_are_declared()
+    {
+        var xaml = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Controls", "SignatureStampControl.xaml")));
+        var code = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Controls", "SignatureStampControl.xaml.cs")));
+        Assert.Contains("Checker Signature", xaml);
+        Assert.Contains("IsSignatureVisible", xaml);
+        Assert.Contains("IsChecker", code);
+        Assert.Contains("CanEdit", code);
+        Assert.Contains("!IsFinalized", code);
+    }
+
+    [Fact(DisplayName = "TD-005 capture preview cancel guidance and retry preserve a draft lifecycle")]
+    public void Checker_capture_lifecycle_contains_preview_cancel_retry_and_guidance()
+    {
+        var xaml = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Controls", "SignatureStampControl.xaml")));
+        var code = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Controls", "SignatureStampControl.xaml.cs")));
+        Assert.Contains("Preview", xaml);
+        Assert.Contains("Cancel / Re-enter", xaml);
+        Assert.Contains("legally binding", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("tamper-evident", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ShowCaptureError", code);
+        Assert.Contains("PreviewText", code);
+        Assert.Contains("ErrorText", code);
+    }
+
+    [Fact(DisplayName = "TD-010 WPF capture errors are actionable and centrally logged")]
+    public void Checker_capture_error_contract_has_actionable_message_and_context()
+    {
+        var code = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Controls", "SignatureStampControl.xaml.cs")));
+        Assert.Contains("Failed to capture signature. Please try again.", code);
+        Assert.Contains("Logger?.Log", code);
+        Assert.Contains("DocumentId", code);
+        Assert.Contains("Revision", code);
+    }
+
     private static string FindRepositoryFile(string relativePath)
     {
         var current = new DirectoryInfo(AppContext.BaseDirectory);

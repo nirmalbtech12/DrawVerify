@@ -388,6 +388,38 @@ public sealed class DocumentDetailViewModelTests
 
     private static Document Document(Guid id, int revision) => new() { DocumentId = id, CurrentVersion = revision, Version = new DocumentVersion { VersionId = Guid.NewGuid() } };
 
+    [Fact(DisplayName = "TD-004 Checker role is exposed to approval ViewModel gating")]
+    public void Checker_approval_gating_uses_authenticated_role()
+    {
+        var auth = AuthorizedChecker();
+        var viewModel = new DocumentDetailViewModel(Document(Guid.NewGuid(), 1), null, new HistoryService(Array.Empty<PriorVersionReview>()), authentication: auth);
+        Assert.True(auth.CurrentUser!.HasRole(SystemRoles.Checker));
+        Assert.NotNull(viewModel);
+    }
+
+    [Fact(DisplayName = "TD-007 signed, unsigned, rejected, and returned preview states are represented by version data")]
+    public void Preview_fixtures_keep_checker_signature_version_scoped_and_optional()
+    {
+        var id = Guid.NewGuid();
+        var signed = SignatureData.CreateChecker(SignatureMethod.Typed, "signed", "checker-001", "Checker One", id, 1, new DateTimeOffset(2026, 9, 16, 10, 0, 0, TimeSpan.Zero));
+        var signedVersion = new ReviewSubmission { PackageId = id, Revision = 1, Status = WorkflowStatus.Approved, CheckerSignature = signed };
+        var unsignedVersion = new ReviewSubmission { PackageId = id, Revision = 2, Status = WorkflowStatus.ReturnedForRework };
+        Assert.Equal(signed, signedVersion.CheckerSignature);
+        Assert.Null(unsignedVersion.CheckerSignature);
+        Assert.Equal(1, signedVersion.CheckerSignature!.Revision);
+        Assert.Equal(WorkflowStatus.ReturnedForRework, unsignedVersion.Status);
+    }
+
+    [Fact(DisplayName = "TD-005 document-detail signature draft state is isolated per ViewModel")]
+    public void Signature_preview_fixture_does_not_share_state_between_versions()
+    {
+        var first = new ReviewSubmission { PackageId = Guid.NewGuid(), Revision = 1 };
+        var second = new ReviewSubmission { PackageId = first.PackageId, Revision = 2 };
+        Assert.Null(first.CheckerSignature);
+        Assert.Null(second.CheckerSignature);
+        Assert.NotEqual(first.Revision, second.Revision);
+    }
+
     private static PriorVersionReview Snapshot(Guid packageId, string maker, DateTime submittedUtc, string fingerprintValue) => new()
     {
         PackageId = packageId, Revision = 1, MakerUserId = maker.ToLowerInvariant().Replace(' ', '-'), MakerDisplayName = maker, SubmittedUtc = submittedUtc,

@@ -61,6 +61,17 @@ public sealed class MakerSignatureWorkflowServiceTests
         Assert.Contains("dxfDocumentVersionId", source);
     }
 
+    [Fact(DisplayName = "TD-006 Checker workflow contract uses authenticated identity and versioned signature")]
+    public void Checker_workflow_contract_is_authenticated_and_version_bound()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "WorkflowService.cs")));
+        Assert.Contains("_authentication.CurrentUser", source);
+        Assert.Contains("SystemRoles.Checker", source);
+        Assert.Contains("SignatureData.CreateChecker", source);
+        Assert.Contains("packageId, revision", source);
+        Assert.Contains("CheckerSignatureApplied", source);
+    }
+
     private sealed class FakeSession(AuthenticatedUser? user) : ISessionAuthenticationService
     {
         public AuthenticatedUser? CurrentUser => user;

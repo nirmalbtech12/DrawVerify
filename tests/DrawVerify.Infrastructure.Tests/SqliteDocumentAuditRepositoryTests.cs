@@ -45,5 +45,24 @@ public sealed class SqliteDocumentAuditRepositoryTests
         finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); if (File.Exists(path)) File.Delete(path); }
     }
 
+    [Fact(DisplayName = "TD-003 CheckerSignatureApplied audit stores complete document version context")]
+    public async Task Checker_signature_audit_round_trips_complete_fields()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"audit-checker-{Guid.NewGuid():N}.db");
+        var document = Guid.NewGuid();
+        var when = new DateTimeOffset(2026, 9, 16, 10, 0, 0, TimeSpan.Zero);
+        try
+        {
+            var repository = new SqliteAuditRepository(path);
+            await repository.AppendAsync(new AuditEntry { AuditId = Guid.NewGuid(), DocumentId = document, UserId = "checker-001", ActorRole = "Checker", DocumentRevision = "2", DocumentVersion = "version-2", TimestampOffset = when, TimestampUtc = when.UtcDateTime, Action = DocumentAuditAction.CheckerSignatureApplied, DetailsJson = "{\"checkerUserId\":\"checker-001\",\"checkerRole\":\"Checker\",\"checkerSignatureMethod\":\"Typed\",\"checkerSignatureTimestampUtc\":\"2026-09-16T10:00:00Z\"}" });
+            var record = Assert.Single(await repository.QueryAsync(new AuditLogQuery(DocumentId: document)));
+            Assert.Equal(DocumentAuditAction.CheckerSignatureApplied, record.Action);
+            Assert.Equal("2", record.DocumentRevision);
+            Assert.Equal("version-2", record.DocumentVersion);
+            Assert.Contains("checkerSignatureMethod", record.DetailsJson);
+        }
+        finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); if (File.Exists(path)) File.Delete(path); }
+    }
+
     private static AuditEntry Entry(Guid document, DocumentAuditAction action, string revision, DateTimeOffset timestamp, string metadata = "{}") => new() { AuditId = Guid.NewGuid(), DocumentId = document, UserId = "maker-001", ActorRole = "Maker", DocumentRevision = revision, DocumentVersion = "1", TimestampOffset = timestamp, TimestampUtc = timestamp.UtcDateTime, Action = action, DetailsJson = "{\"event\":\"audit\"}", EventMetadataJson = metadata };
 }

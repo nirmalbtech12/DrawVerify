@@ -3,6 +3,7 @@ namespace DrawVerify.Core.Models;
 public sealed class VerificationReport
 {
     public SignatureData? MakerSignature { get; init; }
+    public SignatureData? CheckerSignature { get; init; }
     public DocumentFingerprint? Fingerprint { get; init; }
     public FingerprintVerificationResult? FingerprintVerification { get; init; }
     public IReadOnlyList<DimensionMatch> DimensionMatches { get; init; } = Array.Empty<DimensionMatch>();
@@ -35,6 +36,8 @@ public sealed class VerificationReport
             "### Summary by Dimension Type",
             string.Empty };
         lines.InsertRange(1, signatureLines);
+        if (CheckerSignature is not null)
+            lines.InsertRange(1, new[] { $"- Checker Signature: {CheckerSignature.Payload}", $"- Checker: {CheckerSignature.CheckerDisplayName} ({CheckerSignature.Role})", $"- Checker signature timestamp: {CheckerSignature.TimestampUtc:O}", $"- Checker signature method: {CheckerSignature.Method}" });
         foreach (var type in summary.DimensionTypes)
             lines.Add($"- {type.DimensionType}: {type.MatchedDimensions} Matched, {type.MismatchedDimensions} Mismatched, {type.UnmatchedDimensions} Unmatched");
         lines.Add(string.Empty);

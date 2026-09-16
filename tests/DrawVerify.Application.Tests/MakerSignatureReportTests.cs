@@ -53,6 +53,30 @@ public sealed class MakerSignatureReportTests
         Assert.Contains("OrderByDescending(x => x.Revision)", reportService);
     }
 
+    [Fact(DisplayName = "TD-008 reports and exports project Checker signature metadata")]
+    public async Task Checker_signature_is_rendered_with_identity_timestamp_method_and_reference()
+    {
+        var signature = SignatureData.CreateChecker(SignatureMethod.Typed, "checker approval", "checker-001", "Checker One", Guid.Parse("11111111-1111-1111-1111-111111111111"), 2, new DateTimeOffset(2026, 9, 16, 10, 0, 0, TimeSpan.Zero), "Quality", "Inspection");
+        var report = new VerificationReport { CheckerSignature = signature };
+        var markdown = await new MarkdownReportGenerator().GenerateMarkdownAsync(report);
+        Assert.Contains("Checker One", markdown);
+        Assert.Contains("Checker", markdown);
+        Assert.Contains("2026-09-16", markdown);
+        Assert.Contains("Typed", markdown);
+        Assert.Contains("checker approval", markdown);
+    }
+
+    [Fact(DisplayName = "TD-008 audit export contract includes Checker fields and preserves unsigned compatibility")]
+    public void Checker_export_contract_is_additive_and_version_aware()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "AuditLogService.cs")));
+        Assert.Contains("CheckerSignature", source);
+        Assert.Contains("CheckerUserId", source);
+        Assert.Contains("CheckerTimestampUtc", source);
+        Assert.Contains("CheckerMethod", source);
+        Assert.Contains("CheckerSignatureApplied", source);
+    }
+
     private static string FindRepositoryFile(string relativePath)
     {
         var current = new DirectoryInfo(AppContext.BaseDirectory);

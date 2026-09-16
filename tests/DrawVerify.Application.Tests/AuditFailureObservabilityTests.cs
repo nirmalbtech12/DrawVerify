@@ -25,6 +25,20 @@ public sealed class AuditFailureObservabilityTests
         Assert.Equal(0, repository.Calls);
     }
 
+    [Fact(DisplayName = "TD-010 audit failures retain actual exception and document context")]
+    public async Task Checker_audit_failure_keeps_diagnostics_and_does_not_succeed()
+    {
+        var logger = new LoggerFake();
+        var document = Guid.NewGuid();
+        var session = new SessionAuthenticationService();
+        session.SignIn(new AuthenticatedUser("administrator", new[] { "Admin" }));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new AuditLogService(new FailingRepository(), session, logger: logger).QueryDocumentAsync(document));
+        Assert.Contains(document.ToString(), logger.Context);
+        Assert.NotNull(logger.Exception);
+        Assert.Equal("integrity failure", logger.Exception!.Message);
+        Assert.Equal("Document audit query", logger.Operation);
+    }
+
     private sealed class FailingRepository : IDocumentAuditRepository
     {
         public int Calls { get; private set; }
@@ -34,7 +48,9 @@ public sealed class AuditFailureObservabilityTests
     }
     private sealed class LoggerFake : ICentralizedLogger
     {
-        public string? Operation { get; private set; } public string? Context { get; private set; }
-        public void Log(Exception exception, string operation, string context) => (Operation, Context) = (operation, context);
+        public Exception? Exception { get; private set; }
+        public string? Operation { get; private set; }
+        public string? Context { get; private set; }
+        public void Log(Exception exception, string operation, string context) => (Exception, Operation, Context) = (exception, operation, context);
     }
 }

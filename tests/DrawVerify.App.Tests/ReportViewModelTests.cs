@@ -79,6 +79,39 @@ public sealed class ReportViewModelTests
         Assert.True(await viewModel.ExportMissingDimensionsAsync()); Assert.Contains("Layer", viewModel.CsvContent); Assert.Contains("DIM", viewModel.CsvContent); Assert.Equal("Missing dimensions exported.", viewModel.Status);
     }
 
+    [Fact(DisplayName = "TD-007 report preview includes finalized Checker metadata and preserves unsigned reports")]
+    public void Report_preview_renders_checker_attestation_or_explicit_absence()
+    {
+        var signature = SignatureData.CreateChecker(SignatureMethod.Typed, "checker approval", "checker-001", "Checker One", Guid.NewGuid(), 1, new DateTimeOffset(2026, 9, 16, 10, 0, 0, TimeSpan.Zero), "Quality", "Inspection");
+        var signed = new VerificationReport { CheckerSignature = signature }.ToMarkdown();
+        var unsigned = new VerificationReport().ToMarkdown();
+        Assert.Contains("Checker One", signed);
+        Assert.Contains("Checker", signed);
+        Assert.Contains("2026-09-16", signed);
+        Assert.DoesNotContain("Checker Signature:", unsigned);
+    }
+
+    [Fact(DisplayName = "TD-008 report ViewModel export remains authorized and version-compatible")]
+    public void Report_view_contract_exposes_checker_projection_without_required_signature()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "ViewModels", "ReportViewModel.cs")));
+        Assert.Contains("Export", source);
+        Assert.Contains("CsvContent", source);
+        var report = new VerificationReport();
+        Assert.Null(report.CheckerSignature);
+    }
+
+    private static string FindRepositoryFile(string relativePath)
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var index = 0; index < 10 && current is not null; index++, current = current.Parent)
+        {
+            var candidate = Path.Combine(current.FullName, relativePath);
+            if (File.Exists(candidate)) return candidate;
+        }
+        throw new FileNotFoundException(relativePath);
+    }
+
     private sealed class ReportRepository(Guid sessionId, bool extra = false) : IVerificationSessionRepository
     {
         public Task<VerificationSession?> GetAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<VerificationSession?>(new VerificationSession { VerificationSessionId = sessionId });

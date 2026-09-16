@@ -96,4 +96,48 @@ public sealed class MakerSignatureContractTests
         Assert.NotNull(report);
         Assert.Null(report!.MakerSignature);
     }
+
+    [Fact(DisplayName = "TD-001 Checker signatures enforce metadata, UTC, methods, digest, immutability, and versioning")]
+    public void Checker_signature_contract_is_version_scoped_and_tamper_evident()
+    {
+        foreach (var method in new[] { SignatureMethod.Typed, SignatureMethod.Drawn, SignatureMethod.Uploaded, SignatureMethod.StoredProfile })
+        {
+            var payload = method == SignatureMethod.Uploaded ? MinimalPngPayload : method == SignatureMethod.Drawn ? "stroke:1,2;3,4" : "checker-approval";
+            var signature = SignatureData.CreateChecker(method, payload, "checker-001", "Checker One", Document, 1, new DateTimeOffset(2026, 9, 16, 10, 0, 0, TimeSpan.Zero), "Quality", "Inspection");
+            signature.Validate();
+            Assert.Equal(SystemRoles.Checker, signature.Role);
+            Assert.Equal("checker-001", signature.CheckerUserId);
+            Assert.Equal(TimeSpan.Zero, signature.TimestampUtc.Offset);
+            Assert.True(signature.IsTamperEvident);
+            Assert.Throws<InvalidOperationException>(() => (signature with { IntegrityHash = "tampered" }).Validate());
+        }
+
+        var v1 = SignatureData.CreateChecker(SignatureMethod.Typed, "v1", "checker-001", "Checker One", Document, 1, new DateTimeOffset(2026, 9, 16, 10, 0, 0, TimeSpan.Zero));
+        var v2 = SignatureData.CreateChecker(SignatureMethod.Typed, "v2", "checker-001", "Checker One", Document, 2, new DateTimeOffset(2026, 9, 16, 10, 1, 0, TimeSpan.Zero));
+        Assert.NotEqual(v1.Revision, v2.Revision);
+        Assert.NotEqual(v1.IntegrityHash, v2.IntegrityHash);
+        Assert.Throws<ArgumentException>(() => (v1 with { CheckerUserId = "" }).Validate());
+        Assert.Throws<ArgumentException>(() => (v1 with { TimestampUtc = new DateTimeOffset(2026, 9, 16, 10, 0, 0, TimeSpan.FromHours(1)) }).Validate());
+    }
+
+    [Fact(DisplayName = "TD-001 Checker audit action and approval sequencing contracts are additive")]
+    public void Checker_audit_and_sequence_contracts_are_present()
+    {
+        Assert.Equal(66, (int)DocumentAuditAction.CheckerSignatureApplied);
+        var workflow = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "WorkflowService.cs")));
+        Assert.Contains("Maker signature required before Checker signature", workflow);
+        Assert.Contains("Checker signature required before approval", workflow);
+        Assert.Contains("ReviewDecisionType.Approve", workflow);
+    }
+
+    private static string FindRepositoryFile(string relativePath)
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var index = 0; index < 10 && current is not null; index++, current = current.Parent)
+        {
+            var candidate = Path.Combine(current.FullName, relativePath);
+            if (File.Exists(candidate)) return candidate;
+        }
+        throw new FileNotFoundException(relativePath);
+    }
 }

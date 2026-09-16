@@ -134,6 +134,15 @@ public class FingerprintServiceTests
         finally { DisposeArtifacts(cancelledArtifacts); }
     }
 
+    [Fact(DisplayName = "TD-002 signed approval metadata changes the document fingerprint")]
+    public async Task Checker_signature_metadata_changes_fingerprint_context()
+    {
+        var service = new DocumentFingerprintService(new FingerprintPolicy());
+        var first = await Compute(service, Context(metadata: new Dictionary<string, string> { ["checkerSignature"] = "unsigned" }), Artifacts(false));
+        var signed = await Compute(service, Context(metadata: new Dictionary<string, string> { ["checkerSignature"] = "checker-digest" }), Artifacts(false));
+        Assert.NotEqual(first.Value, signed.Value);
+    }
+
 
     private static DocumentFingerprintContext Context(int revision = 1, IReadOnlyDictionary<string, string>? metadata = null) =>
         new(DocumentId, revision, StepVersion, DxfVersion, metadata ?? new Dictionary<string, string> { ["makerUserId"] = "maker-001", ["timestamp"] = "2026-01-01T00:00:00Z" });
