@@ -49,4 +49,5 @@ public enum DocumentAuditAction
     ,DocumentArchived = 61
     ,DocumentDeleted = 62
     ,PriorVersionViewed = 63
+    ,IntegrityCheckFailed = 64
 }

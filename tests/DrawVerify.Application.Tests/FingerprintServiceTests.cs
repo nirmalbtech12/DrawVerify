@@ -90,7 +90,25 @@ public class FingerprintServiceTests
 
         Assert.Equal(FingerprintVerificationStatus.Match, match.Status);
         Assert.Equal(FingerprintVerificationStatus.Mismatch, mismatch.Status);
-        Assert.Equal("Fingerprint Mismatch - Version May Have Been Altered", mismatch.Message);
+        Assert.Equal("Fingerprint Mismatch - Document May Have Been Altered", mismatch.Message);
+    }
+
+    [Fact(DisplayName = "TD-01 rejects missing, truncated, and overlong streams with explicit errors")]
+    public async Task Invalid_stream_lengths_never_report_a_match()
+    {
+        var service = new DocumentFingerprintService(new FingerprintPolicy());
+        var expected = await Compute(service, Context(), Artifacts(false));
+        foreach (var declaredLength in new[] { 0L, 1L, 10_000L })
+        {
+            var artifacts = new[] { new DocumentFingerprintArtifact("model.step", new MemoryStream(new byte[] { 1, 2, 3 }), declaredLength) };
+            try
+            {
+                var result = await service.VerifyAsync(expected, Context(), artifacts);
+                Assert.Equal(FingerprintVerificationStatus.Error, result.Status);
+                Assert.False(result.IsMatch);
+            }
+            finally { DisposeArtifacts(artifacts); }
+        }
     }
 
     [Fact(DisplayName = "TD-11 streams input and reports bounded byte progress")]

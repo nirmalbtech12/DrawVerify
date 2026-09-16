@@ -13,6 +13,8 @@ public interface IWorkflowRepository
         => await GetCheckerQueueAsync(cancellationToken).ConfigureAwait(false);
     Task<ReviewSubmission> SubmitAtomicallyAsync(WorkflowState expectedState, ReviewSubmission submission, AuditEntry auditEntry, CancellationToken cancellationToken = default);
     Task RecordAuditAsync(AuditEntry auditEntry, CancellationToken cancellationToken = default);
+    Task<FingerprintVerificationResult?> GetFingerprintVerificationAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
+        => Task.FromResult<FingerprintVerificationResult?>(null);
     Task MarkSupersededAsync(Guid submissionId, AuditEntry auditEntry, CancellationToken cancellationToken = default);
     Task<ReviewPackage?> GetReviewPackageAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
         => Task.FromResult<ReviewPackage?>(null);

@@ -14,6 +14,69 @@ public sealed class WorkflowServiceTests
     private static readonly Guid Package = Guid.Parse("00000000-0000-0000-0000-000000000001");
     private static readonly DateTime Now = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
+    [Fact(DisplayName = "TD-02, TD-08 records the approved verification outcome contract")]
+    public void Verification_outcomes_retain_audit_fields_and_integrity_classification()
+    {
+        var stored = new DocumentFingerprint { Value = new string('a', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 };
+        var computed = new DocumentFingerprint { Value = new string('b', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 };
+        var result = new FingerprintVerificationResult(FingerprintVerificationStatus.Mismatch, computed, "Fingerprint Mismatch - Document May Have Been Altered")
+        {
+            Stored = stored, VerifiedUtc = new DateTimeOffset(Now), VerifierUserId = "checker-001",
+            DocumentId = Package, Revision = 7, StepDocumentVersionId = Guid.NewGuid(), DxfDocumentVersionId = Guid.NewGuid()
+        };
+
+        Assert.Equal(FingerprintVerificationStatus.Mismatch, result.Status);
+        Assert.True(result.IsIntegrityFailure);
+        Assert.Equal(stored.Value, result.Stored!.Value);
+        Assert.Equal(computed.Value, result.Computed!.Value);
+        Assert.Equal("checker-001", result.VerifierUserId);
+        Assert.Equal(7, result.Revision);
+    }
+
+    [Fact(DisplayName = "TD-02 authorizes a checker, selects the requested revision, and audits verification")]
+    public async Task Verify_fingerprint_uses_requested_revision_and_records_audit_context()
+    {
+        var f = Fixture.Create();
+        var revisionOne = f.Request;
+        var revisionTwo = f.Request;
+        f.Workflow.Submissions.Add(new ReviewSubmission
+        {
+            SubmissionId = Guid.NewGuid(), PackageId = Package, Revision = 1,
+            DxfDocumentId = f.Request.DxfDocumentId, StepDocumentVersionId = revisionOne.StepDocumentVersionId,
+            DxfDocumentVersionId = revisionOne.DxfDocumentVersionId, MakerUserId = "maker-one", MakerDisplayName = "Maker One",
+            SubmittedUtc = Now.AddMinutes(-2), Fingerprint = new DocumentFingerprint { Value = new string('1', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 }
+        });
+        f.Workflow.Submissions.Add(new ReviewSubmission
+        {
+            SubmissionId = Guid.NewGuid(), PackageId = Package, Revision = 2,
+            DxfDocumentId = f.Request.DxfDocumentId, StepDocumentVersionId = revisionTwo.StepDocumentVersionId,
+            DxfDocumentVersionId = revisionTwo.DxfDocumentVersionId, MakerUserId = "maker-two", MakerDisplayName = "Maker Two",
+            SubmittedUtc = Now, Fingerprint = new DocumentFingerprint { Value = new string('2', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 }
+        });
+        f.Auth.User = new AuthenticatedUser("checker", new[] { SystemRoles.Checker }) { UserId = "checker-001", DisplayName = "Checker One" };
+        var verifier = new RecordingFingerprintService();
+        var service = new WorkflowService(f.Workflow, f.Auth, new WorkflowConfiguration
+        {
+            PermittedInitialStates = new[] { WorkflowStatus.Draft, WorkflowStatus.InPreparation },
+            DuplicateSubmissionStates = new[] { WorkflowStatus.SubmittedForReview, WorkflowStatus.UnderReview, WorkflowStatus.Approved }
+        }, new RoleAuthorization(), f.Logger,
+            f.CreateDocumentRepository(), stepFiles: new FakeStepFiles(), dxfFiles: new FakeDxfFiles(), fingerprintService: verifier, clock: () => Now);
+
+        var result = await service.VerifyFingerprintAsync(Package, 2);
+
+        Assert.Equal(FingerprintVerificationStatus.Match, result.Status);
+        Assert.Equal(2, result.Revision);
+        Assert.Equal("maker-two", result.MakerUserId);
+        Assert.Equal("checker-001", result.VerifierUserId);
+        Assert.Equal(revisionTwo.StepDocumentVersionId, verifier.Context!.StepDocumentVersionId);
+        Assert.Equal(revisionTwo.DxfDocumentVersionId, verifier.Context.DxfDocumentVersionId);
+        var audit = Assert.Single(f.Workflow.Audits);
+        Assert.Equal(DocumentAuditAction.VerificationRunCompleted, audit.Action);
+        Assert.Equal("checker-001", audit.UserId);
+        Assert.Contains("\"revision\":2", audit.DetailsJson, StringComparison.Ordinal);
+        Assert.Contains("storedFingerprint", audit.DetailsJson, StringComparison.Ordinal);
+    }
+
     [Fact(DisplayName = "TD-03 fingerprint failure prevents workflow persistence")]
     public async Task Fingerprint_failure_is_visible_and_does_not_submit()
     {
@@ -47,7 +110,7 @@ public sealed class WorkflowServiceTests
     [Fact(DisplayName = "TD-06 fingerprint verification result preserves mismatch status")]
     public void Fingerprint_mismatch_is_a_distinct_result()
     {
-        var result = new FingerprintVerificationResult(FingerprintVerificationStatus.Mismatch, null, "Fingerprint Mismatch - Version May Have Been Altered");
+        var result = new FingerprintVerificationResult(FingerprintVerificationStatus.Mismatch, null, "Fingerprint Mismatch - Document May Have Been Altered");
 
         Assert.Equal(FingerprintVerificationStatus.Mismatch, result.Status);
         Assert.False(result.IsMatch);
@@ -554,6 +617,17 @@ public sealed class WorkflowServiceTests
     {
         public Task<DocumentFingerprint> ComputeAsync(DocumentFingerprintContext context, IReadOnlyCollection<DocumentFingerprintArtifact> artifacts, IProgress<long>? progress = null, CancellationToken cancellationToken = default) => Task.FromException<DocumentFingerprint>(new IOException("hash input failed"));
         public Task<FingerprintVerificationResult> VerifyAsync(DocumentFingerprint expected, DocumentFingerprintContext context, IReadOnlyCollection<DocumentFingerprintArtifact> artifacts, CancellationToken cancellationToken = default) => Task.FromException<FingerprintVerificationResult>(new IOException("verification failed"));
+    }
+    private sealed class RecordingFingerprintService : IDocumentFingerprintService
+    {
+        public DocumentFingerprintContext? Context { get; private set; }
+        public Task<DocumentFingerprint> ComputeAsync(DocumentFingerprintContext context, IReadOnlyCollection<DocumentFingerprintArtifact> artifacts, IProgress<long>? progress = null, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new DocumentFingerprint { Value = new string('2', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 });
+        public Task<FingerprintVerificationResult> VerifyAsync(DocumentFingerprint expected, DocumentFingerprintContext context, IReadOnlyCollection<DocumentFingerprintArtifact> artifacts, CancellationToken cancellationToken = default)
+        {
+            Context = context;
+            return Task.FromResult(new FingerprintVerificationResult(FingerprintVerificationStatus.Match, expected, "Fingerprint Verified - Document Unchanged") { Stored = expected });
+        }
     }
     private sealed class FakeWorkflow : IWorkflowRepository { public Func<WorkflowState>? StateProvider { get; set; } public WorkflowStatus InitialStatus { get; set; } = WorkflowStatus.Draft; public bool ThrowOnSubmit { get; set; } public Guid? SupersededSubmissionId { get; private set; } public List<ReviewSubmission> Submissions { get; } = new(); public List<AuditEntry> Audits { get; } = new(); public List<WorkflowQueueItem> Queue { get; } = new(); public ReviewPackage? ReviewPackage { get; set; } public Dictionary<int, ReviewPackage> ReviewPackages { get; } = new(); public int ReviewStartedCalls { get; private set; } public int DecisionCalls { get; private set; } public ReviewDecision? LastDecision { get; private set; } public WorkflowStatus? SavedStatus { get; private set; } public List<ReviewComment> Comments { get; } = new(); public Task<WorkflowState?> GetStateAsync(Guid id, CancellationToken ct = default) => Task.FromResult<WorkflowState?>(StateProvider?.Invoke()); public Task<ReviewSubmission?> GetSubmissionAsync(Guid id, CancellationToken ct = default) => Task.FromResult<ReviewSubmission?>(Submissions.FirstOrDefault(x => x.SubmissionId == id)); public Task<IReadOnlyList<ReviewSubmission>> GetSubmissionsAsync(Guid id, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<ReviewSubmission>>(Submissions); public Task<IReadOnlyList<WorkflowQueueItem>> GetCheckerQueueAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<WorkflowQueueItem>>(Queue); public Task<ReviewPackage?> GetReviewPackageAsync(Guid id, int revision, CancellationToken ct = default) => Task.FromResult(ReviewPackages.TryGetValue(revision, out var package) ? package : ReviewPackage); public Task<IReadOnlyList<ReviewComment>> GetReviewCommentsAsync(Guid id, int revision, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<ReviewComment>>(Comments); public Task SaveReviewCommentAsync(ReviewComment comment, AuditEntry a, CancellationToken ct = default) { Comments.Add(comment); Audits.Add(a); return Task.CompletedTask; } public Task UpdateReviewCommentAsync(ReviewComment comment, AuditEntry a, CancellationToken ct = default) { var index = Comments.FindIndex(x => x.CommentId == comment.CommentId); if (index >= 0) Comments[index] = comment; Audits.Add(a); return Task.CompletedTask; } public Task DiscardReviewCommentAsync(Guid commentId, AuditEntry a, CancellationToken ct = default) { Comments.RemoveAll(x => x.CommentId == commentId); Audits.Add(a); return Task.CompletedTask; } public Task RecordReviewStartedAsync(ReviewPackage package, AuditEntry a, CancellationToken ct = default) { ReviewStartedCalls++; Audits.Add(a); return Task.CompletedTask; } public Task<ReviewDecision> SaveReviewDecisionAsync(ReviewPackage package, ReviewDecision decision, WorkflowStatus status, AuditEntry a, CancellationToken ct = default) { DecisionCalls++; LastDecision = decision; SavedStatus = status; Audits.Add(a); return Task.FromResult(decision); } public Task<ReviewSubmission> SubmitAtomicallyAsync(WorkflowState s, ReviewSubmission sub, AuditEntry a, CancellationToken ct = default) { if (ThrowOnSubmit) throw new InvalidOperationException("persist failed"); Submissions.Add(sub); Audits.Add(a); return Task.FromResult(sub); } public Task RecordAuditAsync(AuditEntry a, CancellationToken ct = default) { Audits.Add(a); return Task.CompletedTask; } public Task MarkSupersededAsync(Guid id, AuditEntry a, CancellationToken ct = default) { SupersededSubmissionId = id; return Task.CompletedTask; } }
 }

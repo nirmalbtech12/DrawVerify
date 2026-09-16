@@ -29,7 +29,7 @@ public sealed class ReportService
         {
             var matches = await _sessions.GetMatchesAsync(sessionId, cancellationToken: cancellationToken).ConfigureAwait(false);
             var gdtResults = await _sessions.GetGdtResultsAsync(sessionId, cancellationToken).ConfigureAwait(false);
-            var report = new VerificationReport { DimensionMatches = matches, GdtResults = gdtResults, Fingerprint = await GetFingerprintAsync(sessionId, cancellationToken).ConfigureAwait(false) };
+            var report = await BuildReportAsync(sessionId, matches, gdtResults, cancellationToken).ConfigureAwait(false);
             var content = await _generator.GenerateMarkdownAsync(report, cancellationToken).ConfigureAwait(false);
             if (_audit is not null)
             {
@@ -54,7 +54,7 @@ public sealed class ReportService
         {
             var matches = await _sessions.GetMatchesAsync(sessionId, cancellationToken: cancellationToken).ConfigureAwait(false);
             var gdtResults = await _sessions.GetGdtResultsAsync(sessionId, cancellationToken).ConfigureAwait(false);
-            var report = new VerificationReport { DimensionMatches = matches, GdtResults = gdtResults, Fingerprint = await GetFingerprintAsync(sessionId, cancellationToken).ConfigureAwait(false) };
+            var report = await BuildReportAsync(sessionId, matches, gdtResults, cancellationToken).ConfigureAwait(false);
             var content = await _pdfGenerator.GeneratePdfAsync(report, cancellationToken).ConfigureAwait(false);
             if (_audit is not null)
             {
@@ -97,6 +97,13 @@ public sealed class ReportService
     {
         if (_workflow is null) return null;
         return (await _workflow.GetSubmissionsAsync(Guid.Empty, cancellationToken).ConfigureAwait(false)).FirstOrDefault(x => x.VerificationSessionId == sessionId)?.Fingerprint;
+    }
+    private async Task<VerificationReport> BuildReportAsync(Guid sessionId, IReadOnlyList<DimensionMatch> matches, IReadOnlyList<GdtResult> gdtResults, CancellationToken cancellationToken)
+    {
+        var fingerprint = await GetFingerprintAsync(sessionId, cancellationToken).ConfigureAwait(false);
+        var submission = _workflow is null ? null : (await _workflow.GetSubmissionsAsync(Guid.Empty, cancellationToken).ConfigureAwait(false)).FirstOrDefault(x => x.VerificationSessionId == sessionId);
+        var verification = submission is null ? null : await _workflow!.GetFingerprintVerificationAsync(submission.PackageId, submission.Revision, cancellationToken).ConfigureAwait(false);
+        return new VerificationReport { DimensionMatches = matches, GdtResults = gdtResults, Fingerprint = fingerprint, FingerprintVerification = verification };
     }
     private static string Escape(string? value) { value ??= string.Empty; return value.IndexOfAny(new[] { ',', '"', '\r', '\n' }) >= 0 ? '"' + value.Replace("\"", "\"\"") + '"' : value; }
 }

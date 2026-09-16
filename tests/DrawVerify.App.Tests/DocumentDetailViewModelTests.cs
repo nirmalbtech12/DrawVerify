@@ -16,6 +16,23 @@ namespace DrawVerify.App.Tests;
 
 public sealed class DocumentDetailViewModelTests
 {
+    [Fact(DisplayName = "TD-07 exposes fingerprint metadata and exact verification states")]
+    public void Fingerprint_metadata_and_result_messages_are_distinct()
+    {
+        var fingerprint = new DocumentFingerprint { Value = new string('f', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 };
+        var document = new Document { DocumentId = Guid.NewGuid(), CurrentVersion = 4, OriginalFileName = "drawing.step", Version = new DocumentVersion { Fingerprint = fingerprint } };
+        var viewModel = new DocumentDetailViewModel(document);
+        var match = new FingerprintVerificationResult(FingerprintVerificationStatus.Match, fingerprint, "Fingerprint Verified - Document Unchanged");
+        var mismatch = new FingerprintVerificationResult(FingerprintVerificationStatus.Mismatch, fingerprint, "Fingerprint Mismatch - Document May Have Been Altered");
+        var error = new FingerprintVerificationResult(FingerprintVerificationStatus.Error, null, "Cannot verify fingerprint - file(s) missing or corrupted");
+
+        Assert.Equal(fingerprint.Value, viewModel.Fingerprint);
+        Assert.Equal(fingerprint.Value, viewModel.FingerprintDisplay);
+        Assert.Equal("Fingerprint Verified - Document Unchanged", match.Message);
+        Assert.Equal("Fingerprint Mismatch - Document May Have Been Altered", mismatch.Message);
+        Assert.NotEqual(match.Message, mismatch.Message);
+        Assert.Contains("missing or corrupted", error.Message);
+    }
     [Fact(DisplayName = "TD-07 keeps each historical version fingerprint associated with its own revision")]
     public void Historical_version_read_models_expose_their_own_fingerprints()
     {

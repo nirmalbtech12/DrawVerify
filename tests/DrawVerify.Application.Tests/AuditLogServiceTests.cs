@@ -3,12 +3,51 @@ using DrawVerify.Core.Authorization;
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
+using DrawVerify.Infrastructure.Persistence;
+using Microsoft.Data.Sqlite;
+using System.Text.Json;
 using Xunit;
 
 namespace DrawVerify.Application.Tests;
 
 public sealed class AuditLogServiceTests
 {
+    [Fact(DisplayName = "TD-06 export includes verification values and explicit Unavailable fallback")]
+    public async Task Verification_export_includes_values_and_legacy_fallback()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-export-{Guid.NewGuid():N}.db");
+        try
+        {
+            var documentId = Guid.NewGuid();
+            var repository = new SqliteAuditRepository(path);
+            await repository.WriteAsync(new AuditEntry
+            {
+                DocumentId = documentId, UserId = "checker,001", ActorRole = "Checker", DocumentRevision = "2", DocumentVersion = "step-2",
+                Action = DocumentAuditAction.IntegrityCheckFailed, TimestampUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                DetailsJson = JsonSerializer.Serialize(new { storedFingerprint = "abc", recomputedFingerprint = "def", result = "Mismatch" })
+            });
+            var session = new SessionAuthenticationService();
+            session.SignIn(new AuthenticatedUser("admin", new[] { SystemRoles.Admin }));
+            var csv = await new AuditLogService(repository, session).ExportDocumentCsvAsync(documentId);
+            Assert.Contains("RecomputedFingerprint", csv);
+            Assert.Contains("VerificationResult", csv);
+            Assert.Contains("Mismatch", csv);
+            Assert.Contains("abc", csv);
+            Assert.Contains("def", csv);
+            Assert.Contains("\"checker,001\"", csv);
+
+            var legacyId = Guid.NewGuid();
+            await repository.WriteAsync(new AuditEntry { DocumentId = legacyId, UserId = "legacy", Action = DocumentAuditAction.DocumentCreated, TimestampUtc = DateTime.UtcNow, DetailsJson = "{}" });
+            var legacy = await new AuditLogService(repository, session).ExportDocumentCsvAsync(legacyId);
+            Assert.Contains(",Unavailable,", legacy);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            foreach (var file in new[] { path, path + "-wal", path + "-shm" })
+                if (File.Exists(file)) File.Delete(file);
+        }
+    }
     [Fact(DisplayName = "TD-APP-002 review audit evidence preserves Cannot Validate status")]
     public void Review_audit_evidence_does_not_change_system_status()
     {

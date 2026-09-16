@@ -18,6 +18,18 @@
         <TextBlock Text="{Binding FingerprintDisplay, StringFormat=Fingerprint: {0}}" TextWrapping="Wrap"/>
         <Button Content="Verify Fingerprint" Command="{Binding VerifyFingerprintCommand}" Margin="0,0,0,8"/>
         <TextBlock Text="{Binding FingerprintVerificationMessage}" TextWrapping="Wrap"/>
+        <TextBlock Text="Fingerprint guidance: a fingerprint is a SHA-256 value calculated from the submitted files and metadata. Verify recomputes it and compares both values. Match means unchanged; Mismatch may indicate alteration; Error means verification could not complete." TextWrapping="Wrap" Margin="0,4,0,12"/>
+        <TextBlock Text="{Binding FingerprintVerification.Stored.Value, StringFormat=Stored fingerprint: {0}}" TextWrapping="Wrap"/>
+        <TextBlock Text="{Binding FingerprintVerification.Computed.Value, StringFormat=Recomputed fingerprint: {0}}" TextWrapping="Wrap"/>
+        <TextBlock Text="{Binding FingerprintVerification.VerifiedUtc, StringFormat=Verified: {0}}"/>
+        <TextBlock Text="{Binding FingerprintVerification.VerifierDisplayName, StringFormat=Verifier: {0}}"/>
+        <TextBlock Text="{Binding FingerprintVerification.SubmissionTimestampUtc, StringFormat=Submitted: {0}}"/>
+        <TextBlock Text="{Binding FingerprintVerification.MakerDisplayName, StringFormat=Submitted by Maker: {0}}"/>
+        <StackPanel Orientation="Horizontal" Visibility="{Binding CanEscalateFingerprintMismatch, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,4,0,12">
+            <Button Content="Flag for investigation" Command="{Binding FlagFingerprintMismatchCommand}" Margin="0,0,8,0"/>
+            <Button Content="Reject for integrity issue" Command="{Binding RejectFingerprintMismatchCommand}" Margin="0,0,8,0"/>
+            <Button Content="Return for integrity investigation" Command="{Binding ReturnFingerprintMismatchCommand}"/>
+        </StackPanel>
         <Button Content="Extract Dimensions" Command="{Binding ExtractDimensionsCommand}" Margin="0,16,0,8"/>
         <Button Content="Refresh Dimensions" Command="{Binding LoadDimensionsCommand}" Margin="0,0,0,8"/>
         <Button Content="Submit for Review" Command="{Binding SubmitForReviewCommand}" Margin="0,0,0,8"/>
