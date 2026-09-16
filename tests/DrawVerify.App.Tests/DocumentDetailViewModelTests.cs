@@ -80,6 +80,8 @@ public sealed class DocumentDetailViewModelTests
         Assert.Equal("Maker One", viewModel.SubmittedMakerDisplayName);
         Assert.Equal(submittedUtc, viewModel.SubmittedTimestampUtc);
         Assert.Equal(hasFingerprint ? fingerprint!.Value : "Unavailable", viewModel.SubmittedFingerprintDisplay);
+        Assert.Equal(hasFingerprint ? "SHA-256" : "Unavailable", viewModel.SubmittedFingerprintAlgorithm);
+        Assert.Equal(hasFingerprint ? "1" : "Unavailable", viewModel.SubmittedFingerprintCanonicalizationVersion);
 
         viewModel.VerifyFingerprintCommand.Execute(null);
         await WaitUntilAsync(() => workflow.VerifyCalls == 1);
@@ -87,6 +89,8 @@ public sealed class DocumentDetailViewModelTests
         Assert.Equal("Maker One", viewModel.SubmittedMakerDisplayName);
         Assert.Equal(submittedUtc, viewModel.SubmittedTimestampUtc);
         Assert.Equal(hasFingerprint ? fingerprint!.Value : "Unavailable", viewModel.SubmittedFingerprintDisplay);
+        Assert.Equal(hasFingerprint ? "SHA-256" : "Unavailable", viewModel.SubmittedFingerprintAlgorithm);
+        Assert.Equal(hasFingerprint ? "1" : "Unavailable", viewModel.SubmittedFingerprintCanonicalizationVersion);
     }
 
     [Fact(DisplayName = "TD-07 clears old submitted metadata while a reused view model loads a new document")]
