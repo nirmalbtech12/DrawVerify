@@ -46,11 +46,36 @@ public sealed class MakerSignatureWorkflowServiceTests
         Assert.NotEqual(typedContext.Metadata["signatureMethod"], drawnContext.Metadata["signatureMethod"]);
     }
 
+    [Fact(DisplayName = "TD-KAN64-APP-001 workflow contract fingerprints canonical signature and audits exact metadata")]
+    public void Workflow_contract_declares_complete_canonical_signature_and_audit_metadata()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "WorkflowService.cs")));
+        Assert.Contains("SignatureMetadata(signature", source);
+        Assert.Contains("signature.Method", source);
+        Assert.Contains("signature.TimestampUtc", source);
+        Assert.Contains("signature.MakerUserId", source);
+        Assert.Contains("signature.MakerDisplayName", source);
+        Assert.Contains("MakerSignatureApplied", source);
+        Assert.Contains("MakerDisplayName", source);
+        Assert.Contains("dxfDocumentVersionId", source);
+    }
+
     private sealed class FakeSession(AuthenticatedUser? user) : ISessionAuthenticationService
     {
         public AuthenticatedUser? CurrentUser => user;
         public bool IsAuthenticated => user is not null;
         public void SignIn(AuthenticatedUser authenticatedUser) => throw new NotSupportedException();
         public void SignOut() => throw new NotSupportedException();
+    }
+
+    private static string FindRepositoryFile(string relativePath)
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var index = 0; index < 10 && current is not null; index++, current = current.Parent)
+        {
+            var candidate = Path.Combine(current.FullName, relativePath);
+            if (File.Exists(candidate)) return candidate;
+        }
+        throw new FileNotFoundException(relativePath);
     }
 }

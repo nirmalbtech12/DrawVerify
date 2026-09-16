@@ -34,6 +34,8 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     private string _referenceId = string.Empty;
     private string _referenceLocation = string.Empty;
     private ReviewPackage? _selectedMakerPackage;
+    private SignatureData? _makerSignature;
+    private string _signatureError = string.Empty;
     public WorkflowViewModel() { SubmitCommand = new Command(async _ => await SubmitAsync(), _ => false); CancelCommand = new Command(async _ => await CancelAsync(true), _ => IsConfirmationVisible); InitializeReviewCommands(); }
     public WorkflowViewModel(IWorkflowService service, ISessionAuthenticationService? authentication = null, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null)
     {
@@ -43,6 +45,12 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
         InitializeReviewCommands();
     }
     public string Note { get => _note; set { _note = value ?? string.Empty; MarkDirtyFromUserInput(); RaisePropertyChanged(nameof(Note)); } }
+    public SignatureData? MakerSignature { get => _makerSignature; set { if (_makerSignature is not null && value is null) return; _makerSignature = value; SignatureError = string.Empty; RaisePropertyChanged(nameof(MakerSignature)); ((Command)SubmitCommand).Raise(); } }
+    public bool IsMaker => _authentication?.CurrentUser?.HasRole(SystemRoles.Maker) == true;
+    public string MakerUserId => _authentication?.CurrentUser?.UserId ?? string.Empty;
+    public string MakerDisplayName => _authentication?.CurrentUser?.DisplayName ?? string.Empty;
+    public string SignatureError { get => _signatureError; private set { _signatureError = value; RaisePropertyChanged(nameof(SignatureError)); } }
+    public void SetMakerSignature(SignatureData signature) { if (!IsMaker) { SignatureError = "Only a Maker can finalize a Maker signature."; return; } signature.Validate(); MakerSignature = signature; }
     public string Message { get => _message; private set { _message = value; RaisePropertyChanged(nameof(Message)); } }
     public long FingerprintProgress { get => _fingerprintProgress; private set { _fingerprintProgress = value; RaisePropertyChanged(nameof(FingerprintProgress)); RaisePropertyChanged(nameof(FingerprintProgressText)); } }
     public string FingerprintProgressText => FingerprintProgress > 0 ? $"Fingerprinting: {FingerprintProgress:n0} bytes processed." : string.Empty;
@@ -243,13 +251,14 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     {
         ArgumentNullException.ThrowIfNull(request);
         _submissionRequest = request;
+        MakerSignature = request.MakerSignature;
         Note = request.Note ?? string.Empty;
         BeginSubmission(request.PackageId);
     }
     private async Task SubmitAsync()
     {
         if (_service is null) return;
-        try { FingerprintProgress = 0; var request = (_submissionRequest ?? new SubmissionRequest(PackageId)) with { Note = Note, FingerprintProgress = new Progress<long>(value => { if (value >= FingerprintProgress) FingerprintProgress = value; }) }; var result = await _service.SubmitForReviewAsync(request); if (!result.Succeeded) { Message = result.Message; return; } Message = result.Message; IsConfirmationVisible = false; IsDirty = false; RaisePropertyChanged(nameof(IsConfirmationVisible)); ((Command)SubmitCommand).Raise(); ((Command)CancelCommand).Raise(); await LoadQueueAsync(); NavigationRequested?.Invoke("Submitted"); }
+        try { FingerprintProgress = 0; var request = (_submissionRequest ?? new SubmissionRequest(PackageId)) with { Note = Note, MakerSignature = MakerSignature, FingerprintProgress = new Progress<long>(value => { if (value >= FingerprintProgress) FingerprintProgress = value; }) }; var result = await _service.SubmitForReviewAsync(request); if (!result.Succeeded) { Message = result.Message; return; } Message = result.Message; IsConfirmationVisible = false; IsDirty = false; RaisePropertyChanged(nameof(IsConfirmationVisible)); ((Command)SubmitCommand).Raise(); ((Command)CancelCommand).Raise(); await LoadQueueAsync(); NavigationRequested?.Invoke("Submitted"); }
         catch (UnauthorizedAccessException) { Message = "Only a Maker can submit drawings for review."; }
         catch (Exception exception) { _logger?.Log(exception, "WPF workflow submission", $"Unable to submit packageId={PackageId}."); Message = "The drawing could not be submitted for review."; }
     }

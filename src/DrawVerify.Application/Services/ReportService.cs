@@ -101,7 +101,8 @@ public sealed class ReportService
     private async Task<VerificationReport> BuildReportAsync(Guid sessionId, IReadOnlyList<DimensionMatch> matches, IReadOnlyList<GdtResult> gdtResults, CancellationToken cancellationToken)
     {
         var fingerprint = await GetFingerprintAsync(sessionId, cancellationToken).ConfigureAwait(false);
-        var submission = _workflow is null ? null : (await _workflow.GetSubmissionsAsync(Guid.Empty, cancellationToken).ConfigureAwait(false)).FirstOrDefault(x => x.VerificationSessionId == sessionId);
+        var submission = _workflow is null ? null : (await _workflow.GetSubmissionsAsync(Guid.Empty, cancellationToken).ConfigureAwait(false)).Where(x => x.VerificationSessionId == sessionId).OrderByDescending(x => x.Revision).ThenByDescending(x => x.SubmittedUtc).FirstOrDefault();
+        if (submission?.MakerSignature is not null) submission.MakerSignature.Validate();
         var verification = submission is null ? null : await _workflow!.GetFingerprintVerificationAsync(submission.PackageId, submission.Revision, cancellationToken).ConfigureAwait(false);
         return new VerificationReport { DimensionMatches = matches, GdtResults = gdtResults, Fingerprint = fingerprint, FingerprintVerification = verification, MakerSignature = submission?.MakerSignature };
     }

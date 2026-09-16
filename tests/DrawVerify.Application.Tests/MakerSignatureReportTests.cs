@@ -30,4 +30,27 @@ public sealed class MakerSignatureReportTests
         Assert.DoesNotContain("Maker Signature", markdown);
         Assert.Contains("# Verification Report", markdown);
     }
+
+    [Fact(DisplayName = "TD-KAN64-REPORT-001 report contract includes persisted revision and authorized export paths")]
+    public void Report_contract_declares_revision_resolution_authorization_and_signature_export()
+    {
+        var reportService = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "ReportService.cs")));
+        var auditService = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "AuditLogService.cs")));
+        Assert.Contains("MakerSignature", reportService);
+        Assert.Contains("Revision", reportService);
+        Assert.Contains("MakerSignature", auditService);
+        Assert.Contains("ExportDocumentCsvAsync", auditService);
+        Assert.Contains("UnauthorizedAccessException", auditService);
+    }
+
+    private static string FindRepositoryFile(string relativePath)
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var index = 0; index < 10 && current is not null; index++, current = current.Parent)
+        {
+            var candidate = Path.Combine(current.FullName, relativePath);
+            if (File.Exists(candidate)) return candidate;
+        }
+        throw new FileNotFoundException(relativePath);
+    }
 }

@@ -46,11 +46,35 @@ public sealed class SqliteMakerSignaturePersistenceTests
         Assert.False(service.VerifyIntegrity(signature with { Payload = "altered" }));
     }
 
+    [Fact(DisplayName = "TD-KAN64-INFRA-001 persistence contract guards finalized signatures and validates loaded data")]
+    public void Workflow_persistence_contract_declares_signature_guards_and_validation()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Infrastructure", "Persistence", "SqliteWorkflowRepository.cs")));
+        Assert.Contains("MakerSignatureFinalized", source);
+        Assert.Contains("MakerSignatureJson", source);
+        Assert.Contains("signature.Validate();", source);
+        Assert.Contains("DocumentAuditLog", source);
+        Assert.Contains("Action", source);
+        Assert.Contains("immutable", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("RAISE(FAIL", source, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static void Delete(string path)
     {
         SqliteConnection.ClearAllPools();
         if (File.Exists(path)) File.Delete(path);
         if (File.Exists(path + "-wal")) File.Delete(path + "-wal");
         if (File.Exists(path + "-shm")) File.Delete(path + "-shm");
+    }
+
+    private static string FindRepositoryFile(string relativePath)
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var index = 0; index < 10 && current is not null; index++, current = current.Parent)
+        {
+            var candidate = Path.Combine(current.FullName, relativePath);
+            if (File.Exists(candidate)) return candidate;
+        }
+        throw new FileNotFoundException(relativePath);
     }
 }
