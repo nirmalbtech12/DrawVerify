@@ -35,6 +35,8 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     private string? _priorMakerFilter;
     private FingerprintVerificationResult? _fingerprintVerification;
     private PriorVersionReview? _submittedRevisionSnapshot;
+    private string? _submittedSnapshotError;
+    private long _snapshotLoadGeneration;
 
     public DocumentDetailViewModel()
     {
@@ -125,6 +127,8 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     public string SubmittedMakerDisplayName => _submittedRevisionSnapshot?.MakerDisplayName ?? "Unavailable";
     public DateTime? SubmittedTimestampUtc => _submittedRevisionSnapshot?.SubmittedUtc;
     public string SubmittedFingerprintDisplay => _submittedRevisionSnapshot?.Package.Fingerprint?.Value ?? "Unavailable";
+    public string SubmittedSnapshotStatus => _submittedRevisionSnapshot is null ? "Unavailable" : "Loaded";
+    public string SubmittedSnapshotError => _submittedSnapshotError ?? string.Empty;
     public ICommand VerifyFingerprintCommand { get; }
     public bool CanEscalateFingerprintMismatch => _workflowService is not null && _authentication?.IsAuthenticated == true && _authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ReviewVerification) && _fingerprintVerification?.Status == FingerprintVerificationStatus.Mismatch && _document is not null;
     public ICommand FlagFingerprintMismatchCommand { get; }
@@ -157,6 +161,12 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
 
     public void Load(Document document)
     {
+        _snapshotLoadGeneration++;
+        _submittedRevisionSnapshot = null;
+        _submittedSnapshotError = null;
+        _fingerprintVerification = null;
+        Changed(nameof(SubmittedMakerDisplayName)); Changed(nameof(SubmittedTimestampUtc)); Changed(nameof(SubmittedFingerprintDisplay)); Changed(nameof(SubmittedSnapshotStatus)); Changed(nameof(SubmittedSnapshotError));
+        Changed(nameof(FingerprintVerification)); Changed(nameof(FingerprintVerificationMessage)); Changed(nameof(CanEscalateFingerprintMismatch));
         _document = document ?? throw new ArgumentNullException(nameof(document));
         if (!CanViewDimensions)
             _dimensions = Array.Empty<DimensionData>();
@@ -180,21 +190,36 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
         ((RelayCommand)FlagFingerprintMismatchCommand).Raise();
         ((RelayCommand)RejectFingerprintMismatchCommand).Raise();
         ((RelayCommand)ReturnFingerprintMismatchCommand).Raise();
-        _ = LoadSubmittedRevisionSnapshotAsync();
+        _ = LoadSubmittedRevisionSnapshotAsync(_document.DocumentId, _document.CurrentVersion, _snapshotLoadGeneration);
     }
 
-    private async Task LoadSubmittedRevisionSnapshotAsync()
+    private async Task LoadSubmittedRevisionSnapshotAsync(Guid documentId, int revision, long generation)
     {
-        if (_workflowService is null || _document is null || !CanVerifyFingerprint) return;
+        if (_workflowService is null || !CanVerifyFingerprint) return;
         try
         {
-            _submittedRevisionSnapshot = await _workflowService.GetPriorVersionAsync(_document.DocumentId, _document.CurrentVersion).ConfigureAwait(true);
+            var snapshot = await _workflowService.GetPriorVersionAsync(documentId, revision).ConfigureAwait(true);
+            if (_snapshotLoadGeneration != generation || _document?.DocumentId != documentId || _document.CurrentVersion != revision) return;
+            _submittedRevisionSnapshot = snapshot;
+            _submittedSnapshotError = snapshot is null ? "The submitted revision snapshot is unavailable." : null;
             Changed(nameof(SubmittedMakerDisplayName)); Changed(nameof(SubmittedTimestampUtc)); Changed(nameof(SubmittedFingerprintDisplay));
+            Changed(nameof(SubmittedSnapshotStatus)); Changed(nameof(SubmittedSnapshotError));
         }
-        catch (UnauthorizedAccessException) { }
+        catch (UnauthorizedAccessException exception)
+        {
+            if (_snapshotLoadGeneration != generation || _document?.DocumentId != documentId || _document.CurrentVersion != revision) return;
+            _submittedRevisionSnapshot = null;
+            _submittedSnapshotError = "The submitted revision snapshot is unavailable.";
+            _logger?.Log(exception, "Fingerprint submission snapshot", $"Snapshot access was not authorized for documentId={documentId}, revision={revision}.");
+            Changed(nameof(SubmittedMakerDisplayName)); Changed(nameof(SubmittedTimestampUtc)); Changed(nameof(SubmittedFingerprintDisplay)); Changed(nameof(SubmittedSnapshotStatus)); Changed(nameof(SubmittedSnapshotError));
+        }
         catch (Exception exception)
         {
-            _logger?.Log(exception, "Fingerprint submission snapshot", $"Unable to load submitted snapshot for documentId={_document.DocumentId}, revision={_document.CurrentVersion}.");
+            if (_snapshotLoadGeneration != generation || _document?.DocumentId != documentId || _document.CurrentVersion != revision) return;
+            _submittedRevisionSnapshot = null;
+            _submittedSnapshotError = "The submitted revision snapshot is unavailable.";
+            _logger?.Log(exception, "Fingerprint submission snapshot", $"Unable to load submitted snapshot for documentId={documentId}, revision={revision}.");
+            Changed(nameof(SubmittedMakerDisplayName)); Changed(nameof(SubmittedTimestampUtc)); Changed(nameof(SubmittedFingerprintDisplay)); Changed(nameof(SubmittedSnapshotStatus)); Changed(nameof(SubmittedSnapshotError));
         }
     }
 
