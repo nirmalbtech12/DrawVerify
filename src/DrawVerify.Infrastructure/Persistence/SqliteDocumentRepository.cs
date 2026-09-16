@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
@@ -82,6 +83,10 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
                 RebuildDocumentVersionWithoutRemovedIdentityColumns(connection, transaction);
             }
             AddColumnIfMissing(connection, transaction, "DocumentVersion", "DrawingSource", "INTEGER NOT NULL DEFAULT 1");
+            AddColumnIfMissing(connection, transaction, "DocumentVersion", "FingerprintJson", "TEXT NULL");
+            AddColumnIfMissing(connection, transaction, "DocumentVersion", "FingerprintAlgorithm", "TEXT NULL");
+            AddColumnIfMissing(connection, transaction, "DocumentVersion", "FingerprintCanonicalizationVersion", "INTEGER NULL");
+            Execute(connection, transaction, "CREATE TRIGGER IF NOT EXISTS TR_DocumentVersion_FingerprintUpdate BEFORE UPDATE OF FingerprintJson,FingerprintAlgorithm,FingerprintCanonicalizationVersion ON DocumentVersion WHEN OLD.FingerprintJson IS NOT NULL AND (NEW.FingerprintJson IS NOT OLD.FingerprintJson OR NEW.FingerprintAlgorithm IS NOT OLD.FingerprintAlgorithm OR NEW.FingerprintCanonicalizationVersion IS NOT OLD.FingerprintCanonicalizationVersion) BEGIN SELECT RAISE(ABORT, 'Document version fingerprints are immutable.'); END; CREATE TRIGGER IF NOT EXISTS TR_DocumentVersion_FingerprintDelete BEFORE DELETE ON DocumentVersion WHEN OLD.FingerprintJson IS NOT NULL BEGIN SELECT RAISE(ABORT, 'Document version fingerprints are immutable.'); END;");
 
             if (!Exists(connection, transaction, "DocumentAuditLog"))
             {
@@ -402,7 +407,7 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "INSERT INTO DocumentVersion (VersionId,DocumentId,VersionNumber,StoredRelativePath,FileSizeBytes,CreatedUtc,DrawingSource) VALUES ($id,$documentId,$number,$path,$size,$created,$source)";
+        command.CommandText = "INSERT INTO DocumentVersion (VersionId,DocumentId,VersionNumber,StoredRelativePath,FileSizeBytes,CreatedUtc,DrawingSource,FingerprintJson,FingerprintAlgorithm,FingerprintCanonicalizationVersion) VALUES ($id,$documentId,$number,$path,$size,$created,$source,$fingerprint,$algorithm,$canonicalization)";
         Add(command, "$id", version.VersionId);
         Add(command, "$documentId", version.DocumentId);
         Add(command, "$number", version.VersionNumber);
@@ -410,6 +415,9 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
         Add(command, "$size", version.FileSizeBytes);
         Add(command, "$created", version.CreatedUtc);
         Add(command, "$source", version.DrawingSource == DrawingSource.Unknown ? DrawingSource.Uploaded : version.DrawingSource);
+        command.Parameters.AddWithValue("$fingerprint", (object?)version.Fingerprint is null ? DBNull.Value : JsonSerializer.Serialize(version.Fingerprint));
+        command.Parameters.AddWithValue("$algorithm", (object?)version.Fingerprint?.Algorithm ?? DBNull.Value);
+        command.Parameters.AddWithValue("$canonicalization", (object?)version.Fingerprint?.CanonicalizationVersion ?? DBNull.Value);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -460,12 +468,14 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
         };
 
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT VersionId,DocumentId,VersionNumber,StoredRelativePath,FileSizeBytes,CreatedUtc,DrawingSource FROM DocumentVersion WHERE DocumentId=$id ORDER BY VersionNumber";
+        command.CommandText = "SELECT VersionId,DocumentId,VersionNumber,StoredRelativePath,FileSizeBytes,CreatedUtc,DrawingSource,FingerprintJson,FingerprintAlgorithm,FingerprintCanonicalizationVersion FROM DocumentVersion WHERE DocumentId=$id ORDER BY VersionNumber";
         command.Parameters.AddWithValue("$id", document.DocumentId.ToString());
         await using var versionReader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         var versions = new List<DocumentVersion>();
         while (await versionReader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
+            var fingerprint = versionReader.IsDBNull(7) ? null : JsonSerializer.Deserialize<DocumentFingerprint>(versionReader.GetString(7));
+            if (fingerprint is not null && (!versionReader.IsDBNull(8) || !versionReader.IsDBNull(9))) fingerprint = fingerprint with { Algorithm = versionReader.IsDBNull(8) ? fingerprint.Algorithm : versionReader.GetString(8), CanonicalizationVersion = versionReader.IsDBNull(9) ? fingerprint.CanonicalizationVersion : versionReader.GetInt32(9) };
             versions.Add(new DocumentVersion
             {
                 VersionId = Guid.Parse(versionReader.GetString(0)),
@@ -474,7 +484,7 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
                 StoredRelativePath = versionReader.GetString(3),
                 FileSizeBytes = versionReader.GetInt64(4),
                 CreatedUtc = DateTime.Parse(versionReader.GetString(5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)
-                ,DrawingSource = (DrawVerify.Core.Enums.DrawingSource)versionReader.GetInt32(6)
+                ,DrawingSource = (DrawVerify.Core.Enums.DrawingSource)versionReader.GetInt32(6), Fingerprint = fingerprint
             });
         }
 
@@ -491,7 +501,7 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
         ? "CREATE TABLE Document (DocumentId TEXT PRIMARY KEY, OriginalFileName TEXT NOT NULL, FileSizeBytes INTEGER NOT NULL, UploadTimestampUtc TEXT NOT NULL, DocumentType INTEGER NOT NULL, UploadStatus INTEGER NOT NULL, VerificationStatus INTEGER NOT NULL DEFAULT 0, VerificationError TEXT NULL, GeometryStatus INTEGER NOT NULL, Status INTEGER NOT NULL, CurrentVersion INTEGER NOT NULL, DrawingSource INTEGER NOT NULL DEFAULT 1, UploaderUserId TEXT NULL, UploaderDisplayName TEXT NULL)"
         : "CREATE TABLE Document (DocumentId TEXT PRIMARY KEY, OriginalFileName TEXT NOT NULL, FileSizeBytes INTEGER NOT NULL, UploadTimestampUtc TEXT NOT NULL, DocumentType INTEGER NOT NULL, UploadStatus INTEGER NOT NULL, VerificationStatus INTEGER NOT NULL DEFAULT 0, VerificationError TEXT NULL, GeometryStatus INTEGER NOT NULL, Status INTEGER NOT NULL, CurrentVersion INTEGER NOT NULL, DrawingSource INTEGER NOT NULL DEFAULT 1)";
 
-    private static string CreateDocumentVersionSql() => "CREATE TABLE DocumentVersion (VersionId TEXT PRIMARY KEY, DocumentId TEXT NOT NULL, VersionNumber INTEGER NOT NULL, StoredRelativePath TEXT NOT NULL, FileSizeBytes INTEGER NOT NULL, CreatedUtc TEXT NOT NULL, DrawingSource INTEGER NOT NULL DEFAULT 1, FOREIGN KEY(DocumentId) REFERENCES Document(DocumentId))";
+    private static string CreateDocumentVersionSql() => "CREATE TABLE DocumentVersion (VersionId TEXT PRIMARY KEY, DocumentId TEXT NOT NULL, VersionNumber INTEGER NOT NULL, StoredRelativePath TEXT NOT NULL, FileSizeBytes INTEGER NOT NULL, CreatedUtc TEXT NOT NULL, DrawingSource INTEGER NOT NULL DEFAULT 1, FingerprintJson TEXT NULL, FingerprintAlgorithm TEXT NULL, FingerprintCanonicalizationVersion INTEGER NULL, FOREIGN KEY(DocumentId) REFERENCES Document(DocumentId))";
     private static string CreateAuditSql() => "CREATE TABLE DocumentAuditLog (AuditId TEXT PRIMARY KEY, DocumentId TEXT NULL, Action INTEGER NOT NULL, UserId TEXT NULL, TimestampUtc TEXT NOT NULL, DetailsJson TEXT NOT NULL)";
     private static string CreateDimensionDataSql() => "CREATE TABLE DimensionData (DimensionDataId TEXT PRIMARY KEY, DocumentId TEXT NOT NULL, DocumentVersionId TEXT NOT NULL, SourceEntityOrdinal INTEGER NOT NULL, DimensionType INTEGER NOT NULL, NominalValue REAL NOT NULL, LowerTolerance REAL NULL, UpperTolerance REAL NULL, DisplayText TEXT NULL, RadialKind INTEGER NOT NULL DEFAULT 0, Layer TEXT NULL, PreviewAnchor TEXT NULL, BlockName TEXT NULL, ViewName TEXT NULL, LocationX REAL NULL, LocationY REAL NULL, FOREIGN KEY(DocumentId) REFERENCES Document(DocumentId), FOREIGN KEY(DocumentVersionId) REFERENCES DocumentVersion(VersionId), UNIQUE(DocumentVersionId,SourceEntityOrdinal))";
 
@@ -514,9 +524,13 @@ public sealed class SqliteDocumentRepository : IDocumentRepository, ITransaction
     private static void RebuildDocumentVersionWithoutRemovedIdentityColumns(SqliteConnection connection, SqliteTransaction transaction)
     {
         var indexes = GetIndexDefinitions(connection, transaction, "DocumentVersion");
+        var legacyColumns = GetColumns(connection, transaction, "DocumentVersion");
         Execute(connection, transaction, "ALTER TABLE DocumentVersion RENAME TO DocumentVersion_legacy");
         Execute(connection, transaction, CreateDocumentVersionSql());
-        Execute(connection, transaction, "INSERT INTO DocumentVersion (VersionId,DocumentId,VersionNumber,StoredRelativePath,FileSizeBytes,CreatedUtc,DrawingSource) SELECT VersionId,DocumentId,VersionNumber,StoredRelativePath,FileSizeBytes,CreatedUtc,1 FROM DocumentVersion_legacy");
+        var fingerprintJson = legacyColumns.Contains("FingerprintJson") ? "FingerprintJson" : "NULL";
+        var fingerprintAlgorithm = legacyColumns.Contains("FingerprintAlgorithm") ? "FingerprintAlgorithm" : "NULL";
+        var fingerprintVersion = legacyColumns.Contains("FingerprintCanonicalizationVersion") ? "FingerprintCanonicalizationVersion" : "NULL";
+        Execute(connection, transaction, $"INSERT INTO DocumentVersion (VersionId,DocumentId,VersionNumber,StoredRelativePath,FileSizeBytes,CreatedUtc,DrawingSource,FingerprintJson,FingerprintAlgorithm,FingerprintCanonicalizationVersion) SELECT VersionId,DocumentId,VersionNumber,StoredRelativePath,FileSizeBytes,CreatedUtc,1,{fingerprintJson},{fingerprintAlgorithm},{fingerprintVersion} FROM DocumentVersion_legacy");
         Execute(connection, transaction, "DROP TABLE DocumentVersion_legacy");
         foreach (var index in indexes)
             Execute(connection, transaction, index);

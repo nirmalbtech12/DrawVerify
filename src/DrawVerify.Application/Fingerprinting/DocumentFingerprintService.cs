@@ -32,11 +32,14 @@ public sealed class DocumentFingerprintService : IDocumentFingerprintService
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 Append(hash, Encoding.UTF8.GetBytes($"artifact={artifact.RelativeName.Trim().Replace('\\', '/')};length={artifact.Length}\n"));
+                var artifactProcessed = 0L;
                 int read;
-                while ((read = await artifact.Content.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false)) > 0)
+                while ((read = await artifact.Content.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, artifact.Length - artifactProcessed + 1)), cancellationToken).ConfigureAwait(false)) > 0)
                 {
-                    hash.AppendData(buffer, 0, read); processed += read; progress?.Report(processed);
+                    if (artifactProcessed > artifact.Length - read) throw new InvalidDataException($"Artifact '{artifact.RelativeName}' exceeded its declared length.");
+                    hash.AppendData(buffer, 0, read); artifactProcessed += read; processed += read; progress?.Report(processed);
                 }
+                if (artifactProcessed != artifact.Length) throw new InvalidDataException($"Artifact '{artifact.RelativeName}' contained {artifactProcessed} bytes but declared {artifact.Length} bytes.");
             }
             return new DocumentFingerprint { Value = Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant(), Algorithm = "SHA-256", CanonicalizationVersion = _policy.CanonicalizationVersion };
         }

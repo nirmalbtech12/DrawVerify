@@ -17,10 +17,11 @@ public sealed class ReportService
     private readonly RoleAuthorization _authorization;
     private readonly IReportGenerator _generator;
     private readonly IPdfReportGenerator? _pdfGenerator;
+    private readonly IWorkflowRepository? _workflow;
     private readonly ICentralizedLogger? _logger;
     private readonly IAuditLogger? _audit;
-    public ReportService(IVerificationSessionRepository sessions, ISessionAuthenticationService authentication, RoleAuthorization? authorization = null, IReportGenerator? generator = null, ICentralizedLogger? logger = null, IAuditLogger? audit = null, IPdfReportGenerator? pdfGenerator = null)
-    { _sessions = sessions; _authentication = authentication; _authorization = authorization ?? new RoleAuthorization(); _generator = generator ?? new MarkdownReportGenerator(); _logger = logger; _audit = audit; _pdfGenerator = pdfGenerator; }
+    public ReportService(IVerificationSessionRepository sessions, ISessionAuthenticationService authentication, RoleAuthorization? authorization = null, IReportGenerator? generator = null, ICentralizedLogger? logger = null, IAuditLogger? audit = null, IPdfReportGenerator? pdfGenerator = null, IWorkflowRepository? workflow = null)
+    { _sessions = sessions; _authentication = authentication; _authorization = authorization ?? new RoleAuthorization(); _generator = generator ?? new MarkdownReportGenerator(); _logger = logger; _audit = audit; _pdfGenerator = pdfGenerator; _workflow = workflow; }
     public async Task<string> GenerateMarkdownAsync(Guid sessionId, CancellationToken cancellationToken = default)
     {
         if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ViewDimensionMatchResults)) throw new UnauthorizedAccessException("Only authenticated Maker, Checker, or Approver users may access verification reports.");
@@ -28,7 +29,7 @@ public sealed class ReportService
         {
             var matches = await _sessions.GetMatchesAsync(sessionId, cancellationToken: cancellationToken).ConfigureAwait(false);
             var gdtResults = await _sessions.GetGdtResultsAsync(sessionId, cancellationToken).ConfigureAwait(false);
-            var report = new VerificationReport { DimensionMatches = matches, GdtResults = gdtResults };
+            var report = new VerificationReport { DimensionMatches = matches, GdtResults = gdtResults, Fingerprint = await GetFingerprintAsync(sessionId, cancellationToken).ConfigureAwait(false) };
             var content = await _generator.GenerateMarkdownAsync(report, cancellationToken).ConfigureAwait(false);
             if (_audit is not null)
             {
@@ -53,7 +54,7 @@ public sealed class ReportService
         {
             var matches = await _sessions.GetMatchesAsync(sessionId, cancellationToken: cancellationToken).ConfigureAwait(false);
             var gdtResults = await _sessions.GetGdtResultsAsync(sessionId, cancellationToken).ConfigureAwait(false);
-            var report = new VerificationReport { DimensionMatches = matches, GdtResults = gdtResults };
+            var report = new VerificationReport { DimensionMatches = matches, GdtResults = gdtResults, Fingerprint = await GetFingerprintAsync(sessionId, cancellationToken).ConfigureAwait(false) };
             var content = await _pdfGenerator.GeneratePdfAsync(report, cancellationToken).ConfigureAwait(false);
             if (_audit is not null)
             {
@@ -92,5 +93,10 @@ public sealed class ReportService
         return builder.ToString();
     }
     private static string Value(double? value) => value?.ToString("0.############", CultureInfo.InvariantCulture) ?? string.Empty;
+    private async Task<DocumentFingerprint?> GetFingerprintAsync(Guid sessionId, CancellationToken cancellationToken)
+    {
+        if (_workflow is null) return null;
+        return (await _workflow.GetSubmissionsAsync(Guid.Empty, cancellationToken).ConfigureAwait(false)).FirstOrDefault(x => x.VerificationSessionId == sessionId)?.Fingerprint;
+    }
     private static string Escape(string? value) { value ??= string.Empty; return value.IndexOfAny(new[] { ',', '"', '\r', '\n' }) >= 0 ? '"' + value.Replace("\"", "\"\"") + '"' : value; }
 }

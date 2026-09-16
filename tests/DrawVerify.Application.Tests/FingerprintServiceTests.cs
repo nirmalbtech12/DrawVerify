@@ -47,6 +47,23 @@ public class FingerprintServiceTests
         Assert.Throws<NotSupportedException>(() => new DocumentFingerprintService(new FingerprintPolicy { Algorithm = "MD5" }));
     }
 
+    [Fact(DisplayName = "TD-02 every covered identifier and metadata value changes the digest")]
+    public async Task Every_covered_metadata_and_identifier_changes_digest()
+    {
+        var service = new DocumentFingerprintService(new FingerprintPolicy());
+        var baseline = await Compute(service, Context(), Artifacts(false));
+        var variants = new[]
+        {
+            await Compute(service, Context(metadata: new Dictionary<string, string> { ["makerUserId"] = "maker-002", ["timestamp"] = "2026-01-01T00:00:00Z" }), Artifacts(false)),
+            await Compute(service, Context(metadata: new Dictionary<string, string> { ["makerUserId"] = "maker-001", ["timestamp"] = "2026-01-01T00:00:01Z" }), Artifacts(false)),
+            await Compute(service, Context(revision: 2), Artifacts(false)),
+            await Compute(service, Context(), Artifacts(false, step: "STEP data changed")),
+            await Compute(service, Context(), Artifacts(false, dxf: "DXF data changed"))
+        };
+
+        Assert.All(variants, variant => Assert.NotEqual(baseline.Value, variant.Value));
+    }
+
     [Fact(DisplayName = "TD-06 reports match, mismatch, and unavailable material distinctly")]
     public async Task Verification_reports_match_and_mismatch_without_fallback()
     {
@@ -90,6 +107,7 @@ public class FingerprintServiceTests
         finally { DisposeArtifacts(cancelledArtifacts); }
     }
 
+
     private static DocumentFingerprintContext Context(int revision = 1, IReadOnlyDictionary<string, string>? metadata = null) =>
         new(DocumentId, revision, StepVersion, DxfVersion, metadata ?? new Dictionary<string, string> { ["makerUserId"] = "maker-001", ["timestamp"] = "2026-01-01T00:00:00Z" });
 
@@ -118,6 +136,7 @@ public class FingerprintServiceTests
     {
         public void Report(long value) => values.Add(value);
     }
+
 
     private const string KnownDigest = "064a68e3a08b10f4f2dd1b3e4a6587e0f0adc47d73c6ec811233571fcf00c0ce";
 }

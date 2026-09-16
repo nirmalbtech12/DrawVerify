@@ -15,6 +15,9 @@
         <TextBlock Text="{Binding VerificationError, StringFormat=Verification error: {0}}"/>
         <TextBlock Text="{Binding GeometryStatus}"/>
         <TextBlock Text="{Binding CurrentVersion, StringFormat=Version: {0}}"/>
+        <TextBlock Text="{Binding FingerprintDisplay, StringFormat=Fingerprint: {0}}" TextWrapping="Wrap"/>
+        <Button Content="Verify Fingerprint" Command="{Binding VerifyFingerprintCommand}" Margin="0,0,0,8"/>
+        <TextBlock Text="{Binding FingerprintVerificationMessage}" TextWrapping="Wrap"/>
         <Button Content="Extract Dimensions" Command="{Binding ExtractDimensionsCommand}" Margin="0,16,0,8"/>
         <Button Content="Refresh Dimensions" Command="{Binding LoadDimensionsCommand}" Margin="0,0,0,8"/>
         <Button Content="Submit for Review" Command="{Binding SubmitForReviewCommand}" Margin="0,0,0,8"/>
@@ -46,6 +49,7 @@
             <TextBlock Text="{Binding ApprovedUtc, StringFormat=Approved: {0}}"/>
             <TextBlock Text="{Binding StepDocumentVersionId, StringFormat=STEP version: {0}}" TextWrapping="Wrap"/>
             <TextBlock Text="{Binding DxfDocumentVersionId, StringFormat=DXF version: {0}}" TextWrapping="Wrap"/>
+            <TextBlock Text="{Binding Package.Fingerprint.Value, StringFormat=Fingerprint: {0}}" TextWrapping="Wrap"/>
             <StackPanel Orientation="Horizontal" Margin="0,4,0,4">
                 <Button Content="Open STEP read-only" Command="{Binding DataContext.OpenHistoricalStepCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" Margin="0,0,8,0"/>
                 <Button Content="Open DXF read-only" Command="{Binding DataContext.OpenHistoricalDxfCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"/>

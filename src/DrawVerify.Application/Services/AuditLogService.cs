@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using DrawVerify.Core.Authorization;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
@@ -49,9 +50,20 @@ public sealed class AuditLogService
     }
     public async Task<string> ExportDocumentCsvAsync(Guid documentId, AuditLogQuery? query = null, CancellationToken cancellationToken = default)
     {
-        var entries = await QueryDocumentAsync(documentId, query, cancellationToken); var b = new StringBuilder("AuditId,DocumentId,Revision,Version,Actor,Role,Timestamp,Action,Details,Metadata,PreviousStatus,NewStatus,Predecessor,IntegrityHash\r\n");
-        foreach (var e in entries) b.AppendJoin(',', new[] { e.AuditId.ToString(), e.DocumentId.ToString(), e.DocumentRevision, e.DocumentVersion, e.ActorId, e.ActorRole, e.Timestamp.ToString("O"), e.Action.ToString(), e.DetailsJson, e.EventMetadataJson, e.PreviousWorkflowStatus, e.NewWorkflowStatus, e.PredecessorAuditId?.ToString(), e.IntegrityHash }.Select(Escape)).Append("\r\n");
+        var entries = await QueryDocumentAsync(documentId, query, cancellationToken); var b = new StringBuilder("AuditId,DocumentId,Revision,Version,Actor,Role,Timestamp,Action,Details,Metadata,Fingerprint,FingerprintAlgorithm,FingerprintCanonicalizationVersion,PreviousStatus,NewStatus,Predecessor,IntegrityHash\r\n");
+        foreach (var e in entries)
+        {
+            var fingerprint = ReadDetail(e.DetailsJson, "fingerprint");
+            var algorithm = ReadDetail(e.DetailsJson, "fingerprintAlgorithm");
+            var canonicalization = ReadDetail(e.DetailsJson, "fingerprintCanonicalizationVersion");
+            b.AppendJoin(',', new[] { e.AuditId.ToString(), e.DocumentId.ToString(), e.DocumentRevision, e.DocumentVersion, e.ActorId, e.ActorRole, e.Timestamp.ToString("O"), e.Action.ToString(), e.DetailsJson, e.EventMetadataJson, fingerprint, algorithm, canonicalization, e.PreviousWorkflowStatus, e.NewWorkflowStatus, e.PredecessorAuditId?.ToString(), e.IntegrityHash }.Select(Escape)).Append("\r\n");
+        }
         return b.ToString();
+    }
+    private static string? ReadDetail(string json, string property)
+    {
+        try { using var document = JsonDocument.Parse(json); return document.RootElement.TryGetProperty(property, out var value) ? value.ToString() : null; }
+        catch (JsonException) { return null; }
     }
     private sealed class NullAuthenticationAuditRepository : IAuthenticationAuditRepository { public Task WriteAsync(AuthenticationAuditEntry entry, CancellationToken cancellationToken = default) => Task.CompletedTask; }
 }
