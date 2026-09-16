@@ -13,6 +13,7 @@ public sealed class DocumentVersion
     public string StoredFilePath { get => StoredRelativePath; init => StoredRelativePath = value; }
     public long FileSizeBytes { get; init; }
     public DateTime CreatedUtc { get; init; } = DateTime.UtcNow;
+    public DocumentFingerprint? Fingerprint { get; init; }
     public DrawVerify.Core.Enums.GeometryStatus GeometryStatus { get; set; } = DrawVerify.Core.Enums.GeometryStatus.NotExtracted;
     public string? GeometryError { get; set; }
     public GeometryMeasurement? Geometry { get; set; }

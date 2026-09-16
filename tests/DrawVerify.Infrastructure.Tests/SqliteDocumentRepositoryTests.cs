@@ -9,6 +9,12 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteDocumentRepositoryTests
 {
+    [Fact(DisplayName = "TD-04 legacy document versions remain readable without a fingerprint")]
+    public void Legacy_document_version_has_nullable_fingerprint()
+    {
+        var version = new DocumentVersion { DocumentId = Guid.NewGuid(), VersionId = Guid.NewGuid(), VersionNumber = 1 };
+        Assert.Null(version.Fingerprint);
+    }
     [Fact(DisplayName = "TD-KAN21-INF-001 persists invalid audit actors, details, and null document")]
     public async Task Invalid_step_audit_round_trips()
     {

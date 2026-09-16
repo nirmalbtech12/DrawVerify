@@ -13,16 +13,19 @@ public sealed class SqliteAuditIntegrityRetentionTests
         var path = Path.Combine(Path.GetTempPath(), $"audit-integrity-{Guid.NewGuid():N}.db");
         try
         {
-            var repository = new SqliteAuditRepository(path);
             var document = Guid.NewGuid();
-            await repository.AppendAsync(new AuditEntry { DocumentId = document, UserId = "maker-001", Action = DocumentAuditAction.DocumentCreated, TimestampUtc = DateTime.UtcNow, TimestampOffset = DateTimeOffset.UtcNow });
-            await repository.VerifyIntegrityAsync(document);
+            await using (var seed = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
+            {
+                await seed.OpenAsync();
+                await using var command = seed.CreateCommand();
+                command.CommandText = "CREATE TABLE DocumentAuditLog (AuditId TEXT PRIMARY KEY, DocumentId TEXT NULL, Action INTEGER NOT NULL, UserId TEXT NULL, TimestampUtc TEXT NOT NULL, DetailsJson TEXT NOT NULL, ActorRole TEXT NULL, DocumentRevision TEXT NULL, DocumentVersion TEXT NULL, EventMetadataJson TEXT NOT NULL DEFAULT '{}', PreviousWorkflowStatus TEXT NULL, NewWorkflowStatus TEXT NULL, PredecessorAuditId TEXT NULL, IntegrityHash TEXT NULL); INSERT INTO DocumentAuditLog (AuditId,DocumentId,Action,UserId,TimestampUtc,DetailsJson,EventMetadataJson,IntegrityHash) VALUES ($audit,$document,$action,'maker-001',$time,'{}','{}','tampered');";
+                command.Parameters.AddWithValue("$audit", Guid.NewGuid().ToString()); command.Parameters.AddWithValue("$document", document.ToString()); command.Parameters.AddWithValue("$action", (int)DocumentAuditAction.DocumentCreated); command.Parameters.AddWithValue("$time", DateTimeOffset.UtcNow.ToString("O"));
+                await command.ExecuteNonQueryAsync();
+            }
+            var repository = new SqliteAuditRepository(path);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => repository.VerifyIntegrityAsync(document));
             await using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
             await connection.OpenAsync();
-            await using var command = connection.CreateCommand();
-            command.CommandText = "DROP TRIGGER TR_DocumentAuditLog_PreventUpdate; UPDATE DocumentAuditLog SET IntegrityHash='tampered' WHERE DocumentId=$id; CREATE TRIGGER TR_DocumentAuditLog_PreventUpdate BEFORE UPDATE ON DocumentAuditLog BEGIN SELECT RAISE(ABORT, 'Document audit entries are append-only.'); END;";
-            command.Parameters.AddWithValue("$id", document.ToString()); await command.ExecuteNonQueryAsync();
-            await Assert.ThrowsAsync<InvalidOperationException>(() => repository.VerifyIntegrityAsync(document));
             await Assert.ThrowsAsync<Microsoft.Data.Sqlite.SqliteException>(async () => { await using var delete = connection.CreateCommand(); delete.CommandText = "DELETE FROM DocumentAuditLog"; await delete.ExecuteNonQueryAsync(); });
         }
         finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); if (File.Exists(path)) File.Delete(path); }

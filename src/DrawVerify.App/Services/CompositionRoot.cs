@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using DrawVerify.Application.Services;
+using DrawVerify.Application.Fingerprinting;
 using DrawVerify.Application.DxfDimensionExtraction;
 using DrawVerify.Core.Configuration;
 using DrawVerify.Core.Interfaces;
@@ -65,7 +66,10 @@ public static class CompositionRoot
     public static IWorkflowService CreateWorkflowService()
     {
         var database = DatabasePath(); var logger = new CentralizedLogger();
-        return new WorkflowService(new SqliteWorkflowRepository(database, logger, WorkflowConfiguration), Session, WorkflowConfiguration, Authorization, logger, new SqliteDocumentRepository(database, logger), new SqliteVerificationSessionRepository(database), notifications: new InAppNotificationService(database), snapshots: new ApprovalSnapshotFileStore(Path.Combine(AppContext.BaseDirectory, "approval-snapshots")), stepFiles: new DocumentFileStore(AppContext.BaseDirectory, StepUploadConfiguration), dxfFiles: new DxfDocumentFileStore(AppContext.BaseDirectory, DxfUploadConfiguration));
+        var policyPath = Path.Combine(AppContext.BaseDirectory, "config", "fingerprint-policy.default.json");
+        if (!File.Exists(policyPath)) policyPath = Path.Combine(Directory.GetCurrentDirectory(), "config", "fingerprint-policy.default.json");
+        var fingerprintService = new DocumentFingerprintService(FingerprintPolicy.FromFile(policyPath));
+        return new WorkflowService(new SqliteWorkflowRepository(database, logger, WorkflowConfiguration), Session, WorkflowConfiguration, Authorization, logger, new SqliteDocumentRepository(database, logger), new SqliteVerificationSessionRepository(database), notifications: new InAppNotificationService(database), snapshots: new ApprovalSnapshotFileStore(Path.Combine(AppContext.BaseDirectory, "approval-snapshots")), stepFiles: new DocumentFileStore(AppContext.BaseDirectory, StepUploadConfiguration), dxfFiles: new DxfDocumentFileStore(AppContext.BaseDirectory, DxfUploadConfiguration), fingerprintService: fingerprintService);
     }
     public static IWorkflowConfigurationService CreateWorkflowConfigurationService()
     {
@@ -184,7 +188,7 @@ public static class CompositionRoot
     public static ReportService CreateReportService()
     {
         var database = DatabasePath();
-        return new ReportService(new SqliteVerificationSessionRepository(database), Session, Authorization, new MarkdownReportGenerator(), new CentralizedLogger(), new SqliteAuditRepository(database), new DrawVerify.Infrastructure.Pdf.PdfReportGenerator());
+        return new ReportService(new SqliteVerificationSessionRepository(database), Session, Authorization, new MarkdownReportGenerator(), new CentralizedLogger(), new SqliteAuditRepository(database), new DrawVerify.Infrastructure.Pdf.PdfReportGenerator(), new SqliteWorkflowRepository(database, new CentralizedLogger()));
     }
     public static MissingDimensionReviewService CreateMissingDimensionReviewService()
     {

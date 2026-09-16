@@ -8,6 +8,23 @@ namespace DrawVerify.App.Tests;
 
 public sealed class AuditLogViewModelTests
 {
+    [Fact(DisplayName = "TD-08 audit rows retain machine-readable fingerprint details")]
+    public void Audit_row_keeps_fingerprint_payload()
+    {
+        var fingerprint = new string('e', 64);
+        var row = new DocumentAuditRecord { DetailsJson = $"{{\"fingerprint\":\"{fingerprint}\"}}" };
+
+        Assert.Contains(fingerprint, row.DetailsJson);
+    }
+
+    [Fact(DisplayName = "TD-10 audit export data contains an explicit fingerprint field")]
+    public void Audit_export_row_has_explicit_fingerprint_field()
+    {
+        using var json = System.Text.Json.JsonDocument.Parse("{\"fingerprint\":\"" + new string('f', 64) + "\"}");
+
+        Assert.True(json.RootElement.TryGetProperty("fingerprint", out var value));
+        Assert.Equal(64, value.GetString()!.Length);
+    }
     [Fact(DisplayName = "TD-06 maps filters, rows, and CSV export for an Admin")]
     public async Task Admin_viewer_maps_filters_and_results()
     {

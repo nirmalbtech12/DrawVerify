@@ -25,6 +25,7 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     private readonly ISessionAuthenticationService? _authentication;
     private readonly RoleAuthorization _authorization = new();
     private readonly DocumentService? _documentService;
+    private readonly ICentralizedLogger? _logger;
     private IReadOnlyList<PriorVersionReview> _priorVersions = Array.Empty<PriorVersionReview>();
     private PriorVersionReview? _selectedPriorVersion;
     private VersionComparison? _versionComparison;
@@ -32,6 +33,7 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     private DateTime? _priorFromUtc;
     private DateTime? _priorToUtc;
     private string? _priorMakerFilter;
+    private FingerprintVerificationResult? _fingerprintVerification;
 
     public DocumentDetailViewModel()
     {
@@ -43,13 +45,14 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
         ViewCurrentVersionCommand = new RelayCommand(_ => ViewCurrentVersion(), _ => SelectedPriorVersion is not null);
         OpenHistoricalStepCommand = new RelayCommand(async _ => await OpenHistoricalFileAsync(false).ConfigureAwait(true), _ => CanOpenHistoricalFiles && SelectedPriorVersion is not null && !IsBusy);
         OpenHistoricalDxfCommand = new RelayCommand(async _ => await OpenHistoricalFileAsync(true).ConfigureAwait(true), _ => CanOpenHistoricalFiles && SelectedPriorVersion is not null && !IsBusy);
+        VerifyFingerprintCommand = new RelayCommand(async _ => await VerifyFingerprintAsync().ConfigureAwait(true), _ => CanVerifyFingerprint && !IsBusy);
     }
 
     public DocumentDetailViewModel(Document document) : this(document, null) { }
 
-    public DocumentDetailViewModel(Document document, DxfDimensionExtractionService? dimensionService, IWorkflowService? workflowService = null, SubmissionRequest? submissionRequest = null, ISessionAuthenticationService? authentication = null, RoleAuthorization? authorization = null, DocumentService? documentService = null) : this()
+    public DocumentDetailViewModel(Document document, DxfDimensionExtractionService? dimensionService, IWorkflowService? workflowService = null, SubmissionRequest? submissionRequest = null, ISessionAuthenticationService? authentication = null, RoleAuthorization? authorization = null, DocumentService? documentService = null, ICentralizedLogger? logger = null) : this()
     {
-        _dimensionService = dimensionService; _workflowService = workflowService; _submissionRequest = submissionRequest; _authentication = authentication; _authorization = authorization ?? new RoleAuthorization(); _documentService = documentService;
+        _dimensionService = dimensionService; _workflowService = workflowService; _submissionRequest = submissionRequest; _authentication = authentication; _authorization = authorization ?? new RoleAuthorization(); _documentService = documentService; _logger = logger;
         SubmitForReviewCommand = new RelayCommand(_ => RaiseSubmissionRequested(), _ => CanSubmitForReview);
         Load(document);
     }
@@ -67,6 +70,8 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     public CoreUploadStatus UploadStatus => _document?.UploadStatus ?? CoreUploadStatus.Pending;
     public VerificationStatus VerificationStatus => _document?.VerificationStatus ?? VerificationStatus.Unknown;
     public string? VerificationError => _document?.VerificationError;
+    public string? Fingerprint => _document?.Version?.Fingerprint?.Value;
+    public string FingerprintDisplay => Fingerprint ?? "No fingerprint is stored for this version.";
     public string UploaderUserId => _document?.UploaderUserId ?? string.Empty;
     public string UploaderDisplayName => _document?.UploaderDisplayName ?? string.Empty;
     public string UploaderDisplayNameSnapshot => UploaderDisplayName;
@@ -110,6 +115,10 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     public ICommand OpenHistoricalStepCommand { get; }
     public ICommand OpenHistoricalDxfCommand { get; }
     public bool CanOpenHistoricalFiles => _documentService is not null && CanViewPriorVersions;
+    public bool CanVerifyFingerprint => _workflowService is not null && _authentication?.IsAuthenticated == true && _authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ViewDimensionMatchResults) && _document is not null;
+    public FingerprintVerificationResult? FingerprintVerification => _fingerprintVerification;
+    public string FingerprintVerificationMessage => _fingerprintVerification?.Message ?? string.Empty;
+    public ICommand VerifyFingerprintCommand { get; }
     public int HistoricalStepBytesRead { get; private set; }
     public int HistoricalDxfBytesRead { get; private set; }
 
@@ -142,6 +151,7 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
         Changed(nameof(DocumentType)); Changed(nameof(UploadStatus)); Changed(nameof(VerificationStatus)); Changed(nameof(VerificationError));
         Changed(nameof(UploaderUserId)); Changed(nameof(UploaderDisplayName)); Changed(nameof(UploaderDisplayNameSnapshot));
         Changed(nameof(VerificationStatusDisplay)); Changed(nameof(GeometryStatus)); Changed(nameof(GeometryError)); Changed(nameof(CurrentVersion));
+        Changed(nameof(Fingerprint)); Changed(nameof(FingerprintDisplay)); Changed(nameof(CanVerifyFingerprint));
         Changed(nameof(CanExtractDimensions)); Changed(nameof(IsAuthorized)); Changed(nameof(Dimensions));
         Changed(nameof(DimensionResults)); Changed(nameof(ExtractedDimensions));
         Changed(nameof(CanSubmitForReview));
@@ -150,6 +160,26 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
         ((RelayCommand)LoadDimensionsCommand).Raise();
         ((RelayCommand)SubmitForReviewCommand).Raise();
         ((RelayCommand)LoadPriorVersionsCommand).Raise();
+        ((RelayCommand)VerifyFingerprintCommand).Raise();
+    }
+
+    private async Task VerifyFingerprintAsync()
+    {
+        if (!CanVerifyFingerprint || _workflowService is null || _document is null) return;
+        IsBusy = true; ErrorMessage = string.Empty;
+        try
+        {
+            _fingerprintVerification = await _workflowService.VerifyFingerprintAsync(_document.DocumentId, _document.CurrentVersion).ConfigureAwait(true);
+            Message = _fingerprintVerification.Message;
+            ErrorMessage = _fingerprintVerification.Status == FingerprintVerificationStatus.Mismatch ? _fingerprintVerification.Message : string.Empty;
+            Changed(nameof(FingerprintVerification)); Changed(nameof(FingerprintVerificationMessage));
+        }
+        catch (Exception exception)
+        {
+            _logger?.Log(exception, "Fingerprint verification", $"Unable to verify documentId={_document.DocumentId}, revision={_document.CurrentVersion}.");
+            Message = ErrorMessage = "Unable to verify the fingerprint for this version.";
+        }
+        finally { IsBusy = false; }
     }
 
     public async Task LoadPriorVersionsAsync()

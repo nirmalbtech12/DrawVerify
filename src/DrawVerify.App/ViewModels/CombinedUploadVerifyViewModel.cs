@@ -79,6 +79,9 @@ public sealed class CombinedUploadVerifyViewModel : TaskScreenViewModel, IDispos
     public Func<string, Stream, Task>? SaveDxfAsync { get; set; }
     public double GenerationProgress { get; private set; }
     public string GenerationStatus { get; private set; } = string.Empty;
+    public long FingerprintProgress { get; private set; }
+    public string FingerprintProgressText => FingerprintProgress > 0 ? $"Fingerprinting: {FingerprintProgress:n0} bytes processed." : string.Empty;
+    public void ReportFingerprintProgress(long bytesProcessed) { if (bytesProcessed < FingerprintProgress) return; FingerprintProgress = bytesProcessed; Notify(nameof(FingerprintProgress)); Notify(nameof(FingerprintProgressText)); }
 
     public event Action? StateChanged;
     public void AttachStepSelection(string name, Stream content) => StepUpload.Select(name, content);
@@ -205,8 +208,9 @@ public sealed class CombinedUploadVerifyViewModel : TaskScreenViewModel, IDispos
     public void ResetWorkflow()
     {
         InvalidateProcessing();
+        FingerprintProgress = 0;
         Verification.ResetWorkflowState();
-        _stepDocument = null; _dxfDocument = null; _stepVersionId = null; _dxfVersionId = null; _dxfDimensionCount = 0; DxfUpload.SetReplacementTarget(null); StepStatus = "Waiting for a STEP model."; DxfStatus = "Waiting for a DXF drawing."; ProcessingStatus = "Upload both files to begin processing."; ErrorMessage = string.Empty;
+        _stepDocument = null; _dxfDocument = null; _stepVersionId = null; _dxfVersionId = null; _dxfDimensionCount = 0; DxfUpload.SetReplacementTarget(null); StepStatus = "Waiting for a STEP model."; DxfStatus = "Waiting for a DXF drawing."; ProcessingStatus = "Upload both files to begin processing."; ErrorMessage = string.Empty; Notify(nameof(FingerprintProgress)); Notify(nameof(FingerprintProgressText));
         NotifyAll();
     }
     private void InvalidateProcessing()

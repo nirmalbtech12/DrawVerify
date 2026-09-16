@@ -21,6 +21,7 @@ public sealed record ReviewPackage
     public string VerificationEvidenceJson { get; init; } = "{}";
     public string SnapshotReference { get; init; } = string.Empty;
     public ReviewSubmission Submission { get; init; } = new();
+    public DocumentFingerprint? Fingerprint => Submission.Fingerprint;
     public ReviewDecision? PriorDecision { get; init; }
     public IReadOnlyList<ReviewComment> Comments { get; init; } = Array.Empty<ReviewComment>();
     public IReadOnlyList<ReviewFinding> VerificationFindings { get; init; } = Array.Empty<ReviewFinding>();

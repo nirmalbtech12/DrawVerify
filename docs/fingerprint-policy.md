@@ -9,7 +9,11 @@ artifacts present at approval — i.e., prove "what was verified is what was app
 
 ## Algorithm
 
-- SHA-256 over normalized file content.
+- SHA-256 over a versioned UTF-8 manifest containing document/version identifiers,
+  required metadata, and all submitted artifact bytes in ordinal deterministic
+  relative-name order using the documented UTF-8 `name=value` manifest format;
+  artifact lengths are validated against bytes read. The canonicalization
+  version is persisted with each submission.
 - In `Application.Fingerprinting`, `DocumentFingerprintService` computes fingerprints;
   `FingerprintPolicy` describes the rules; both are config-driven.
 

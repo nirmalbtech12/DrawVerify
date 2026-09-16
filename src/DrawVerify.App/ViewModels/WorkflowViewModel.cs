@@ -13,6 +13,7 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     private readonly IWorkflowService? _service;
     private string _note = string.Empty;
     private string _message = string.Empty;
+    private long _fingerprintProgress;
     private bool _canSubmit;
     private WorkflowStatus? _currentStatus;
     private SubmissionRequest? _submissionRequest;
@@ -43,6 +44,8 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     }
     public string Note { get => _note; set { _note = value ?? string.Empty; MarkDirtyFromUserInput(); RaisePropertyChanged(nameof(Note)); } }
     public string Message { get => _message; private set { _message = value; RaisePropertyChanged(nameof(Message)); } }
+    public long FingerprintProgress { get => _fingerprintProgress; private set { _fingerprintProgress = value; RaisePropertyChanged(nameof(FingerprintProgress)); RaisePropertyChanged(nameof(FingerprintProgressText)); } }
+    public string FingerprintProgressText => FingerprintProgress > 0 ? $"Fingerprinting: {FingerprintProgress:n0} bytes processed." : string.Empty;
     public WorkflowStatus? CurrentStatus { get => _currentStatus; private set { _currentStatus = value; RaisePropertyChanged(nameof(CurrentStatus)); } }
     public ObservableCollection<WorkflowQueueItem> Queue { get; } = new();
     public ObservableCollection<ReviewPackage> MakerPackages { get; } = new();
@@ -246,7 +249,7 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     private async Task SubmitAsync()
     {
         if (_service is null) return;
-        try { var request = (_submissionRequest ?? new SubmissionRequest(PackageId)) with { Note = Note }; var result = await _service.SubmitForReviewAsync(request); if (!result.Succeeded) { Message = result.Message; return; } Message = result.Message; IsConfirmationVisible = false; IsDirty = false; RaisePropertyChanged(nameof(IsConfirmationVisible)); ((Command)SubmitCommand).Raise(); ((Command)CancelCommand).Raise(); await LoadQueueAsync(); NavigationRequested?.Invoke("Submitted"); }
+        try { FingerprintProgress = 0; var request = (_submissionRequest ?? new SubmissionRequest(PackageId)) with { Note = Note, FingerprintProgress = new Progress<long>(value => { if (value >= FingerprintProgress) FingerprintProgress = value; }) }; var result = await _service.SubmitForReviewAsync(request); if (!result.Succeeded) { Message = result.Message; return; } Message = result.Message; IsConfirmationVisible = false; IsDirty = false; RaisePropertyChanged(nameof(IsConfirmationVisible)); ((Command)SubmitCommand).Raise(); ((Command)CancelCommand).Raise(); await LoadQueueAsync(); NavigationRequested?.Invoke("Submitted"); }
         catch (UnauthorizedAccessException) { Message = "Only a Maker can submit drawings for review."; }
         catch (Exception exception) { _logger?.Log(exception, "WPF workflow submission", $"Unable to submit packageId={PackageId}."); Message = "The drawing could not be submitted for review."; }
     }

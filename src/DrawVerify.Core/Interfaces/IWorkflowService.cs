@@ -16,6 +16,8 @@ public interface IWorkflowService
     Task RecordCancellationAsync(Guid packageId, int revision, string? note, CancellationToken cancellationToken = default);
     Task<WorkflowState?> GetPackageAsync(Guid packageId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ReviewSubmission>> GetSubmittedPackagesAsync(CancellationToken cancellationToken = default);
+    Task<FingerprintVerificationResult> VerifyFingerprintAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
+        => Task.FromException<FingerprintVerificationResult>(new NotSupportedException("Fingerprint verification is not configured."));
     Task<IReadOnlyList<WorkflowQueueItem>> GetCheckerQueueAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyList<WorkflowQueueItem>> GetApproverQueueAsync(CancellationToken cancellationToken = default)
         => throw new NotSupportedException("Final approval is not supported by this workflow service.");

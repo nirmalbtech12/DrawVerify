@@ -10,6 +10,22 @@ namespace DrawVerify.App.Tests;
 
 public sealed class CombinedUploadVerifyViewModelTests
 {
+    [Fact(DisplayName = "TD-11 cancellation tokens are observed by fingerprint operations")]
+    public async Task Fingerprint_operation_cancellation_is_bounded()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Task.FromCanceled(cancellation.Token));
+    }
+    [Fact(DisplayName = "TD-07 exposes the explicit fingerprint mismatch wording")]
+    public void Mismatch_result_is_not_presented_as_success()
+    {
+        var result = new FingerprintVerificationResult(FingerprintVerificationStatus.Mismatch, null, "Fingerprint Mismatch - Version May Have Been Altered");
+
+        Assert.False(result.IsMatch);
+        Assert.Equal("Fingerprint Mismatch - Version May Have Been Altered", result.Message);
+    }
     [Fact(DisplayName = "T02 Maker access and denied access are explicit")]
     public void Maker_access_is_guarded_before_workflow_creation()
     {

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DrawVerify.Application.Fingerprinting;
 using DrawVerify.Application.Workflow;
 using DrawVerify.Core.Authorization;
 using DrawVerify.Core.Configuration;
@@ -31,14 +32,15 @@ public sealed class WorkflowService : IWorkflowService
     private readonly IApprovalSnapshotStore? _snapshots;
     private readonly IStepUploadFileStore? _stepFiles;
     private readonly IDxfUploadFileStore? _dxfFiles;
+    private readonly IDocumentFingerprintService? _fingerprintService;
 
     /// <summary>Gets the immutable configuration version most recently resolved for this service operation.</summary>
     public int? EffectiveConfigurationVersion { get; private set; }
 
-    public WorkflowService(IWorkflowRepository workflow, ISessionAuthenticationService authentication, WorkflowConfiguration configuration, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null, IDocumentRepository? documents = null, IVerificationSessionRepository? sessions = null, Func<DateTime>? clock = null, INotificationService? notifications = null, IApprovalSnapshotStore? snapshots = null, IStepUploadFileStore? stepFiles = null, IDxfUploadFileStore? dxfFiles = null, IWorkflowConfigurationRepository? configurationRepository = null)
+    public WorkflowService(IWorkflowRepository workflow, ISessionAuthenticationService authentication, WorkflowConfiguration configuration, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null, IDocumentRepository? documents = null, IVerificationSessionRepository? sessions = null, Func<DateTime>? clock = null, INotificationService? notifications = null, IApprovalSnapshotStore? snapshots = null, IStepUploadFileStore? stepFiles = null, IDxfUploadFileStore? dxfFiles = null, IWorkflowConfigurationRepository? configurationRepository = null, IDocumentFingerprintService? fingerprintService = null)
     {
         _workflow = workflow ?? throw new ArgumentNullException(nameof(workflow)); _authentication = authentication ?? throw new ArgumentNullException(nameof(authentication));
-        _authorization = authorization ?? new RoleAuthorization(); _startupConfiguration = configuration ?? throw new ArgumentNullException(nameof(configuration)); _effectiveConfiguration = _startupConfiguration; _machine = new WorkflowStateMachine(_startupConfiguration); _configurationRepository = configurationRepository; _logger = logger; _documents = documents; _sessions = sessions; _clock = clock ?? (() => DateTime.UtcNow); _notifications = notifications; _snapshots = snapshots; _stepFiles = stepFiles; _dxfFiles = dxfFiles;
+        _authorization = authorization ?? new RoleAuthorization(); _startupConfiguration = configuration ?? throw new ArgumentNullException(nameof(configuration)); _effectiveConfiguration = _startupConfiguration; _machine = new WorkflowStateMachine(_startupConfiguration); _configurationRepository = configurationRepository; _logger = logger; _documents = documents; _sessions = sessions; _clock = clock ?? (() => DateTime.UtcNow); _notifications = notifications; _snapshots = snapshots; _stepFiles = stepFiles; _dxfFiles = dxfFiles; _fingerprintService = fingerprintService;
     }
     private async Task RefreshEffectiveConfigurationAsync(CancellationToken cancellationToken, int? version = null)
     {
@@ -301,14 +303,34 @@ public sealed class WorkflowService : IWorkflowService
         if (state is null)
             return new(false, "The package has no workflow state and cannot be submitted.", Failures: new[] { "The package has no workflow state and cannot be submitted." });
         var now = _clock().ToUniversalTime();
-        var submission = new ReviewSubmission { PackageId = request.PackageId, DxfDocumentId = request.DxfDocumentId, Revision = state.Revision, MakerUserId = user!.UserId, MakerDisplayName = user.DisplayName, MakerAuthorized = true, SubmittedUtc = now, Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim(), StepDocumentVersionId = request.StepDocumentVersionId, DxfDocumentVersionId = request.DxfDocumentVersionId, VerificationSessionId = request.VerificationSessionId, ExtractionEvidenceJson = request.ExtractionEvidenceJson, VerificationEvidenceJson = request.VerificationEvidenceJson };
+        DocumentFingerprint? fingerprint = null;
+        if (_fingerprintService is not null)
+        {
+            try
+            {
+                if (_documents is null || _stepFiles is null || _dxfFiles is null) throw new InvalidOperationException("Fingerprint generation requires the persisted document and artifact stores.");
+                var step = await _documents.GetVersionAsync(request.PackageId, request.StepDocumentVersionId, cancellationToken).ConfigureAwait(false) ?? throw new FileNotFoundException("The submitted STEP version was not found.");
+                var dxfDocument = await _documents.GetAsync(request.DxfDocumentId, cancellationToken).ConfigureAwait(false);
+                var dxf = dxfDocument?.Versions.FirstOrDefault(x => x.VersionId == request.DxfDocumentVersionId) ?? throw new FileNotFoundException("The submitted DXF version was not found.");
+                await using var stepStream = await _stepFiles.OpenReadAsync(step.StoredRelativePath, cancellationToken).ConfigureAwait(false);
+                await using var dxfStream = await _dxfFiles.OpenReadAsync(dxf.StoredRelativePath, cancellationToken).ConfigureAwait(false);
+                fingerprint = await _fingerprintService.ComputeAsync(new DocumentFingerprintContext(request.PackageId, state.Revision, request.StepDocumentVersionId, request.DxfDocumentVersionId, new Dictionary<string, string> { ["makerUserId"] = user!.UserId, ["extractionEvidence"] = request.ExtractionEvidenceJson, ["verificationEvidence"] = request.VerificationEvidenceJson }), new[] { new DocumentFingerprintArtifact(step.StoredRelativePath, stepStream, step.FileSizeBytes), new DocumentFingerprintArtifact(dxf.StoredRelativePath, dxfStream, dxf.FileSizeBytes) }, request.FingerprintProgress, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                _logger?.Log(exception, "Fingerprint generation", $"Unable to generate fingerprint for packageId={request.PackageId}, stepVersionId={request.StepDocumentVersionId}, dxfVersionId={request.DxfDocumentVersionId}.");
+                var message = $"Fingerprint generation failed: {exception.Message}";
+                return new(false, message, Failures: new[] { message });
+            }
+        }
         try
         {
+            var submission = new ReviewSubmission { PackageId = request.PackageId, DxfDocumentId = request.DxfDocumentId, Revision = state.Revision, MakerUserId = user!.UserId, MakerDisplayName = user.DisplayName, MakerAuthorized = true, SubmittedUtc = now, Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim(), StepDocumentVersionId = request.StepDocumentVersionId, DxfDocumentVersionId = request.DxfDocumentVersionId, VerificationSessionId = request.VerificationSessionId, ExtractionEvidenceJson = request.ExtractionEvidenceJson, VerificationEvidenceJson = request.VerificationEvidenceJson, Fingerprint = fingerprint };
             // Establish the durable version reference before the workflow transaction
             // can commit. A capture failure therefore cannot leave a submitted package
             // without the configuration version that governs it.
             await CapturePersistedConfigurationVersionAsync(request.PackageId, EffectiveConfigurationVersion, cancellationToken).ConfigureAwait(false);
-            var saved = await _workflow.SubmitAtomicallyAsync(state, submission, CreateAudit(request.PackageId, state.Revision, DocumentAuditAction.SubmissionSucceeded, "Submitted", now, user, documentVersionId: request.StepDocumentVersionId, previousWorkflowStatus: state.Status, workflowStatus: WorkflowStatus.SubmittedForReview), cancellationToken).ConfigureAwait(false);
+            var saved = await _workflow.SubmitAtomicallyAsync(state, submission, CreateAudit(request.PackageId, state.Revision, DocumentAuditAction.SubmissionSucceeded, "Submitted", now, user, documentVersionId: request.StepDocumentVersionId, previousWorkflowStatus: state.Status, workflowStatus: WorkflowStatus.SubmittedForReview, fingerprint: fingerprint), cancellationToken).ConfigureAwait(false);
             return new(true, "The drawing was submitted for review.", state with { Status = WorkflowStatus.SubmittedForReview, UpdatedUtc = now }, saved);
         }
         catch (Exception exception)
@@ -343,6 +365,27 @@ public sealed class WorkflowService : IWorkflowService
         return state;
     }
     public async Task<IReadOnlyList<ReviewSubmission>> GetSubmittedPackagesAsync(CancellationToken cancellationToken = default) => (await _workflow.GetSubmissionsAsync(Guid.Empty, cancellationToken).ConfigureAwait(false)).Where(x => x.Status == WorkflowStatus.SubmittedForReview).ToArray();
+    public async Task<FingerprintVerificationResult> VerifyFingerprintAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
+    {
+        if (!_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ViewDimensionMatchResults)) throw new UnauthorizedAccessException("Fingerprint verification is not authorized.");
+        if (_fingerprintService is null || _documents is null || _stepFiles is null || _dxfFiles is null) throw new InvalidOperationException("Fingerprint verification is not configured.");
+        try
+        {
+            var submission = (await _workflow.GetSubmissionsAsync(packageId, cancellationToken).ConfigureAwait(false)).FirstOrDefault(x => x.Revision == revision) ?? throw new KeyNotFoundException("The submitted version was not found.");
+            if (submission.Fingerprint is null) return new FingerprintVerificationResult(FingerprintVerificationStatus.Unavailable, null, "The submitted version has no stored fingerprint.");
+            var step = await _documents.GetVersionAsync(packageId, submission.StepDocumentVersionId, cancellationToken).ConfigureAwait(false) ?? throw new FileNotFoundException("The stored STEP version was not found.");
+            var dxfDocument = await _documents.GetAsync(submission.DxfDocumentId, cancellationToken).ConfigureAwait(false);
+            var dxf = dxfDocument?.Versions.FirstOrDefault(x => x.VersionId == submission.DxfDocumentVersionId) ?? throw new FileNotFoundException("The stored DXF version was not found.");
+            await using var stepStream = await _stepFiles.OpenReadAsync(step.StoredRelativePath, cancellationToken).ConfigureAwait(false);
+            await using var dxfStream = await _dxfFiles.OpenReadAsync(dxf.StoredRelativePath, cancellationToken).ConfigureAwait(false);
+            return await _fingerprintService.VerifyAsync(submission.Fingerprint, new DocumentFingerprintContext(packageId, revision, submission.StepDocumentVersionId, submission.DxfDocumentVersionId, new Dictionary<string, string> { ["makerUserId"] = submission.MakerUserId, ["extractionEvidence"] = submission.ExtractionEvidenceJson, ["verificationEvidence"] = submission.VerificationEvidenceJson }), new[] { new DocumentFingerprintArtifact(step.StoredRelativePath, stepStream, step.FileSizeBytes), new DocumentFingerprintArtifact(dxf.StoredRelativePath, dxfStream, dxf.FileSizeBytes) }, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not UnauthorizedAccessException and not OperationCanceledException)
+        {
+            _logger?.Log(exception, "Fingerprint verification", $"Unable to verify packageId={packageId}, revision={revision}.");
+            throw;
+        }
+    }
     public Task<IReadOnlyList<WorkflowQueueItem>> GetCheckerQueueAsync(CancellationToken cancellationToken = default)
     {
         RequireReviewPermission();
@@ -823,9 +866,9 @@ public sealed class WorkflowService : IWorkflowService
         try { await _workflow.RecordAuditAsync(audit, cancellationToken).ConfigureAwait(false); }
         catch (Exception exception) { _logger?.Log(exception, "Workflow audit", $"Unable to record unauthenticated submission rejection for packageId={packageId}, revision={revision}."); throw; }
     }
-    private static AuditEntry CreateAudit(Guid packageId, int revision, DocumentAuditAction action, string result, DateTime timestamp, AuthenticatedUser? user, IReadOnlyList<string>? failures = null, string? snapshotReference = null, ReviewComment? comment = null, Guid? commentId = null, WorkflowStatus? workflowStatus = null, IReadOnlyList<ReviewComment>? commentReferences = null, ReviewDecision? decision = null, Guid? documentVersionId = null, WorkflowStatus? previousWorkflowStatus = null) {
+    private static AuditEntry CreateAudit(Guid packageId, int revision, DocumentAuditAction action, string result, DateTime timestamp, AuthenticatedUser? user, IReadOnlyList<string>? failures = null, string? snapshotReference = null, ReviewComment? comment = null, Guid? commentId = null, WorkflowStatus? workflowStatus = null, IReadOnlyList<ReviewComment>? commentReferences = null, ReviewDecision? decision = null, Guid? documentVersionId = null, WorkflowStatus? previousWorkflowStatus = null, DocumentFingerprint? fingerprint = null) {
         var actor = user ?? throw new UnauthorizedAccessException("An authenticated workflow actor is required for auditing."); var role = actor.Roles.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? throw new InvalidOperationException("The authenticated workflow actor has no role.");
         if (workflowStatus is null && action is DocumentAuditAction.SubmissionSucceeded or DocumentAuditAction.Approved or DocumentAuditAction.Rejected or DocumentAuditAction.ReturnedForRework or DocumentAuditAction.FinalApproved) throw new InvalidOperationException("Workflow transition context is required for decision auditing.");
-        return new AuditEntry { DocumentId = packageId, UserId = actor.UserId, ActorRole = role, DocumentRevision = revision.ToString(), DocumentVersion = documentVersionId?.ToString("D"), PreviousWorkflowStatus = previousWorkflowStatus?.ToString(), NewWorkflowStatus = workflowStatus?.ToString(), Action = action, TimestampUtc = timestamp, DetailsJson = JsonSerializer.Serialize(new { packageId, revision, action = action.ToString(), result, checkerUserId = actor.UserId, checkerDisplayName = actor.DisplayName, approverUserId = decision?.ApproverUserId, approverDisplayName = decision?.ApproverDisplayName, workflowStatus = workflowStatus?.ToString(), rejectionStatus = decision is null ? null : action is DocumentAuditAction.Rejected or DocumentAuditAction.RejectedToChecker or DocumentAuditAction.RejectedToMaker or DocumentAuditAction.ReturnedForRework or DocumentAuditAction.ChangesRequested ? workflowStatus?.ToString() : null, route = decision?.Route.ToString(), destinationRole = decision?.DestinationRole, destinationQueue = decision?.DestinationQueue, reason = decision?.OverallReason, comments = decision?.Comments, failures, snapshotReference, commentId = comment?.CommentId ?? commentId, referenceType = comment?.ReferenceType, referenceId = comment?.ReferenceId, location = comment?.Location, commentReferences = commentReferences?.Select(x => new { id = x.CommentId, x.ReferenceType, x.ReferenceId, x.Location }).ToArray(), correctionAction = decision?.CorrectionAction }) };
+        return new AuditEntry { DocumentId = packageId, UserId = actor.UserId, ActorRole = role, DocumentRevision = revision.ToString(), DocumentVersion = documentVersionId?.ToString("D"), PreviousWorkflowStatus = previousWorkflowStatus?.ToString(), NewWorkflowStatus = workflowStatus?.ToString(), Action = action, TimestampUtc = timestamp, DetailsJson = JsonSerializer.Serialize(new { packageId, revision, action = action.ToString(), result, fingerprint = fingerprint?.Value, fingerprintAlgorithm = fingerprint?.Algorithm, fingerprintCanonicalizationVersion = fingerprint?.CanonicalizationVersion, checkerUserId = actor.UserId, checkerDisplayName = actor.DisplayName, approverUserId = decision?.ApproverUserId, approverDisplayName = decision?.ApproverDisplayName, workflowStatus = workflowStatus?.ToString(), rejectionStatus = decision is null ? null : action is DocumentAuditAction.Rejected or DocumentAuditAction.RejectedToChecker or DocumentAuditAction.RejectedToMaker or DocumentAuditAction.ReturnedForRework or DocumentAuditAction.ChangesRequested ? workflowStatus?.ToString() : null, route = decision?.Route.ToString(), destinationRole = decision?.DestinationRole, destinationQueue = decision?.DestinationQueue, reason = decision?.OverallReason, comments = decision?.Comments, failures, snapshotReference, commentId = comment?.CommentId ?? commentId, referenceType = comment?.ReferenceType, referenceId = comment?.ReferenceId, location = comment?.Location, commentReferences = commentReferences?.Select(x => new { id = x.CommentId, x.ReferenceType, x.ReferenceId, x.Location }).ToArray(), correctionAction = decision?.CorrectionAction }) };
     }
 }
