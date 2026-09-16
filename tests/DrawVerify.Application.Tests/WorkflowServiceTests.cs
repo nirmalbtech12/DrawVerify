@@ -298,7 +298,7 @@ public sealed class WorkflowServiceTests
         var audit = Assert.Single(f.Workflow.Audits);
 
         Assert.True(result.Succeeded, result.Message);
-        Assert.Equal(DocumentAuditAction.SubmissionSucceeded, audit.Action);
+        Assert.Equal(DocumentAuditAction.MakerSignatureApplied, audit.Action);
         Assert.Equal("maker-001", audit.UserId);
         Assert.Equal(Now, audit.TimestampUtc);
         Assert.Contains("packageId", audit.DetailsJson);
@@ -574,7 +574,7 @@ public sealed class WorkflowServiceTests
         public Document? Document { get; set; } = new() { DocumentId = Package, DocumentType = DrawVerify.Core.Enums.DocumentType.StepModel, OriginalFileName = "package.step", FileSizeBytes = 1024, GeometryStatus = CoreGeometryStatus.Processed, Version = new DocumentVersion { VersionId = Guid.Parse("00000000-0000-0000-0000-000000000011"), DocumentId = Package } };
         public Document DxfDocumentRecord { get; } = new() { DocumentId = DxfDocument, DocumentType = DrawVerify.Core.Enums.DocumentType.DxfDrawing, OriginalFileName = "drawing.dxf", FileSizeBytes = 1024, UploadStatus = DrawVerify.Core.Enums.UploadStatus.Uploaded, VerificationStatus = VerificationStatus.DimensionsExtracted, Version = new DocumentVersion { VersionId = DxfVersion, DocumentId = DxfDocument }, Versions = new[] { new DocumentVersion { VersionId = DxfVersion, DocumentId = DxfDocument } } };
         public WorkflowState WorkflowState { get => _state; set { _state = value; Workflow.InitialStatus = value.Status; } } private WorkflowState _state = new() { PackageId = Package, Status = WorkflowStatus.Draft, Revision = 1 };
-        public SubmissionRequest Request { get; set; } = new(Package) { DxfDocumentId = DxfDocument, StepDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000011"), DxfDocumentVersionId = DxfVersion, VerificationSessionId = Guid.Parse("00000000-0000-0000-0000-000000000013"), ExtractionEvidenceJson = "{\"extracted\":true}", VerificationEvidenceJson = "{\"verified\":true}" };
+        public SubmissionRequest Request { get; set; } = new(Package) { DxfDocumentId = DxfDocument, StepDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000011"), DxfDocumentVersionId = DxfVersion, VerificationSessionId = Guid.Parse("00000000-0000-0000-0000-000000000013"), ExtractionEvidenceJson = "{\"extracted\":true}", VerificationEvidenceJson = "{\"verified\":true}", MakerSignature = SignatureData.Create(SignatureMethod.Typed, "Maker One", "maker-001", "Maker One", Package, 1, new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero)) };
         public WorkflowService Service => new(Workflow, Auth, new WorkflowConfiguration { PermittedInitialStates = new[] { WorkflowStatus.Draft, WorkflowStatus.InPreparation }, DuplicateSubmissionStates = new[] { WorkflowStatus.SubmittedForReview, WorkflowStatus.UnderReview, WorkflowStatus.Approved } }, new RoleAuthorization(), Logger, new FakeDocuments(this), null, () => Now);
         public IDocumentRepository CreateDocumentRepository() => new FakeDocuments(this);
         public static Fixture Create() { var f = new Fixture(); f.Workflow.StateProvider = () => f._state; return f; }

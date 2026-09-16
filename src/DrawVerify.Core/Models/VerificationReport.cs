@@ -2,6 +2,7 @@ namespace DrawVerify.Core.Models;
 
 public sealed class VerificationReport
 {
+    public SignatureData? MakerSignature { get; init; }
     public DocumentFingerprint? Fingerprint { get; init; }
     public FingerprintVerificationResult? FingerprintVerification { get; init; }
     public IReadOnlyList<DimensionMatch> DimensionMatches { get; init; } = Array.Empty<DimensionMatch>();
@@ -14,6 +15,13 @@ public sealed class VerificationReport
     {
         var summary = ComparisonSummary;
         var verification = FingerprintVerification;
+        var signatureLines = MakerSignature is null ? Array.Empty<string>() : new[]
+        {
+            $"- Maker Signature: {MakerSignature.Payload}",
+            $"- Maker: {MakerSignature.MakerDisplayName} ({MakerSignature.Role})",
+            $"- Signature timestamp: {MakerSignature.TimestampUtc:O}",
+            $"- Signature method: {MakerSignature.Method}"
+        };
         var lines = new List<string> { "# Verification Report", string.Empty, $"- Fingerprint: {Fingerprint?.Value ?? "Unavailable"}", $"- Fingerprint algorithm: {Fingerprint?.Algorithm ?? "Unavailable"}", $"- Fingerprint verification: {verification?.Status.ToString() ?? "Unavailable"}", $"- Stored fingerprint: {verification?.Stored?.Value ?? Fingerprint?.Value ?? "Unavailable"}", $"- Recomputed fingerprint: {verification?.Computed?.Value ?? "Unavailable"}", $"- Verification timestamp: {verification?.VerifiedUtc?.ToString("O") ?? "Unavailable"}", $"- Verifier: {verification?.VerifierDisplayName ?? verification?.VerifierUserId ?? "Unavailable"}", string.Empty, "## Comparison Summary", string.Empty,
             $"- Total Dimensions: {summary.TotalDimensions}",
             $"- Matched: {summary.MatchedDimensions}",
@@ -26,6 +34,7 @@ public sealed class VerificationReport
             string.Empty,
             "### Summary by Dimension Type",
             string.Empty };
+        lines.InsertRange(1, signatureLines);
         foreach (var type in summary.DimensionTypes)
             lines.Add($"- {type.DimensionType}: {type.MatchedDimensions} Matched, {type.MismatchedDimensions} Mismatched, {type.UnmatchedDimensions} Unmatched");
         lines.Add(string.Empty);

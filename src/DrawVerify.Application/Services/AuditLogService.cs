@@ -50,7 +50,7 @@ public sealed class AuditLogService
     }
     public async Task<string> ExportDocumentCsvAsync(Guid documentId, AuditLogQuery? query = null, CancellationToken cancellationToken = default)
     {
-        var entries = await QueryDocumentAsync(documentId, query, cancellationToken); var b = new StringBuilder("AuditId,DocumentId,Revision,Version,Actor,Role,Timestamp,Action,Details,Metadata,Fingerprint,RecomputedFingerprint,VerificationResult,FingerprintAlgorithm,FingerprintCanonicalizationVersion,PreviousStatus,NewStatus,Predecessor,IntegrityHash\r\n");
+        var entries = await QueryDocumentAsync(documentId, query, cancellationToken); var b = new StringBuilder("AuditId,DocumentId,Revision,Version,Actor,Role,Timestamp,Action,Details,Metadata,Fingerprint,RecomputedFingerprint,VerificationResult,FingerprintAlgorithm,FingerprintCanonicalizationVersion,MakerSignature,MakerUserId,MakerDisplayName,MakerRole,MakerTimestampUtc,MakerMethod,MakerTitle,MakerDepartment,PreviousStatus,NewStatus,Predecessor,IntegrityHash\r\n");
         foreach (var e in entries)
         {
             var fingerprint = ReadDetail(e.DetailsJson, "storedFingerprint") ?? ReadDetail(e.DetailsJson, "fingerprint");
@@ -58,7 +58,16 @@ public sealed class AuditLogService
             var verificationResult = ReadDetail(e.DetailsJson, "result") ?? "Unavailable";
             var algorithm = ReadDetail(e.DetailsJson, "fingerprintAlgorithm");
             var canonicalization = ReadDetail(e.DetailsJson, "fingerprintCanonicalizationVersion");
-            b.AppendJoin(',', new[] { e.AuditId.ToString(), e.DocumentId.ToString(), e.DocumentRevision, e.DocumentVersion, e.ActorId, e.ActorRole, e.Timestamp.ToString("O"), e.Action.ToString(), e.DetailsJson, e.EventMetadataJson, fingerprint, recomputed, verificationResult, algorithm, canonicalization, e.PreviousWorkflowStatus, e.NewWorkflowStatus, e.PredecessorAuditId?.ToString(), e.IntegrityHash }.Select(Escape)).Append("\r\n");
+            var makerSignature = ReadDetail(e.DetailsJson, "signatureCanonical");
+            var makerUserId = ReadDetail(e.DetailsJson, "makerUserId");
+            var makerDisplayName = ReadDetail(e.DetailsJson, "makerDisplayName");
+            var makerRole = ReadDetail(e.DetailsJson, "makerRole");
+            var makerTimestamp = ReadDetail(e.DetailsJson, "signatureTimestampUtc");
+            var makerMethod = ReadDetail(e.DetailsJson, "signatureMethod");
+            var makerTitle = ReadDetail(e.DetailsJson, "signatureTitle");
+            var makerDepartment = ReadDetail(e.DetailsJson, "signatureDepartment");
+            if (e.Action == DrawVerify.Core.Enums.DocumentAuditAction.MakerSignatureApplied && (string.IsNullOrWhiteSpace(makerSignature) || string.IsNullOrWhiteSpace(makerUserId) || string.IsNullOrWhiteSpace(makerDisplayName) || string.IsNullOrWhiteSpace(makerRole) || string.IsNullOrWhiteSpace(makerTimestamp) || string.IsNullOrWhiteSpace(makerMethod))) throw new InvalidDataException("Maker signature audit data is incomplete.");
+            b.AppendJoin(',', new[] { e.AuditId.ToString(), e.DocumentId.ToString(), e.DocumentRevision, e.DocumentVersion, e.ActorId, e.ActorRole, e.Timestamp.ToString("O"), e.Action.ToString(), e.DetailsJson, e.EventMetadataJson, fingerprint, recomputed, verificationResult, algorithm, canonicalization, makerSignature, makerUserId, makerDisplayName, makerRole, makerTimestamp, makerMethod, makerTitle, makerDepartment, e.PreviousWorkflowStatus, e.NewWorkflowStatus, e.PredecessorAuditId?.ToString(), e.IntegrityHash }.Select(Escape)).Append("\r\n");
         }
         return b.ToString();
     }

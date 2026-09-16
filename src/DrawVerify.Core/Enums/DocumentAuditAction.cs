@@ -50,4 +50,5 @@ public enum DocumentAuditAction
     ,DocumentDeleted = 62
     ,PriorVersionViewed = 63
     ,IntegrityCheckFailed = 64
+    ,MakerSignatureApplied = 65
 }

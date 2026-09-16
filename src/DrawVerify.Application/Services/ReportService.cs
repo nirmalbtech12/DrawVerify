@@ -93,17 +93,18 @@ public sealed class ReportService
         return builder.ToString();
     }
     private static string Value(double? value) => value?.ToString("0.############", CultureInfo.InvariantCulture) ?? string.Empty;
-    private async Task<DocumentFingerprint?> GetFingerprintAsync(Guid sessionId, CancellationToken cancellationToken)
-    {
-        if (_workflow is null) return null;
-        return (await _workflow.GetSubmissionsAsync(Guid.Empty, cancellationToken).ConfigureAwait(false)).FirstOrDefault(x => x.VerificationSessionId == sessionId)?.Fingerprint;
-    }
     private async Task<VerificationReport> BuildReportAsync(Guid sessionId, IReadOnlyList<DimensionMatch> matches, IReadOnlyList<GdtResult> gdtResults, CancellationToken cancellationToken)
     {
-        var fingerprint = await GetFingerprintAsync(sessionId, cancellationToken).ConfigureAwait(false);
-        var submission = _workflow is null ? null : (await _workflow.GetSubmissionsAsync(Guid.Empty, cancellationToken).ConfigureAwait(false)).FirstOrDefault(x => x.VerificationSessionId == sessionId);
+        var session = await _sessions.GetAsync(sessionId, cancellationToken).ConfigureAwait(false) ?? throw new InvalidOperationException("The verification session was not found.");
+        var submissions = _workflow is null ? Array.Empty<ReviewSubmission>() : await _workflow.GetSubmissionsAsync(Guid.Empty, cancellationToken).ConfigureAwait(false);
+        var submission = submissions.Where(x => x.VerificationSessionId == sessionId)
+            .Where(x => !session.StepDocumentVersionId.HasValue || x.StepDocumentVersionId == session.StepDocumentVersionId.Value)
+            .Where(x => !session.DxfDocumentVersionId.HasValue || x.DxfDocumentVersionId == session.DxfDocumentVersionId.Value)
+            .OrderByDescending(x => x.Revision).ThenByDescending(x => x.SubmittedUtc).FirstOrDefault();
+        var fingerprint = submission?.Fingerprint;
+        if (submission?.MakerSignature is not null) submission.MakerSignature.Validate();
         var verification = submission is null ? null : await _workflow!.GetFingerprintVerificationAsync(submission.PackageId, submission.Revision, cancellationToken).ConfigureAwait(false);
-        return new VerificationReport { DimensionMatches = matches, GdtResults = gdtResults, Fingerprint = fingerprint, FingerprintVerification = verification };
+        return new VerificationReport { DimensionMatches = matches, GdtResults = gdtResults, Fingerprint = fingerprint, FingerprintVerification = verification, MakerSignature = submission?.MakerSignature };
     }
     private static string Escape(string? value) { value ??= string.Empty; return value.IndexOfAny(new[] { ',', '"', '\r', '\n' }) >= 0 ? '"' + value.Replace("\"", "\"\"") + '"' : value; }
 }
