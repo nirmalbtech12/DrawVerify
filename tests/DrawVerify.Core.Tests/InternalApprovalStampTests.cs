@@ -29,6 +29,10 @@ public sealed class InternalApprovalStampTests
             stamp with { Revision = 0 }, stamp with { AppliedUtc = default },
             stamp with { StampId = Guid.Empty }, stamp with { FingerprintReference = "" }
         }) Assert.ThrowsAny<Exception>(() => invalid.Validate());
+
+        Assert.Throws<ArgumentException>(() => InternalApprovalStamp.Create(Document, 1, null!, "Approver One", Applied, "fingerprint"));
+        Assert.Throws<ArgumentException>(() => InternalApprovalStamp.Create(Document, 1, "approver-001", null!, Applied, "fingerprint"));
+        Assert.Throws<ArgumentException>(() => InternalApprovalStamp.Create(Document, 1, "approver-001", "Approver One", Applied, null!));
     }
 
     [Fact(DisplayName = "T02 canonicalization is deterministic and finalized snapshots are immutable")]
@@ -41,6 +45,11 @@ public sealed class InternalApprovalStampTests
         Assert.Equal("Approver One", stamp.ApproverDisplayName);
         Assert.Throws<ArgumentException>(() => altered.Validate());
         Assert.Equal(stamp.IntegrityHash, JsonSerializer.Deserialize<InternalApprovalStamp>(JsonSerializer.Serialize(stamp))!.IntegrityHash);
+
+        var delimiterLeft = InternalApprovalStamp.Create(Document, 1, "approver|001", "Approver One", Applied, "finger|print");
+        var delimiterRight = InternalApprovalStamp.Create(Document, 1, "approver", "001", Applied, "finger|print");
+        Assert.NotEqual(delimiterLeft.CanonicalRepresentation, delimiterRight.CanonicalRepresentation);
+        Assert.NotEqual(delimiterLeft.IntegrityHash, delimiterRight.IntegrityHash);
     }
 
     [Fact(DisplayName = "T18 legacy unstamped submission and report remain compatible")]

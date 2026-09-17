@@ -21,7 +21,11 @@ public sealed record InternalApprovalStamp
     public string? OrganizationName { get; init; }
     public string? ApprovalText { get; init; } = "Internally Approved";
     public string Placement { get; init; } = "Approval";
-    public string CanonicalRepresentation => string.Join("|", StampId.ToString("D"), DocumentId.ToString("D"), PackageId.ToString("D"), Revision, ApproverUserId, ApproverDisplayName, ApproverRole, AppliedUtc.UtcDateTime.ToString("O"), FingerprintReference, OrganizationName ?? string.Empty, ApprovalText ?? string.Empty, Placement);
+    public string CanonicalRepresentation => string.Concat(
+        CanonicalField(StampId.ToString("D")), CanonicalField(DocumentId.ToString("D")), CanonicalField(PackageId.ToString("D")),
+        CanonicalField(Revision.ToString(System.Globalization.CultureInfo.InvariantCulture)), CanonicalField(ApproverUserId),
+        CanonicalField(ApproverDisplayName), CanonicalField(ApproverRole), CanonicalField(AppliedUtc.UtcDateTime.ToString("O")),
+        CanonicalField(FingerprintReference), CanonicalField(OrganizationName), CanonicalField(ApprovalText), CanonicalField(Placement));
     public string IntegrityHash { get; init; } = string.Empty;
     public void Validate()
     {
@@ -36,10 +40,16 @@ public sealed record InternalApprovalStamp
     }
     public static InternalApprovalStamp Create(Guid documentId, int revision, string approverUserId, string approverDisplayName, DateTimeOffset appliedUtc, string fingerprintReference, Guid? stampId = null, string? organizationName = null, string? approvalText = "Internally Approved", string placement = "Approval")
     {
+        if (documentId == Guid.Empty || revision <= 0) throw new ArgumentException("Stamp document and revision identity are required.");
+        if (string.IsNullOrWhiteSpace(approverUserId) || string.IsNullOrWhiteSpace(approverDisplayName)) throw new ArgumentException("Approver identity is required.");
+        if (appliedUtc == default || appliedUtc.Offset != TimeSpan.Zero) throw new ArgumentException("Stamp timestamp must be UTC.");
+        if (string.IsNullOrWhiteSpace(fingerprintReference)) throw new ArgumentException("Stamp fingerprint reference is required.");
+        if (string.IsNullOrWhiteSpace(placement)) throw new ArgumentException("Stamp placement is required.");
         var stamp = new InternalApprovalStamp { StampId = stampId ?? Guid.NewGuid(), DocumentId = documentId, PackageId = documentId, Revision = revision, ApproverUserId = approverUserId.Trim(), ApproverDisplayName = approverDisplayName.Trim(), AppliedUtc = appliedUtc.ToUniversalTime(), FingerprintReference = fingerprintReference.Trim(), OrganizationName = string.IsNullOrWhiteSpace(organizationName) ? null : organizationName.Trim(), ApprovalText = string.IsNullOrWhiteSpace(approvalText) ? "Internally Approved" : approvalText.Trim(), Placement = placement.Trim() };
         stamp = stamp with { IntegrityHash = ComputeIntegrityHash(stamp.CanonicalRepresentation) };
         stamp.Validate();
         return stamp;
     }
+    private static string CanonicalField(string? value) => value is null ? "-1:" : $"{value.Length}:{value}";
     private static string ComputeIntegrityHash(string canonical) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical))).ToLowerInvariant();
 }
