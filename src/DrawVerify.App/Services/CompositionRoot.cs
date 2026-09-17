@@ -188,7 +188,7 @@ public static class CompositionRoot
     public static ReportService CreateReportService()
     {
         var database = DatabasePath();
-        return new ReportService(new SqliteVerificationSessionRepository(database), Session, Authorization, new MarkdownReportGenerator(), new CentralizedLogger(), new SqliteAuditRepository(database), new DrawVerify.Infrastructure.Pdf.PdfReportGenerator(), new SqliteWorkflowRepository(database, new CentralizedLogger()));
+        return new ReportService(new SqliteVerificationSessionRepository(database), Session, Authorization, new MarkdownReportGenerator(), new CentralizedLogger(), new SqliteAuditRepository(database), new DrawVerify.Infrastructure.Pdf.PdfReportGenerator(), new SqliteWorkflowRepository(database, new CentralizedLogger()), new SqliteDocumentRepository(database, new CentralizedLogger()));
     }
     public static MissingDimensionReviewService CreateMissingDimensionReviewService()
     {

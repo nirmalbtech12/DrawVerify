@@ -20,8 +20,9 @@ public sealed class ReportService
     private readonly IWorkflowRepository? _workflow;
     private readonly ICentralizedLogger? _logger;
     private readonly IAuditLogger? _audit;
-    public ReportService(IVerificationSessionRepository sessions, ISessionAuthenticationService authentication, RoleAuthorization? authorization = null, IReportGenerator? generator = null, ICentralizedLogger? logger = null, IAuditLogger? audit = null, IPdfReportGenerator? pdfGenerator = null, IWorkflowRepository? workflow = null)
-    { _sessions = sessions; _authentication = authentication; _authorization = authorization ?? new RoleAuthorization(); _generator = generator ?? new MarkdownReportGenerator(); _logger = logger; _audit = audit; _pdfGenerator = pdfGenerator; _workflow = workflow; }
+    private readonly IDocumentRepository? _documents;
+    public ReportService(IVerificationSessionRepository sessions, ISessionAuthenticationService authentication, RoleAuthorization? authorization = null, IReportGenerator? generator = null, ICentralizedLogger? logger = null, IAuditLogger? audit = null, IPdfReportGenerator? pdfGenerator = null, IWorkflowRepository? workflow = null, IDocumentRepository? documents = null)
+    { _sessions = sessions; _authentication = authentication; _authorization = authorization ?? new RoleAuthorization(); _generator = generator ?? new MarkdownReportGenerator(); _logger = logger; _audit = audit; _pdfGenerator = pdfGenerator; _workflow = workflow; _documents = documents; }
     public async Task<string> GenerateMarkdownAsync(Guid sessionId, CancellationToken cancellationToken = default)
     {
         if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ViewDimensionMatchResults)) throw new UnauthorizedAccessException("Only authenticated Maker, Checker, or Approver users may access verification reports.");
@@ -47,6 +48,9 @@ public sealed class ReportService
     }
 
     public async Task<byte[]> GeneratePdfAsync(Guid sessionId, CancellationToken cancellationToken = default)
+        => await GeneratePdfAsync(sessionId, new VerificationReportRequest(), cancellationToken).ConfigureAwait(false);
+
+    public async Task<byte[]> GeneratePdfAsync(Guid sessionId, VerificationReportRequest request, CancellationToken cancellationToken = default)
     {
         if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ViewDimensionMatchResults)) throw new UnauthorizedAccessException("Only authenticated Maker, Checker, or Approver users may access verification reports.");
         if (_pdfGenerator is null) throw new InvalidOperationException("PDF report generation is not configured.");
@@ -54,18 +58,33 @@ public sealed class ReportService
         {
             var matches = await _sessions.GetMatchesAsync(sessionId, cancellationToken: cancellationToken).ConfigureAwait(false);
             var gdtResults = await _sessions.GetGdtResultsAsync(sessionId, cancellationToken).ConfigureAwait(false);
-            var report = await BuildReportAsync(sessionId, matches, gdtResults, cancellationToken).ConfigureAwait(false);
-            var content = await _pdfGenerator.GeneratePdfAsync(report, cancellationToken).ConfigureAwait(false);
+            var session = await _sessions.GetAsync(sessionId, cancellationToken).ConfigureAwait(false) ?? throw new InvalidOperationException("The verification session was not found.");
+            var normalized = (request ?? throw new ArgumentNullException(nameof(request))).Normalize();
+            var filteredMatches = matches.Where(x => !normalized.GdtOnly).Where(x => !normalized.MismatchedAndMissingOnly || x.Status is DimensionMatchStatus.Mismatched or DimensionMatchStatus.Unmatched).Where(x => normalized.FeatureFilters.Count == 0 || normalized.FeatureFilters.Contains(x.GeometryType ?? string.Empty, StringComparer.OrdinalIgnoreCase)).Where(x => normalized.ZoneFilters.Count == 0 || normalized.ZoneFilters.Contains(x.ViewName ?? string.Empty, StringComparer.OrdinalIgnoreCase)).ToArray();
+            var filteredGdt = normalized.MismatchedAndMissingOnly ? Array.Empty<GdtResult>() : gdtResults.Where(x => !normalized.GdtOnly || normalized.GdtOnly).Where(x => normalized.FeatureFilters.Count == 0 || normalized.FeatureFilters.Contains(x.ControlledFeature ?? string.Empty, StringComparer.OrdinalIgnoreCase)).Where(x => normalized.ZoneFilters.Count == 0 || normalized.ZoneFilters.Contains(x.ViewName ?? string.Empty, StringComparer.OrdinalIgnoreCase)).ToArray();
+            var report = await BuildReportAsync(sessionId, filteredMatches, filteredGdt, cancellationToken).ConfigureAwait(false);
+            var metadata = await BuildMetadataAsync(session, cancellationToken).ConfigureAwait(false);
+            report = report with { Metadata = metadata, Request = normalized };
+            var content = await _pdfGenerator.GeneratePdfAsync(report, normalized, cancellationToken).ConfigureAwait(false);
             if (_audit is not null)
             {
                 var summary = report.ComparisonSummary;
-                var details = JsonSerializer.Serialize(new { verificationSessionId = sessionId, totalDimensions = summary.TotalDimensions, matchedDimensions = summary.MatchedDimensions, mismatchedDimensions = summary.MismatchedDimensions, unmatchedDimensions = summary.UnmatchedDimensions, missingDimensions = summary.MissingDimensions, extraDimensions = summary.ExtraDimensions, notVerifiedGdtControls = summary.NotVerifiedGdtControls, matchPercentage = summary.MatchPercentage, reportFormat = "PDF" });
-                await _audit.WriteAsync(new AuditEntry { DocumentId = sessionId, UserId = _authentication.CurrentUser!.UserId, Action = DocumentAuditAction.VerificationReportGenerated, TimestampUtc = DateTime.UtcNow, DetailsJson = details }, cancellationToken).ConfigureAwait(false);
+                var details = JsonSerializer.Serialize(new { verificationSessionId = sessionId, documentId = report.Metadata.DocumentId, drawingVersionId = report.Metadata.DrawingVersionId, modelVersionId = report.Metadata.ModelVersionId, reportType = "VerificationReport", totalDimensions = summary.TotalDimensions, matchedDimensions = summary.MatchedDimensions, mismatchedDimensions = summary.MismatchedDimensions, unmatchedDimensions = summary.UnmatchedDimensions, missingDimensions = summary.MissingDimensions, extraDimensions = summary.ExtraDimensions, notVerifiedGdtControls = summary.NotVerifiedGdtControls, matchPercentage = summary.MatchPercentage, reportFormat = "PDF", generatedUtc = report.Metadata.GeneratedUtc, scope = normalized });
+                await _audit.WriteAsync(new AuditEntry { DocumentId = report.Metadata.DocumentId ?? sessionId, UserId = _authentication.CurrentUser!.UserId, ActorRole = _authentication.CurrentUser.Roles.FirstOrDefault(), DocumentRevision = report.Metadata.DrawingVersion, DocumentVersion = report.Metadata.ModelVersion, Action = DocumentAuditAction.VerificationReportGenerated, TimestampUtc = report.Metadata.GeneratedUtc.UtcDateTime, DetailsJson = details }, cancellationToken).ConfigureAwait(false);
             }
             return content;
         }
         catch (Exception exception) when (exception is not UnauthorizedAccessException and not OperationCanceledException)
         { _logger?.Log(exception, "Verification PDF report generation", $"Unable to generate PDF report for verificationSessionId={sessionId}."); throw; }
+    }
+
+    private async Task<VerificationReportMetadata> BuildMetadataAsync(VerificationSession session, CancellationToken cancellationToken)
+    {
+        var drawing = _documents is null ? null : await _documents.GetAsync(session.DxfDocumentId, cancellationToken).ConfigureAwait(false);
+        var model = _documents is null ? null : await _documents.GetAsync(session.StepDocumentId, cancellationToken).ConfigureAwait(false);
+        var drawingVersion = session.DxfDocumentVersionId.HasValue && _documents is not null ? await _documents.GetVersionAsync(session.DxfDocumentId, session.DxfDocumentVersionId.Value, cancellationToken).ConfigureAwait(false) : null;
+        var modelVersion = session.StepDocumentVersionId.HasValue && _documents is not null ? await _documents.GetVersionAsync(session.StepDocumentId, session.StepDocumentVersionId.Value, cancellationToken).ConfigureAwait(false) : null;
+        return new VerificationReportMetadata { DocumentName = drawing?.OriginalFileName ?? model?.OriginalFileName ?? "Unavailable", DocumentId = drawing?.DocumentId ?? model?.DocumentId, DrawingVersion = drawingVersion?.VersionNumber.ToString(CultureInfo.InvariantCulture) ?? "Unavailable", ModelVersion = modelVersion?.VersionNumber.ToString(CultureInfo.InvariantCulture) ?? "Unavailable", DrawingVersionId = drawingVersion?.VersionId, ModelVersionId = modelVersion?.VersionId, VerificationSessionId = session.VerificationSessionId, VerificationMethod = session.ToleranceThresholdMm is null ? "Persisted verification configuration unavailable" : $"Tolerance threshold: {session.ToleranceThresholdMm.Value.ToString(CultureInfo.InvariantCulture)} mm", CheckerIdentity = _authentication.CurrentUser?.DisplayName, GeneratedUtc = DateTimeOffset.UtcNow };
     }
 
     public async Task<string> GenerateMissingDimensionsCsvAsync(Guid sessionId, CancellationToken cancellationToken = default)

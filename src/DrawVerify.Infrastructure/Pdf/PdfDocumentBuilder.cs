@@ -1,8 +1,9 @@
 namespace DrawVerify.Infrastructure.Pdf;
 
 /// <summary>
-/// Builds PDF document structures.
+/// Shared PDF text construction boundary. Report-specific layout remains in PdfReportGenerator.
 /// </summary>
-public sealed class PdfDocumentBuilder
+internal static class PdfDocumentBuilder
 {
+    public static string EscapeText(string value) => value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("(", "\\(", StringComparison.Ordinal).Replace(")", "\\)", StringComparison.Ordinal);
 }

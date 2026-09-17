@@ -27,6 +27,34 @@ public sealed class SqliteAuditRepositoryTests
         }
         finally { Cleanup(path); }
     }
+
+    [Fact(DisplayName = "TD-KAN70-07 VerificationReportGenerated audit is queryable by document and preserves scope")]
+    public async Task Verification_report_event_is_queryable_with_complete_scope_payload()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-audit-report-{Guid.NewGuid():N}.db");
+        var documentId = Guid.NewGuid();
+        try
+        {
+            var repository = new SqliteAuditRepository(path);
+            var entry = new AuditEntry
+            {
+                DocumentId = documentId, UserId = "checker-id", ActorRole = "Checker", DocumentRevision = "7", DocumentVersion = "model-3",
+                Action = DocumentAuditAction.VerificationReportGenerated, TimestampUtc = DateTime.UtcNow,
+                DetailsJson = "{\"verificationSessionId\":\"11111111-1111-1111-1111-111111111111\",\"reportType\":\"VerificationReport\",\"reportFormat\":\"PDF\",\"scope\":{\"gdtOnly\":true}}"
+            };
+            await repository.WriteAsync(entry);
+
+            var result = Assert.Single(await repository.QueryAsync(new AuditLogQuery(DocumentId: documentId)));
+            Assert.Equal(DocumentAuditAction.VerificationReportGenerated, result.Action);
+            Assert.Equal("checker-id", result.ActorId);
+            Assert.Equal("Checker", result.ActorRole);
+            Assert.Equal("7", result.DocumentRevision);
+            Assert.Equal("model-3", result.DocumentVersion);
+            Assert.Contains("VerificationReport", result.DetailsJson);
+            Assert.Contains("gdtOnly", result.DetailsJson);
+        }
+        finally { SqliteConnection.ClearAllPools(); if (File.Exists(path)) File.Delete(path); }
+    }
     [Fact(DisplayName = "TD-08 preserves fingerprint fields in the submission audit event")]
     public async Task Submission_audit_round_trips_fingerprint_context_and_integrity()
     {

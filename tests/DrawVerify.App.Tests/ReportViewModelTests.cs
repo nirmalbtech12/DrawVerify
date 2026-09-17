@@ -101,6 +101,41 @@ public sealed class ReportViewModelTests
         Assert.Null(report.CheckerSignature);
     }
 
+    [Fact(DisplayName = "TD-KAN70-08 PDF download command exposes scoped generation and busy-state contract")]
+    public async Task Pdf_download_command_and_scope_controls_are_exposed()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "ViewModels", "ReportViewModel.cs")));
+        var xaml = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Views", "ReportView.xaml")));
+        var authentication = new SessionAuthenticationService();
+        authentication.SignIn(new AuthenticatedUser("checker", new[] { SystemRoles.Checker }));
+        var viewModel = new ReportViewModel(new ReportService(new ReportRepository(Guid.NewGuid()), authentication, new RoleAuthorization()));
+
+        Assert.NotNull(viewModel.GeneratePdfCommand);
+        Assert.True(viewModel.GeneratePdfCommand.CanExecute(null));
+        Assert.Contains("GeneratePdfCommand", source);
+        Assert.Contains("MismatchedAndMissingOnly", source);
+        Assert.Contains("GdtOnly", source);
+        Assert.Contains("Download PDF report", xaml);
+        Assert.Contains("MismatchedAndMissingOnly", xaml);
+        Assert.Contains("GdtOnly", xaml);
+        viewModel.SessionId = "not-a-guid";
+        Assert.False(await viewModel.GeneratePdfAsync());
+        Assert.Contains("valid verification session", viewModel.Status, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact(DisplayName = "TD-KAN70-09 report view preserves existing bindings and adds PDF/scoped bindings")]
+    public void Report_view_preserves_preview_csv_and_new_report_bindings()
+    {
+        var xaml = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Views", "ReportView.xaml")));
+        Assert.Contains("ReportContent", xaml);
+        Assert.Contains("GenerateCommand", xaml);
+        Assert.Contains("ExportMissingDimensionsCommand", xaml);
+        Assert.Contains("ExportExtraDimensionsCommand", xaml);
+        Assert.Contains("GeneratePdfCommand", xaml);
+        Assert.Contains("IsChecked=\"{Binding MismatchedAndMissingOnly}", xaml);
+        Assert.Contains("IsChecked=\"{Binding GdtOnly}", xaml);
+    }
+
     private static string FindRepositoryFile(string relativePath)
     {
         var current = new DirectoryInfo(AppContext.BaseDirectory);
