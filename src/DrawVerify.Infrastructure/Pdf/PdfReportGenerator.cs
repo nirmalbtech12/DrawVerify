@@ -202,7 +202,11 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
 
     private static IReadOnlyList<string> RenderPages(string markdown, CancellationToken cancellationToken, ReportTemplate? template = null)
     {
-        const int linesPerPage = 59;
+        var margin = template?.Style.Margin ?? 40;
+        var pageHeight = template?.Style.Orientation == "Landscape" ? 612d : 792d;
+        var lineHeight = Math.Max(12d, (template?.Style.BodyFontSize ?? 9d) + 3d);
+        var linesPerPage = Math.Max(1, (int)Math.Floor((pageHeight - (margin * 2) - 30) / lineHeight));
+        var pageWidth = template?.Style.Orientation == "Landscape" ? 792d : 612d;
         var pages = new List<StringBuilder> { new() };
         var currentPage = pages[0];
         var currentLineCount = 0;
@@ -219,11 +223,10 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
             foreach (var line in rowLines)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var margin = template?.Style.Margin ?? 40;
-                var fontSize = template?.Style.BodyFontSize ?? 9;
-                if (currentLineCount == 0) currentPage.Append("BT /F1 ").Append(fontSize.ToString(CultureInfo.InvariantCulture)).Append(" Tf ").Append(margin.ToString(CultureInfo.InvariantCulture)).Append(" ").Append((792 - margin).ToString(CultureInfo.InvariantCulture)).Append(" Td ");
-                else currentPage.Append("0 -12 Td ");
-                if (template is not null) currentPage.Append(ColorOperator(template.Style.HeaderColor));
+                var fontSize = IsHeading(line) ? template?.Style.HeadingFontSize ?? 14 : IsTableContent(line) ? template?.Style.TableFontSize ?? 8 : template?.Style.BodyFontSize ?? 9;
+                if (currentLineCount == 0) currentPage.Append("BT /F1 ").Append(fontSize.ToString(CultureInfo.InvariantCulture)).Append(" Tf ").Append(margin.ToString(CultureInfo.InvariantCulture)).Append(" ").Append((pageHeight - margin).ToString(CultureInfo.InvariantCulture)).Append(" Td ");
+                else currentPage.Append("0 -").Append(lineHeight.ToString(CultureInfo.InvariantCulture)).Append(" Td ");
+                if (template is not null) currentPage.Append(ColorOperator(IsHighlighted(line, template) ? template.Style.HighlightColor : IsTableContent(line) ? template.Style.BorderColor : template.Style.HeaderColor));
                 var escapedLine = Escape(line);
                 if (line.StartsWith("Table: Dimensions | Columns:", StringComparison.Ordinal))
                     escapedLine = escapedLine.Replace("\\(", "(", StringComparison.Ordinal).Replace("\\)", ")", StringComparison.Ordinal);
@@ -239,13 +242,17 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
                 var footerText = footer.Text;
                 if (!string.IsNullOrWhiteSpace(footer.TemplateVersionLabel)) footerText = string.Concat(footerText, string.IsNullOrWhiteSpace(footerText) ? "" : " | ", footer.TemplateVersionLabel);
                 if (footer.EffectiveDate is { } effectiveDate) footerText = string.Concat(footerText, string.IsNullOrWhiteSpace(footerText) ? "" : " | ", $"Effective date: {effectiveDate:yyyy-MM-dd}");
-                if (!string.IsNullOrWhiteSpace(footerText)) pages[index].Append("BT /F1 9 Tf 40 24 Td (").Append(Escape(footerText)).Append(") Tj ");
-                if (!string.IsNullOrWhiteSpace(footer.PageNumberFormat)) pages[index].Append("BT /F1 9 Tf 500 24 Td (").Append(Escape(footer.PageNumberFormat.Replace("X", (index + 1).ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal).Replace("Y", pages.Count.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal))).Append(") Tj ");
+                if (!string.IsNullOrWhiteSpace(footerText)) pages[index].Append("BT /F1 9 Tf ").Append(margin.ToString(CultureInfo.InvariantCulture)).Append(" ").Append(margin.ToString(CultureInfo.InvariantCulture)).Append(" Td (").Append(Escape(footerText)).Append(") Tj ");
+                if (!string.IsNullOrWhiteSpace(footer.PageNumberFormat)) pages[index].Append("BT /F1 9 Tf ").Append((pageWidth - margin - 100).ToString(CultureInfo.InvariantCulture)).Append(" ").Append(margin.ToString(CultureInfo.InvariantCulture)).Append(" Td (").Append(Escape(footer.PageNumberFormat.Replace("X", (index + 1).ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal).Replace("Y", pages.Count.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal))).Append(") Tj ");
                 pages[index].Append("ET");
             }
         }
         return pages.Select(page => page.ToString()).ToArray();
     }
+
+    private static bool IsHeading(string line) => line.StartsWith('#');
+    private static bool IsTableContent(string line) => line.StartsWith("Table:", StringComparison.Ordinal) || line.Contains(" | ", StringComparison.Ordinal);
+    private static bool IsHighlighted(string line, ReportTemplate template) => template.Tables.SelectMany(x => x.ConditionalRules).Any(rule => rule.Field == "Status" && rule.Operator == "Equals" && line.Contains(rule.Value, StringComparison.OrdinalIgnoreCase));
 
     private static IEnumerable<string> Wrap(string value, int width)
     {

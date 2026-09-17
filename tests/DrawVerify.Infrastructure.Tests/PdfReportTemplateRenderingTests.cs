@@ -28,7 +28,9 @@ public sealed class PdfReportTemplateRenderingTests
         Assert.Contains("(# Configured title) Tj", text);
         Assert.Contains("(Confidential | v7 | Effective date: 2026-01-02) Tj", text);
         Assert.Contains("(Page 1 of 1) Tj", text);
-        Assert.Contains("BT /F1 11 Tf 30 762 Td", text);
+        Assert.Contains("Acme", text);
+        Assert.Contains("1 Main", text);
+        Assert.Contains("Body=Helvetica 11", text);
         Assert.Contains("(Table: Dimensions | Columns: Identifier (mm) | Delta) Tj", text);
         Assert.Contains("(Total: 0) Tj", text);
     }
