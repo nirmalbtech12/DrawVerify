@@ -22,6 +22,8 @@ public sealed class SqliteWorkflowRepositoryTests
         Assert.Contains("CheckerSignatureJson", source);
         Assert.Contains("SaveApproverSignatureAsync", source);
         Assert.Contains("ApproverSignatureApplied", source);
+        Assert.Contains("OLD.ApproverSignatureFinalized IS NULL", source);
+        Assert.Contains("NEW.ApproverSignatureFinalized = 1", source);
     }
 
     [Fact(DisplayName = "TD-03 migrates verification audit records additively and reads the latest outcome")]

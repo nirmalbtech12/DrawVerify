@@ -48,7 +48,7 @@ public partial class SignatureStampControl : UserControl, INotifyPropertyChanged
     public SignatureData? PendingSignature { get; private set; }
     public event EventHandler? SignatureFinalizationRequested;
     public event EventHandler? ApproverSignatureFinalizationRequested;
-    public string MetadataText => FinalizedSignature is null ? string.Empty : string.Join(" · ", new[] { FinalizedSignature.IsChecker ? FinalizedSignature.CheckerDisplayName : FinalizedSignature.MakerDisplayName, FinalizedSignature.Role, $"{FinalizedSignature.TimestampUtc:O}", FinalizedSignature.Method.ToString(), FinalizedSignature.Title, FinalizedSignature.Department }.Where(value => !string.IsNullOrWhiteSpace(value)));
+    public string MetadataText => FinalizedSignature is null ? string.Empty : string.Join(" · ", new[] { FinalizedSignature.IsChecker ? FinalizedSignature.CheckerDisplayName : FinalizedSignature.IsApprover ? FinalizedSignature.ApproverDisplayName : FinalizedSignature.MakerDisplayName, FinalizedSignature.Role, $"{FinalizedSignature.TimestampUtc:O}", FinalizedSignature.Method.ToString(), FinalizedSignature.Title, FinalizedSignature.Department }.Where(value => !string.IsNullOrWhiteSpace(value)));
     public event PropertyChangedEventHandler? PropertyChanged;
     public SignatureStampControl() { InitializeComponent(); }
     private static void OnIsMakerChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) { ((SignatureStampControl)d).NotifyState(); }

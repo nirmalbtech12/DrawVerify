@@ -1,12 +1,51 @@
+using System.Text.Json;
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Models;
 using DrawVerify.Infrastructure.Persistence;
+using Microsoft.Data.Sqlite;
 using Xunit;
 
 namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteFinalApprovalPersistenceTests
 {
+    [Fact(DisplayName = "REV-KAN66-006 SQLite persists Approver signature fingerprint and rejects later mutation")]
+    public async Task Approver_signature_persists_fingerprint_atomically_and_blocks_unauthorized_mutation()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"final-approver-fingerprint-{Guid.NewGuid():N}.db");
+        try
+        {
+            var id = Guid.NewGuid();
+            var repository = new SqliteWorkflowRepository(path);
+            var submission = Submission(id) with { Status = WorkflowStatus.PendingFinalApproval };
+            await repository.SubmitAtomicallyAsync(new WorkflowState { PackageId = id, Status = WorkflowStatus.Draft, Revision = 1 }, submission, Audit(id, DocumentAuditAction.SubmissionSucceeded, "maker"));
+            var package = await repository.GetReviewPackageAsync(id, 1);
+            Assert.NotNull(package);
+            var signature = SignatureData.CreateApprover(SignatureMethod.Typed, "approver approval", "approver-1", "Approver One", id, 1, new DateTimeOffset(2026, 9, 16, 11, 0, 0, TimeSpan.Zero));
+            var fingerprint = new DocumentFingerprint { Value = new string('b', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 };
+
+            var saved = await repository.SaveApproverSignatureAsync(package!, signature, fingerprint, Audit(id, DocumentAuditAction.ApproverSignatureApplied, "approver-1"));
+            Assert.Equal(signature, saved.ApproverSignature);
+            Assert.Equal(fingerprint, saved.Fingerprint);
+
+            await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString()))
+            {
+                await connection.OpenAsync();
+                await using var command = connection.CreateCommand();
+                command.CommandText = "UPDATE ReviewSubmission SET FingerprintJson=$fingerprint WHERE PackageId=$package AND Revision=1";
+                command.Parameters.AddWithValue("$fingerprint", JsonSerializer.Serialize(fingerprint with { Value = new string('c', 64) }));
+                command.Parameters.AddWithValue("$package", id.ToString());
+                await Assert.ThrowsAsync<SqliteException>(() => command.ExecuteNonQueryAsync());
+            }
+
+            var reloaded = await repository.GetReviewPackageAsync(id, 1);
+            Assert.NotNull(reloaded);
+            Assert.Equal(signature, reloaded!.Submission.ApproverSignature);
+            Assert.Equal(fingerprint, reloaded.Submission.Fingerprint);
+        }
+        finally { TryDelete(path); }
+    }
+
     [Fact(DisplayName = "REV-KAN66-002 SQLite Approver save rejects locked or completed revisions")]
     public void Approver_save_contract_is_revision_lock_aware()
     {

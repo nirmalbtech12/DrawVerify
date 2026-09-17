@@ -1,4 +1,6 @@
 using DrawVerify.App.Controls;
+using DrawVerify.Core.Enums;
+using DrawVerify.Core.Models;
 using Xunit;
 
 namespace DrawVerify.App.Tests;
@@ -38,6 +40,43 @@ public sealed class SignatureStampControlTests
         Assert.Contains("Failed to capture signature. Please try again.", code);
         Assert.Contains("Approver", code);
         Assert.Contains("Approver Signature", workflow);
+    }
+
+    [Fact(DisplayName = "REV-KAN66-005 finalized Approver metadata displays system identity and signature details")]
+    public void Finalized_approver_metadata_displays_approver_identity_and_details()
+    {
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                var documentId = Guid.NewGuid();
+                var timestamp = new DateTimeOffset(2026, 9, 16, 11, 0, 0, TimeSpan.Zero);
+                var control = new SignatureStampControl
+                {
+                    IsApprover = true,
+                    FinalizedSignature = SignatureData.CreateApprover(SignatureMethod.Typed, "approver approval", "approver-1", "Approver One", documentId, 3, timestamp, "Senior Approver", "Quality")
+                };
+
+                Assert.Contains("Approver One", control.MetadataText);
+                Assert.Contains("Approver", control.MetadataText);
+                Assert.Contains(timestamp.ToString("O"), control.MetadataText);
+                Assert.Contains(nameof(SignatureMethod.Typed), control.MetadataText);
+                Assert.Contains("Senior Approver", control.MetadataText);
+                Assert.Contains("Quality", control.MetadataText);
+                Assert.DoesNotContain("Maker One", control.MetadataText);
+                Assert.True(control.IsFinalized);
+                Assert.False(control.CanEdit);
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        Assert.True(thread.Join(TimeSpan.FromSeconds(5)), "Approver metadata UI assertion exceeded 5 seconds.");
+        if (failure is not null) throw new Xunit.Sdk.XunitException("Finalized Approver metadata assertion failed.", failure);
     }
 
     [Fact(DisplayName = "TD-KAN64-APPUI-001 Maker Signature control exposes approved guidance and recovery text")]
