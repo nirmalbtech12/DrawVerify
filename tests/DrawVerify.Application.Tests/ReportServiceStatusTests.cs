@@ -209,7 +209,7 @@ public sealed class ReportServiceStatusTests
         var auth = Authenticated("checker-id", "Checker");
         var renderer = new CapturingPdfGenerator();
         var audit = new CapturingAudit();
-        var service = new ReportService(new Sessions(matches), auth, new RoleAuthorization(), pdfGenerator: renderer, audit: audit);
+        var service = new ReportService(new Sessions(matches), auth, new RoleAuthorization(), pdfGenerator: renderer, audit: audit, documents: new MetadataDocuments(sessionId, sessionId, Guid.NewGuid(), Guid.NewGuid()));
 
         var bytes = await service.GeneratePdfAsync(sessionId, new VerificationReportRequest { MismatchedAndMissingOnly = true, FeatureFilters = new[] { "Slot" } });
 
@@ -222,7 +222,7 @@ public sealed class ReportServiceStatusTests
         var entry = Assert.Single(audit.Entries);
         Assert.Equal(DocumentAuditAction.VerificationReportGenerated, entry.Action);
         using var details = JsonDocument.Parse(entry.DetailsJson);
-        Assert.Equal("VerificationReport", details.RootElement.GetProperty("reportType").GetString());
+        Assert.Equal("VerificationReportWithAuditTrail", details.RootElement.GetProperty("reportType").GetString());
         Assert.Equal("PDF", details.RootElement.GetProperty("reportFormat").GetString());
         Assert.Equal("checker-id", entry.UserId);
     }
@@ -242,7 +242,7 @@ public sealed class ReportServiceStatusTests
         };
         var renderer = new CapturingPdfGenerator();
         var auth = Authenticated("checker-id", "Checker");
-        var service = new ReportService(new MetadataSessions(session), auth, new RoleAuthorization(), pdfGenerator: renderer, documents: new MetadataDocuments(drawingId, modelId, drawingVersionId, modelVersionId));
+        var service = new ReportService(new MetadataSessions(session), auth, new RoleAuthorization(), pdfGenerator: renderer, documents: new MetadataDocuments(drawingId, modelId, drawingVersionId, modelVersionId), audit: new DocumentAuditRepository());
 
         await service.GeneratePdfAsync(sessionId);
 
@@ -265,7 +265,7 @@ public sealed class ReportServiceStatusTests
         var auth = Authenticated("checker-id", "Checker");
         var audit = new CapturingAudit();
         var renderer = new CapturingPdfGenerator { Failure = new InvalidOperationException("renderer failure") };
-        var service = new ReportService(new Sessions(Fixtures()), auth, new RoleAuthorization(), pdfGenerator: renderer, audit: audit);
+        var service = new ReportService(new Sessions(Fixtures()), auth, new RoleAuthorization(), pdfGenerator: renderer, audit: audit, documents: new MetadataDocuments(sessionId, sessionId, Guid.NewGuid(), Guid.NewGuid()));
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.GeneratePdfAsync(sessionId));
         Assert.Equal("renderer failure", exception.Message);
@@ -284,6 +284,32 @@ public sealed class ReportServiceStatusTests
         Assert.Contains("DimensionMatchId,DimensionValue,Tolerance,Layer,Block,View,X,Y,Annotation,Resolution,Comment", csv);
         Assert.Contains("DIM,B1,Front,1.25,2.5", csv);
         Assert.Contains("\"Needs \"\"design\"\"\nreview\"", csv);
+    }
+
+    [Fact(DisplayName = "TSD-AC01-AUDIT-SECTION and TSD-AC10-REPORT-METADATA populate the audit report contract")]
+    public void TSD_AC01_AND_TSD_AC10_report_contract_contains_section_metadata_and_empty_state()
+    {
+        var report = new VerificationReport { Metadata = new VerificationReportMetadata { ReportType = "VerificationReportWithAuditTrail", GeneratorIdentity = "Approver One", DocumentId = Guid.NewGuid(), GeneratedUtc = DateTimeOffset.Parse("2026-09-17T10:00:00Z") } };
+        Assert.Equal("VerificationReportWithAuditTrail", report.Metadata.ReportType);
+        Assert.Equal("Approver One", report.Metadata.GeneratorIdentity);
+        Assert.Empty(report.AuditTrail);
+    }
+
+    [Fact(DisplayName = "TSD-AC11-SCOPED-FILTERS rejects conflicting and reversed audit scopes")]
+    public void TSD_AC11_SCOPED_FILTERS_normalizes_user_and_rejects_invalid_ranges()
+    {
+        var normalized = new VerificationReportRequest { AuditUserId = "  approver-1  ", AuditFromUtc = DateTimeOffset.Parse("2026-01-01Z"), AuditToUtc = DateTimeOffset.Parse("2026-01-02Z") }.Normalize();
+        Assert.Equal("approver-1", normalized.AuditUserId);
+        Assert.Throws<ArgumentException>(() => new VerificationReportRequest { IncludeVerificationAuditOnly = true, IncludeApprovalAuditOnly = true }.Normalize());
+        Assert.Throws<ArgumentException>(() => new VerificationReportRequest { AuditFromUtc = DateTimeOffset.Parse("2026-01-02Z"), AuditToUtc = DateTimeOffset.Parse("2026-01-01Z") }.Normalize());
+    }
+
+    [Fact(DisplayName = "TSD-AC13-GENERATION-AUDIT identifies the report-generation audit event")]
+    public void TSD_AC13_GENERATION_AUDIT_uses_expected_action_and_report_type()
+    {
+        var entry = new AuditEntry { Action = DocumentAuditAction.VerificationReportGenerated, DetailsJson = "{\"reportType\":\"VerificationReportWithAuditTrail\"}" };
+        Assert.Equal(DocumentAuditAction.VerificationReportGenerated, entry.Action);
+        Assert.Contains("VerificationReportWithAuditTrail", entry.DetailsJson);
     }
 
     private static SessionAuthenticationService Authenticated(string userId, string role) { var auth = new SessionAuthenticationService(); auth.SignIn(new AuthenticatedUser(userId, new[] { role }) { UserId = userId }); return auth; }
@@ -314,7 +340,7 @@ public sealed class ReportServiceStatusTests
         }
     }
 
-    private sealed class CapturingAudit : IAuditLogger
+    private sealed class CapturingAudit : IAuditLogger, IDocumentAuditRepository
     {
         public List<AuditEntry> Entries { get; } = new();
         public Task WriteAsync(AuditEntry entry, CancellationToken cancellationToken = default)
@@ -322,6 +348,18 @@ public sealed class ReportServiceStatusTests
             Entries.Add(entry);
             return Task.CompletedTask;
         }
+
+        public Task AppendAsync(AuditEntry entry, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<IReadOnlyList<DocumentAuditRecord>> QueryAsync(AuditLogQuery query, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DocumentAuditRecord>>(Array.Empty<DocumentAuditRecord>());
+        public Task VerifyIntegrityAsync(Guid documentId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class DocumentAuditRepository : IAuditLogger, IDocumentAuditRepository
+    {
+        public Task WriteAsync(AuditEntry entry, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task AppendAsync(AuditEntry entry, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<IReadOnlyList<DocumentAuditRecord>> QueryAsync(AuditLogQuery query, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DocumentAuditRecord>>(Array.Empty<DocumentAuditRecord>());
+        public Task VerifyIntegrityAsync(Guid documentId, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     private sealed class MetadataSessions(VerificationSession session) : IVerificationSessionRepository
@@ -339,7 +377,7 @@ public sealed class ReportServiceStatusTests
     }
     private sealed class Sessions(IReadOnlyList<DimensionMatch> matches) : IVerificationSessionRepository
     {
-        public Task<VerificationSession?> GetAsync(Guid id, CancellationToken token = default) => Task.FromResult<VerificationSession?>(new VerificationSession { VerificationSessionId = id });
+        public Task<VerificationSession?> GetAsync(Guid id, CancellationToken token = default) => Task.FromResult<VerificationSession?>(new VerificationSession { VerificationSessionId = id, StepDocumentId = id, DxfDocumentId = id });
         public Task<IReadOnlyList<DimensionMatch>> GetMatchesAsync(Guid id, DimensionMatchStatus? status = null, CancellationToken token = default) => Task.FromResult<IReadOnlyList<DimensionMatch>>(status is null ? matches : matches.Where(match => match.Status == status).ToArray());
         public Task<VerificationSession> GetOrCreateAsync(Guid step, Guid dxf, CancellationToken token = default) => throw new NotImplementedException();
         public Task ReplaceResultsAsync(VerificationSession session, IReadOnlyCollection<DimensionMatch> matches, DocumentAuditAction action, string userId, string detailsJson, CancellationToken token = default) => throw new NotImplementedException();

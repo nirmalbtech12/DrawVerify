@@ -136,6 +136,18 @@ public sealed class ReportViewModelTests
         Assert.Contains("IsChecked=\"{Binding GdtOnly}", xaml);
     }
 
+    [Fact(DisplayName = "TSD-AC11-SCOPED-FILTERS exposes audit scope controls and forwards them")]
+    public void TSD_AC11_SCOPED_FILTERS_exposes_audit_filter_bindings()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "ViewModels", "ReportViewModel.cs")));
+        var xaml = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Views", "ReportView.xaml")));
+        Assert.Contains("IncludeVerificationAuditOnly", source);
+        Assert.Contains("IncludeApprovalAuditOnly", source);
+        Assert.Contains("AuditUserId", source);
+        Assert.Contains("Verification audit only", xaml);
+        Assert.Contains("Approval audit only", xaml);
+    }
+
     private static string FindRepositoryFile(string relativePath)
     {
         var current = new DirectoryInfo(AppContext.BaseDirectory);

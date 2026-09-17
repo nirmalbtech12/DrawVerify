@@ -12,6 +12,7 @@ public sealed record VerificationReport
     public FingerprintVerificationResult? FingerprintVerification { get; init; }
     public IReadOnlyList<DimensionMatch> DimensionMatches { get; init; } = Array.Empty<DimensionMatch>();
     public IReadOnlyList<GdtResult> GdtResults { get; init; } = Array.Empty<GdtResult>();
+    public IReadOnlyList<AuditTrailEntry> AuditTrail { get; init; } = Array.Empty<AuditTrailEntry>();
     public ComparisonSummary ComparisonSummary => DrawVerify.Core.Models.ComparisonSummary.From(DimensionMatches, GdtResults);
     public IReadOnlyList<DimensionMatch> UnmatchedDimensions => DimensionMatches.Where(match => match.Status == Enums.DimensionMatchStatus.Unmatched).ToArray();
     public IReadOnlyList<DimensionMatch> MismatchedDimensions => DimensionMatches.Where(match => match.Status == Enums.DimensionMatchStatus.Mismatched).ToArray();

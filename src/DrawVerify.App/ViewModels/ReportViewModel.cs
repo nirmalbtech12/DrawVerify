@@ -34,6 +34,9 @@ public sealed class ReportViewModel : INotifyPropertyChanged
     public bool IsBusy { get => _isBusy; private set { _isBusy = value; Notify(); ((RelayCommand)GenerateCommand).Raise(); ((RelayCommand)GeneratePdfCommand).Raise(); ((RelayCommand)ExportMissingDimensionsCommand).Raise(); ((RelayCommand)ExportExtraDimensionsCommand).Raise(); } }
     public bool MismatchedAndMissingOnly { get; set; }
     public bool GdtOnly { get; set; }
+    public bool IncludeVerificationAuditOnly { get; set; }
+    public bool IncludeApprovalAuditOnly { get; set; }
+    public string AuditUserId { get; set; } = string.Empty;
     public ICommand GenerateCommand { get; }
     public ICommand GeneratePdfCommand { get; }
     public ICommand ExportMissingDimensionsCommand { get; }
@@ -46,7 +49,7 @@ public sealed class ReportViewModel : INotifyPropertyChanged
         IsBusy = true;
         try
         {
-            var bytes = await _service.GeneratePdfAsync(sessionId, new VerificationReportRequest { MismatchedAndMissingOnly = MismatchedAndMissingOnly, GdtOnly = GdtOnly }, cancellationToken).ConfigureAwait(true);
+            var bytes = await _service.GeneratePdfAsync(sessionId, new VerificationReportRequest { MismatchedAndMissingOnly = MismatchedAndMissingOnly, GdtOnly = GdtOnly, IncludeVerificationAuditOnly = IncludeVerificationAuditOnly, IncludeApprovalAuditOnly = IncludeApprovalAuditOnly, AuditUserId = AuditUserId }, cancellationToken).ConfigureAwait(true);
             var dialog = new SaveFileDialog { Filter = "PDF files (*.pdf)|*.pdf", FileName = "verification-report.pdf", OverwritePrompt = true };
             if (dialog.ShowDialog() != true) { Status = "PDF download cancelled."; return false; }
             await using (var file = new FileStream(dialog.FileName, FileMode.Create, FileAccess.Write, FileShare.None)) await file.WriteAsync(bytes, cancellationToken).ConfigureAwait(true);

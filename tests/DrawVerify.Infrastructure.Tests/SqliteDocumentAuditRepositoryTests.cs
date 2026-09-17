@@ -1,6 +1,7 @@
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Models;
 using DrawVerify.Infrastructure.Persistence;
+using Microsoft.Data.Sqlite;
 using System.Text.Json;
 using Xunit;
 
@@ -8,6 +9,19 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteDocumentAuditRepositoryTests
 {
+    [Fact(DisplayName = "TSD-AC02-LIFECYCLE-ACTIONS round-trips lifecycle actions with versions")]
+    public async Task TSD_AC02_LIFECYCLE_ACTIONS_round_trips_action_and_version_fields()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"audit-lifecycle-{Guid.NewGuid():N}.db");
+        try
+        {
+            var document = Guid.NewGuid(); var repository = new SqliteAuditRepository(path);
+            await repository.AppendAsync(new AuditEntry { DocumentId = document, UserId = "maker", Action = DocumentAuditAction.FileUploaded, DocumentRevision = "REV-2", DocumentVersion = "VERSION-2", TimestampOffset = DateTimeOffset.UtcNow, TimestampUtc = DateTime.UtcNow, DetailsJson = "{}" });
+            var record = Assert.Single(await repository.QueryAsync(new AuditLogQuery(DocumentId: document)));
+            Assert.Equal(DocumentAuditAction.FileUploaded, record.Action); Assert.Equal("REV-2", record.DocumentRevision); Assert.Equal("VERSION-2", record.DocumentVersion);
+        }
+        finally { SqliteConnection.ClearAllPools(); foreach (var file in new[] { path, path + "-wal", path + "-shm" }) if (File.Exists(file)) File.Delete(file); }
+    }
     [Fact]
     public async Task TD_INF_001_round_trips_complete_history_and_isolates_documents()
     {

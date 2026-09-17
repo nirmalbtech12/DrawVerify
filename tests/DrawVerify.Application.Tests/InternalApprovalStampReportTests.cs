@@ -16,6 +16,15 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class InternalApprovalStampReportTests
 {
+    [Fact(DisplayName = "TSD-AC06-SIGNATURE-ACTIONS preserves final approval stamp audit metadata")]
+    public void TSD_AC06_SIGNATURE_ACTIONS_preserves_stamp_audit_metadata()
+    {
+        var stamp = InternalApprovalStamp.Create(Document, 1, "approver-001", "Approver One", Applied, "fingerprint-001", Guid.NewGuid());
+        Assert.Equal("approver-001", stamp.ApproverUserId);
+        Assert.Equal("Approver One", stamp.ApproverDisplayName);
+        Assert.Equal("fingerprint-001", stamp.FingerprintReference);
+    }
+
     private static readonly Guid Document = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private static readonly DateTimeOffset Applied = new(2026, 1, 15, 10, 30, 0, TimeSpan.Zero);
 

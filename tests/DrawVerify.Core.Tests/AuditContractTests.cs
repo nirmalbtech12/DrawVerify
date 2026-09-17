@@ -46,4 +46,16 @@ public sealed class AuditContractTests
         Assert.Equal("{\"legacy\":true}", restored.DetailsJson);
         Assert.Equal(DocumentAuditAction.Uploaded, restored.Action);
     }
+
+    [Fact(DisplayName = "TSD-AC04-TIMESTAMP-FORMAT preserves audit offset and report timezone metadata")]
+    public void TSD_AC04_TIMESTAMP_FORMAT_preserves_offset_and_timezone_metadata()
+    {
+        var timestamp = new DateTimeOffset(2026, 9, 17, 10, 15, 0, TimeSpan.FromHours(5.5));
+        var entry = new AuditTrailEntry { DocumentId = Document, AuditId = Guid.NewGuid(), Timestamp = timestamp, Action = DocumentAuditAction.VerificationRunCompleted };
+        var metadata = new VerificationReportMetadata { GeneratedUtc = timestamp.ToUniversalTime() };
+
+        Assert.Equal(timestamp, entry.Timestamp);
+        Assert.Equal(TimeSpan.FromHours(5.5), entry.Timestamp.Offset);
+        Assert.Equal(TimeSpan.Zero, metadata.GeneratedUtc.Offset);
+    }
 }

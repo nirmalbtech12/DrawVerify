@@ -44,4 +44,20 @@ public sealed class SqliteAuditIntegrityRetentionTests
         }
         finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); if (File.Exists(path)) File.Delete(path); }
     }
+
+    [Fact(DisplayName = "TSD-AC09-TAMPER-EVIDENCE rejects modified audit content before report use")]
+    public async Task TSD_AC09_TAMPER_EVIDENCE_rejects_modified_chain()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"audit-tamper-{Guid.NewGuid():N}.db");
+        try
+        {
+            var document = Guid.NewGuid(); var repository = new SqliteAuditRepository(path);
+            await repository.AppendAsync(new AuditEntry { DocumentId = document, UserId = "maker", Action = DocumentAuditAction.DocumentCreated, TimestampOffset = DateTimeOffset.UtcNow, TimestampUtc = DateTime.UtcNow, DetailsJson = "{}" });
+            await using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"); await connection.OpenAsync();
+            await using var command = connection.CreateCommand(); command.CommandText = "UPDATE DocumentAuditLog SET DetailsJson='tampered'";
+            await Assert.ThrowsAsync<Microsoft.Data.Sqlite.SqliteException>(() => command.ExecuteNonQueryAsync());
+            await repository.VerifyIntegrityAsync(document);
+        }
+        finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); foreach (var file in new[] { path, path + "-wal", path + "-shm" }) if (File.Exists(file)) File.Delete(file); }
+    }
 }

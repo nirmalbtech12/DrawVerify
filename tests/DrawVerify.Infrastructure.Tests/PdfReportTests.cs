@@ -245,6 +245,95 @@ public class PdfReportTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Task.Run(() => generator.GeneratePdfAsync(longReport, cancellation.Token)).WaitAsync(TimeSpan.FromSeconds(2)));
     }
 
+    [Fact(DisplayName = "TSD-AC01-AUDIT-SECTION renders populated and empty Audit Trail sections")]
+    public async Task TSD_AC01_AUDIT_SECTION_renders_populated_and_empty_sections()
+    {
+        var entry = new AuditTrailEntry { AuditId = Guid.NewGuid(), DocumentId = Guid.NewGuid(), UserName = "Maker One", UserRole = "Maker", Timestamp = DateTimeOffset.Parse("2026-09-17T10:00:00+05:30"), Action = DocumentAuditAction.DocumentCreated, Outcome = "Success", Details = "created", Identifier = "REV-1" };
+        var populated = ExtractRenderedPdfText(await new PdfReportGenerator().GeneratePdfAsync(new VerificationReport { AuditTrail = new[] { entry } }));
+        var empty = ExtractRenderedPdfText(await new PdfReportGenerator().GeneratePdfAsync(new VerificationReport()));
+        Assert.Contains("Audit Trail", populated); Assert.Contains("DocumentCreated", populated); Assert.Contains("Maker One", populated);
+        Assert.Contains("No audit entries available.", empty);
+    }
+
+    [Fact(DisplayName = "TSD-AC03-ACTOR-IDENTITY and TSD-AC04-TIMESTAMP-FORMAT render identity and offset")]
+    public async Task TSD_AC03_AND_TSD_AC04_render_identity_role_and_offset()
+    {
+        var entry = new AuditTrailEntry { DocumentId = Guid.NewGuid(), UserName = "Approver One", UserRole = "Approver", UserId = "approver-1", UserEmail = "approver@example.test", Timestamp = DateTimeOffset.Parse("2026-09-17T10:15:00+05:30"), Action = DocumentAuditAction.Approved };
+        var content = ExtractRenderedPdfText(await new PdfReportGenerator().GeneratePdfAsync(new VerificationReport { AuditTrail = new[] { entry } }));
+        Assert.Contains("Approver One", content); Assert.Contains("Approver", content); Assert.Contains("2026-09-17T10:15:00.0000000+05:30", content); Assert.Contains("UTC", content);
+    }
+
+    [Fact(DisplayName = "REV-KAN71-002 PDF audit rows include stable actor identity and integrity reference")]
+    public async Task REV_KAN71_002_pdf_audit_row_includes_identity_and_integrity_fields()
+    {
+        var entry = new AuditTrailEntry { DocumentId = Guid.NewGuid(), UserId = "approver-001", UserName = "Approver One", UserRole = "Approver", UserEmail = "approver@example.test", Timestamp = DateTimeOffset.Parse("2026-09-17T10:15:00+05:30"), Action = DocumentAuditAction.Approved, Outcome = "Success", Details = "approval", Identifier = "run-42", IntegrityReference = "integrity-hash-42" };
+        var content = ExtractRenderedPdfText(await new PdfReportGenerator().GeneratePdfAsync(new VerificationReport { AuditTrail = new[] { entry } }));
+
+        Assert.Contains("User ID: approver-001", content);
+        Assert.Contains("User Email: approver@example.test", content);
+        Assert.Contains("Integrity Reference: integrity-hash-42", content);
+    }
+
+    [Fact(DisplayName = "TSD-AC07-ACTION-DETAILS preserves outcomes details identifiers and integrity reference")]
+    public async Task TSD_AC07_ACTION_DETAILS_renders_status_details_and_identifiers()
+    {
+        var entry = new AuditTrailEntry { DocumentId = Guid.NewGuid(), Action = DocumentAuditAction.ReturnedForRework, Outcome = "Returned", Details = "created", Identifier = "run-42", IntegrityReference = "hash-42" };
+        var content = ExtractRenderedPdfText(await new PdfReportGenerator().GeneratePdfAsync(new VerificationReport { AuditTrail = new[] { entry } }));
+        Assert.Equal("Returned", entry.Outcome); Assert.Equal("created", entry.Details); Assert.Equal("run-42", entry.Identifier); Assert.Equal("hash-42", entry.IntegrityReference);
+        Assert.Contains("Audit Trail", content);
+        Assert.Contains("Timestamp | User | Role | User ID | User Email | Action | Outcome | Details |", content);
+        Assert.Contains("Identifier", content);
+        Assert.Contains("Integrity", content);
+        Assert.Contains("Reference", content);
+    }
+
+    [Fact(DisplayName = "TSD-AC08-ORDERING, TSD-AC12-READABLE-PDF, and TSD-AC14-LOG-CONSISTENCY preserve ordered labeled rows")]
+    public async Task TSD_AC08_TSD_AC12_TSD_AC14_preserve_order_labels_and_complete_values()
+    {
+        var document = Guid.NewGuid();
+        var first = new AuditTrailEntry { AuditId = Guid.Parse("00000000-0000-0000-0000-000000000001"), DocumentId = document, Timestamp = DateTimeOffset.Parse("2026-01-01T00:00:00Z"), Action = DocumentAuditAction.DocumentCreated, Details = new string('A', 180), Identifier = "first" };
+        var second = first with { AuditId = Guid.Parse("00000000-0000-0000-0000-000000000002"), Timestamp = first.Timestamp.AddMinutes(1), Action = DocumentAuditAction.VerificationRunCompleted, Details = new string('B', 180), Identifier = "second" };
+        var content = ExtractRenderedPdfText(await new PdfReportGenerator().GeneratePdfAsync(new VerificationReport { AuditTrail = new[] { first, second } }));
+        Assert.Contains("Timestamp | User | Role | User ID | User Email | Action | Outcome | Details |", content);
+        Assert.Contains("Identifier", content);
+        Assert.Contains("Integrity", content);
+        Assert.Contains("Reference", content);
+        Assert.True(content.IndexOf("DocumentCreated", StringComparison.Ordinal) < content.IndexOf("VerificationRunCompleted", StringComparison.Ordinal));
+        Assert.Contains(new string('A', 108), content); Assert.Contains(new string('A', 72), content); Assert.Contains(new string('B', 108), content); Assert.Contains(new string('B', 72), content);
+    }
+
+    [Fact(DisplayName = "TSD-AC10-REPORT-METADATA renders report metadata in Audit Trail")]
+    public async Task TSD_AC10_REPORT_METADATA_renders_required_metadata()
+    {
+        var id = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        var report = new VerificationReport { Metadata = new VerificationReportMetadata { ReportType = "VerificationReportWithAuditTrail", GeneratorIdentity = "Checker One", DocumentId = id, DrawingVersionId = Guid.NewGuid(), ModelVersionId = Guid.NewGuid(), GeneratedUtc = DateTimeOffset.Parse("2026-09-17T10:00:00Z") } };
+        var content = ExtractRenderedPdfText(await new PdfReportGenerator().GeneratePdfAsync(report));
+        Assert.Contains("VerificationReportWithAuditTrail", content); Assert.Contains("Checker One", content); Assert.Contains(id.ToString(), content); Assert.Contains("Report Generation Timestamp", content);
+    }
+
+    private static string ExtractRenderedPdfText(byte[] pdf)
+    {
+        var source = System.Text.Encoding.ASCII.GetString(pdf);
+        var output = new System.Text.StringBuilder();
+        var streamStart = 0;
+        while ((streamStart = source.IndexOf("stream\n", streamStart, StringComparison.Ordinal)) >= 0)
+        {
+            var streamEnd = source.IndexOf("\nendstream", streamStart + 7, StringComparison.Ordinal);
+            if (streamEnd < 0) break;
+            var contentStream = source.Substring(streamStart + 7, streamEnd - streamStart - 7);
+            foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(contentStream, @"\(((?:\\.|[^\\)])*)\)\s*Tj", System.Text.RegularExpressions.RegexOptions.Singleline))
+            {
+                var text = match.Groups[1].Value
+                    .Replace("\\(", "(", StringComparison.Ordinal)
+                    .Replace("\\)", ")", StringComparison.Ordinal)
+                    .Replace("\\\\", "\\", StringComparison.Ordinal);
+                output.AppendLine(text);
+            }
+            streamStart = streamEnd + 10;
+        }
+        return output.ToString();
+    }
+
     private static int CountOccurrences(string value, string token)
     {
         var count = 0;

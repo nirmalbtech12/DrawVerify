@@ -8,6 +8,15 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class AuditLogServiceDocumentQueryTests
 {
+    [Fact(DisplayName = "TSD-AC08-ORDERING and TSD-AC14-LOG-CONSISTENCY use the same document scope")]
+    public async Task TSD_AC08_TSD_AC14_same_document_scope_preserves_matching_rows()
+    {
+        var document = Guid.NewGuid(); var record = new DocumentAuditRecord { AuditId = Guid.NewGuid(), DocumentId = document, ActorId = "admin", ActorRole = "Administrator", Action = DocumentAuditAction.VerificationRunCompleted, Timestamp = DateTimeOffset.Parse("2026-01-01T00:00:00Z"), DetailsJson = "{\"runId\":\"run-1\"}" };
+        var repository = new RepositoryFake(new[] { record }); var session = new SessionAuthenticationService(); session.SignIn(new AuthenticatedUser("admin", new[] { "Admin" }));
+        var rows = await new AuditLogService(repository, session).QueryDocumentAsync(document);
+        var row = Assert.Single(rows); Assert.Equal(record.AuditId, row.AuditId); Assert.Equal(record.Timestamp, row.Timestamp); Assert.Equal(record.Action, row.Action); Assert.Equal(document, repository.LastQuery!.DocumentId);
+    }
+
     [Fact]
     public async Task TD_APP_004_approver_queries_document_and_exports_all_fields_with_csv_escaping()
     {

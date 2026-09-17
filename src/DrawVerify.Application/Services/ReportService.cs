@@ -21,8 +21,9 @@ public sealed class ReportService
     private readonly ICentralizedLogger? _logger;
     private readonly IAuditLogger? _audit;
     private readonly IDocumentRepository? _documents;
-    public ReportService(IVerificationSessionRepository sessions, ISessionAuthenticationService authentication, RoleAuthorization? authorization = null, IReportGenerator? generator = null, ICentralizedLogger? logger = null, IAuditLogger? audit = null, IPdfReportGenerator? pdfGenerator = null, IWorkflowRepository? workflow = null, IDocumentRepository? documents = null)
-    { _sessions = sessions; _authentication = authentication; _authorization = authorization ?? new RoleAuthorization(); _generator = generator ?? new MarkdownReportGenerator(); _logger = logger; _audit = audit; _pdfGenerator = pdfGenerator; _workflow = workflow; _documents = documents; }
+    private readonly IUserRepository? _users;
+    public ReportService(IVerificationSessionRepository sessions, ISessionAuthenticationService authentication, RoleAuthorization? authorization = null, IReportGenerator? generator = null, ICentralizedLogger? logger = null, IAuditLogger? audit = null, IPdfReportGenerator? pdfGenerator = null, IWorkflowRepository? workflow = null, IDocumentRepository? documents = null, IUserRepository? users = null)
+    { _sessions = sessions; _authentication = authentication; _authorization = authorization ?? new RoleAuthorization(); _generator = generator ?? new MarkdownReportGenerator(); _logger = logger; _audit = audit; _pdfGenerator = pdfGenerator; _workflow = workflow; _documents = documents; _users = users; }
     public async Task<string> GenerateMarkdownAsync(Guid sessionId, CancellationToken cancellationToken = default)
     {
         if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ViewDimensionMatchResults)) throw new UnauthorizedAccessException("Only authenticated Maker, Checker, or Approver users may access verification reports.");
@@ -64,12 +65,14 @@ public sealed class ReportService
             var filteredGdt = normalized.MismatchedAndMissingOnly ? Array.Empty<GdtResult>() : gdtResults.Where(x => !normalized.GdtOnly || normalized.GdtOnly).Where(x => normalized.FeatureFilters.Count == 0 || normalized.FeatureFilters.Contains(x.ControlledFeature ?? string.Empty, StringComparer.OrdinalIgnoreCase)).Where(x => normalized.ZoneFilters.Count == 0 || normalized.ZoneFilters.Contains(x.ViewName ?? string.Empty, StringComparer.OrdinalIgnoreCase)).ToArray();
             var report = await BuildReportAsync(sessionId, filteredMatches, filteredGdt, cancellationToken).ConfigureAwait(false);
             var metadata = await BuildMetadataAsync(session, cancellationToken).ConfigureAwait(false);
-            report = report with { Metadata = metadata, Request = normalized };
+            var auditTrail = await BuildAuditTrailAsync(metadata.DocumentId, normalized, metadata.GeneratedUtc, cancellationToken).ConfigureAwait(false);
+            metadata = metadata with { AuditScope = DescribeAuditScope(normalized) };
+            report = report with { Metadata = metadata, Request = normalized, AuditTrail = auditTrail };
             var content = await _pdfGenerator.GeneratePdfAsync(report, normalized, cancellationToken).ConfigureAwait(false);
             if (_audit is not null)
             {
                 var summary = report.ComparisonSummary;
-                var details = JsonSerializer.Serialize(new { verificationSessionId = sessionId, documentId = report.Metadata.DocumentId, drawingVersionId = report.Metadata.DrawingVersionId, modelVersionId = report.Metadata.ModelVersionId, reportType = "VerificationReport", totalDimensions = summary.TotalDimensions, matchedDimensions = summary.MatchedDimensions, mismatchedDimensions = summary.MismatchedDimensions, unmatchedDimensions = summary.UnmatchedDimensions, missingDimensions = summary.MissingDimensions, extraDimensions = summary.ExtraDimensions, notVerifiedGdtControls = summary.NotVerifiedGdtControls, matchPercentage = summary.MatchPercentage, reportFormat = "PDF", generatedUtc = report.Metadata.GeneratedUtc, scope = normalized });
+                var details = JsonSerializer.Serialize(new { verificationSessionId = sessionId, documentId = report.Metadata.DocumentId, drawingVersionId = report.Metadata.DrawingVersionId, modelVersionId = report.Metadata.ModelVersionId, reportType = report.Metadata.ReportType, totalDimensions = summary.TotalDimensions, matchedDimensions = summary.MatchedDimensions, mismatchedDimensions = summary.MismatchedDimensions, unmatchedDimensions = summary.UnmatchedDimensions, missingDimensions = summary.MissingDimensions, extraDimensions = summary.ExtraDimensions, notVerifiedGdtControls = summary.NotVerifiedGdtControls, matchPercentage = summary.MatchPercentage, reportFormat = "PDF", generatedUtc = report.Metadata.GeneratedUtc, scope = normalized });
                 await _audit.WriteAsync(new AuditEntry { DocumentId = report.Metadata.DocumentId ?? sessionId, UserId = _authentication.CurrentUser!.UserId, ActorRole = _authentication.CurrentUser.Roles.FirstOrDefault(), DocumentRevision = report.Metadata.DrawingVersion, DocumentVersion = report.Metadata.ModelVersion, Action = DocumentAuditAction.VerificationReportGenerated, TimestampUtc = report.Metadata.GeneratedUtc.UtcDateTime, DetailsJson = details }, cancellationToken).ConfigureAwait(false);
             }
             return content;
@@ -84,8 +87,56 @@ public sealed class ReportService
         var model = _documents is null ? null : await _documents.GetAsync(session.StepDocumentId, cancellationToken).ConfigureAwait(false);
         var drawingVersion = session.DxfDocumentVersionId.HasValue && _documents is not null ? await _documents.GetVersionAsync(session.DxfDocumentId, session.DxfDocumentVersionId.Value, cancellationToken).ConfigureAwait(false) : null;
         var modelVersion = session.StepDocumentVersionId.HasValue && _documents is not null ? await _documents.GetVersionAsync(session.StepDocumentId, session.StepDocumentVersionId.Value, cancellationToken).ConfigureAwait(false) : null;
-        return new VerificationReportMetadata { DocumentName = drawing?.OriginalFileName ?? model?.OriginalFileName ?? "Unavailable", DocumentId = drawing?.DocumentId ?? model?.DocumentId, DrawingVersion = drawingVersion?.VersionNumber.ToString(CultureInfo.InvariantCulture) ?? "Unavailable", ModelVersion = modelVersion?.VersionNumber.ToString(CultureInfo.InvariantCulture) ?? "Unavailable", DrawingVersionId = drawingVersion?.VersionId, ModelVersionId = modelVersion?.VersionId, VerificationSessionId = session.VerificationSessionId, VerificationMethod = session.ToleranceThresholdMm is null ? "Persisted verification configuration unavailable" : $"Tolerance threshold: {session.ToleranceThresholdMm.Value.ToString(CultureInfo.InvariantCulture)} mm", CheckerIdentity = _authentication.CurrentUser?.DisplayName, GeneratedUtc = DateTimeOffset.UtcNow };
+        return new VerificationReportMetadata { DocumentName = drawing?.OriginalFileName ?? model?.OriginalFileName ?? "Unavailable", DocumentId = drawing?.DocumentId ?? model?.DocumentId, DrawingVersion = drawingVersion?.VersionNumber.ToString(CultureInfo.InvariantCulture) ?? "Unavailable", ModelVersion = modelVersion?.VersionNumber.ToString(CultureInfo.InvariantCulture) ?? "Unavailable", DrawingVersionId = drawingVersion?.VersionId, ModelVersionId = modelVersion?.VersionId, VerificationSessionId = session.VerificationSessionId, VerificationMethod = session.ToleranceThresholdMm is null ? "Persisted verification configuration unavailable" : $"Tolerance threshold: {session.ToleranceThresholdMm.Value.ToString(CultureInfo.InvariantCulture)} mm", CheckerIdentity = _authentication.CurrentUser?.DisplayName, GeneratorIdentity = _authentication.CurrentUser?.DisplayName ?? "Unavailable", GeneratedUtc = DateTimeOffset.UtcNow };
     }
+
+    private async Task<IReadOnlyList<AuditTrailEntry>> BuildAuditTrailAsync(Guid? documentId, VerificationReportRequest request, DateTimeOffset snapshotTime, CancellationToken cancellationToken)
+    {
+        if (_audit is not IDocumentAuditRepository repository)
+        {
+            var exception = new InvalidOperationException("The document audit repository is required to generate a verification report with an audit trail.");
+            _logger?.Log(exception, "Audit trail snapshot", "The configured audit service does not support document audit queries.");
+            throw exception;
+        }
+        if (documentId is not { } id || id == Guid.Empty)
+        {
+            var exception = new InvalidOperationException("A non-empty document identity is required to generate a verification report with an audit trail.");
+            _logger?.Log(exception, "Audit trail snapshot", "The verification report metadata did not contain a document identity.");
+            throw exception;
+        }
+        await repository.VerifyIntegrityAsync(id, cancellationToken).ConfigureAwait(false);
+        var toUtc = request.AuditToUtc is { } requestedTo && requestedTo < snapshotTime ? requestedTo : snapshotTime;
+        var records = new List<DocumentAuditRecord>();
+        for (var page = 1; ; page++)
+        {
+            var batch = await repository.QueryAsync(new AuditLogQuery(DocumentId: id, FromUtc: request.AuditFromUtc, ToUtc: toUtc, ActorUsername: request.AuditUserId, Page: page, PageSize: 1000), cancellationToken).ConfigureAwait(false);
+            records.AddRange(batch);
+            if (batch.Count < 1000) break;
+        }
+        var users = _users is null ? Array.Empty<UserAccount>() : await _users.ListAsync(cancellationToken).ConfigureAwait(false);
+        var verification = new[] { DocumentAuditAction.VerificationRunCompleted, DocumentAuditAction.VerificationRunFailed, DocumentAuditAction.DimensionsMatched, DocumentAuditAction.DimensionsMatchedPartial, DocumentAuditAction.GdtValidationCompleted, DocumentAuditAction.VerificationReportGenerated };
+        var approval = new[] { DocumentAuditAction.MakerSignatureApplied, DocumentAuditAction.CheckerSignatureApplied, DocumentAuditAction.ApproverSignatureApplied, DocumentAuditAction.InternalApprovalStampApplied, DocumentAuditAction.FinalApproved, DocumentAuditAction.Approved, DocumentAuditAction.Rejected };
+        return records.Where(record => !request.IncludeVerificationAuditOnly || verification.Contains(record.Action)).Where(record => !request.IncludeApprovalAuditOnly || approval.Contains(record.Action)).OrderBy(record => record.Timestamp).ThenBy(record => record.AuditId).Select(record => ProjectAudit(record, users)).ToArray();
+    }
+
+    private AuditTrailEntry ProjectAudit(DocumentAuditRecord record, IReadOnlyList<UserAccount> users)
+    {
+        var user = users.FirstOrDefault(item => string.Equals(item.Id.ToString(), record.ActorId, StringComparison.OrdinalIgnoreCase) || string.Equals(item.Username, record.ActorId, StringComparison.OrdinalIgnoreCase));
+        var details = record.DetailsJson;
+        var outcome = record.NewWorkflowStatus ?? "Success";
+        var identifier = record.DocumentVersion ?? record.DocumentRevision ?? "Unavailable";
+        try
+        {
+            using var json = JsonDocument.Parse(record.DetailsJson);
+            var root = json.RootElement;
+            foreach (var name in new[] { "outcome", "status", "result" }) if (root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String) outcome = value.GetString()!;
+            foreach (var name in new[] { "verificationRunId", "runId", "verificationSessionId", "submissionId" }) if (root.TryGetProperty(name, out var value)) { identifier = value.ToString(); break; }
+            details = root.ToString();
+        }
+        catch (JsonException exception) { _logger?.Log(exception, "Audit trail projection", $"Malformed details for auditId={record.AuditId}."); throw new InvalidDataException($"Audit details are invalid for audit entry {record.AuditId}.", exception); }
+        return new AuditTrailEntry { AuditId = record.AuditId, DocumentId = record.DocumentId, DocumentRevision = record.DocumentRevision, DocumentVersion = record.DocumentVersion, UserId = record.ActorId, UserName = user?.DisplayName ?? (_authentication.CurrentUser?.UserId == record.ActorId ? _authentication.CurrentUser.DisplayName : "Unavailable"), UserRole = user?.Roles.FirstOrDefault() ?? record.ActorRole ?? "Unavailable", UserEmail = user?.Email, Timestamp = record.Timestamp, Action = record.Action, Outcome = outcome, Details = details, Identifier = identifier, IntegrityReference = record.IntegrityHash };
+    }
+    private static string DescribeAuditScope(VerificationReportRequest request) => request.IncludeVerificationAuditOnly ? "Verification actions" : request.IncludeApprovalAuditOnly ? "Approval and signature actions" : "Complete audit trail";
 
     public async Task<string> GenerateMissingDimensionsCsvAsync(Guid sessionId, CancellationToken cancellationToken = default)
     {
