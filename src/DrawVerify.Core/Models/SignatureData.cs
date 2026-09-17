@@ -18,23 +18,28 @@ public sealed record SignatureData
     public string? Department { get; init; }
     public string CheckerUserId { get; init; } = string.Empty;
     public string CheckerDisplayName { get; init; } = string.Empty;
+    public string ApproverUserId { get; init; } = string.Empty;
+    public string ApproverDisplayName { get; init; } = string.Empty;
     public string IntegrityHash { get; init; } = string.Empty;
     public Guid DocumentId { get; init; }
     public int Revision { get; init; }
     public bool IsFinalized { get; init; }
-    public string CanonicalRepresentation => string.Join("|", Method, Payload, IsChecker ? CheckerUserId : MakerUserId, IsChecker ? CheckerDisplayName : MakerDisplayName, Role, TimestampUtc.UtcDateTime.ToString("O"), Title ?? "", Department ?? "", DocumentId, Revision);
+    public string CanonicalRepresentation => string.Join("|", Method, Payload, SignerUserId, SignerDisplayName, Role, TimestampUtc.UtcDateTime.ToString("O"), Title ?? "", Department ?? "", DocumentId, Revision);
     public bool IsChecker => string.Equals(Role, SystemRoles.Checker, StringComparison.OrdinalIgnoreCase);
-    public bool IsTamperEvident => IsFinalized && (IsChecker ? string.Equals(IntegrityHash, ComputePayloadHash(CanonicalRepresentation), StringComparison.OrdinalIgnoreCase) : string.Equals(PayloadHash, ComputePayloadHash(Payload), StringComparison.OrdinalIgnoreCase));
+    public bool IsApprover => string.Equals(Role, SystemRoles.Approver, StringComparison.OrdinalIgnoreCase);
+    public string SignerUserId => IsChecker ? CheckerUserId : IsApprover ? ApproverUserId : MakerUserId;
+    public string SignerDisplayName => IsChecker ? CheckerDisplayName : IsApprover ? ApproverDisplayName : MakerDisplayName;
+    public bool IsTamperEvident => IsFinalized && ((IsChecker || IsApprover) ? string.Equals(IntegrityHash, ComputePayloadHash(CanonicalRepresentation), StringComparison.OrdinalIgnoreCase) : string.Equals(PayloadHash, ComputePayloadHash(Payload), StringComparison.OrdinalIgnoreCase));
     public void Validate(bool requireFinalized = true)
     {
         if (!Enum.IsDefined(Method)) throw new ArgumentException("Unsupported signature method.", nameof(Method));
         if (string.IsNullOrWhiteSpace(Payload)) throw new ArgumentException("Signature payload is required.", nameof(Payload));
         if (Method == SignatureMethod.Uploaded) ValidateUploadedPayload(Payload);
-        if (IsChecker)
+        if (IsChecker || IsApprover)
         {
-            if (string.IsNullOrWhiteSpace(CheckerUserId) && !string.IsNullOrWhiteSpace(MakerUserId)) throw new UnauthorizedAccessException("Only a Checker can apply a Checker signature.");
-            if (string.IsNullOrWhiteSpace(CheckerUserId) || string.IsNullOrWhiteSpace(CheckerDisplayName)) throw new ArgumentException("Checker identity is required.", nameof(CheckerUserId));
-            if (string.IsNullOrWhiteSpace(IntegrityHash)) throw new ArgumentException("Checker signature integrity hash is required.", nameof(IntegrityHash));
+            if (IsChecker && string.IsNullOrWhiteSpace(CheckerUserId) && !string.IsNullOrWhiteSpace(MakerUserId)) throw new UnauthorizedAccessException("Only a Checker can apply a Checker signature.");
+            if (string.IsNullOrWhiteSpace(SignerUserId) || string.IsNullOrWhiteSpace(SignerDisplayName)) throw new ArgumentException($"{Role} identity is required.", nameof(SignerUserId));
+            if (string.IsNullOrWhiteSpace(IntegrityHash)) throw new ArgumentException($"{Role} signature integrity hash is required.", nameof(IntegrityHash));
         }
         else
         {
@@ -67,6 +72,12 @@ public sealed record SignatureData
     public static SignatureData CreateChecker(SignatureMethod method, string payload, string checkerUserId, string checkerDisplayName, Guid documentId, int revision, DateTimeOffset timestampUtc, string? title = null, string? department = null)
     {
         var value = new SignatureData { Method = method, Payload = payload.Trim(), CheckerUserId = checkerUserId.Trim(), CheckerDisplayName = checkerDisplayName.Trim(), Role = SystemRoles.Checker, TimestampUtc = timestampUtc.ToUniversalTime(), Title = string.IsNullOrWhiteSpace(title) ? null : title.Trim(), Department = string.IsNullOrWhiteSpace(department) ? null : department.Trim(), DocumentId = documentId, Revision = revision, IsFinalized = true };
+        value = value with { IntegrityHash = ComputePayloadHash(value.CanonicalRepresentation) };
+        value.Validate(); return value;
+    }
+    public static SignatureData CreateApprover(SignatureMethod method, string payload, string approverUserId, string approverDisplayName, Guid documentId, int revision, DateTimeOffset timestampUtc, string? title = null, string? department = null)
+    {
+        var value = new SignatureData { Method = method, Payload = payload.Trim(), ApproverUserId = approverUserId.Trim(), ApproverDisplayName = approverDisplayName.Trim(), Role = SystemRoles.Approver, TimestampUtc = timestampUtc.ToUniversalTime(), Title = string.IsNullOrWhiteSpace(title) ? null : title.Trim(), Department = string.IsNullOrWhiteSpace(department) ? null : department.Trim(), DocumentId = documentId, Revision = revision, IsFinalized = true };
         value = value with { IntegrityHash = ComputePayloadHash(value.CanonicalRepresentation) };
         value.Validate(); return value;
     }

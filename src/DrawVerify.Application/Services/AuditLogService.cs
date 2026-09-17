@@ -50,7 +50,7 @@ public sealed class AuditLogService
     }
     public async Task<string> ExportDocumentCsvAsync(Guid documentId, AuditLogQuery? query = null, CancellationToken cancellationToken = default)
     {
-        var entries = await QueryDocumentAsync(documentId, query, cancellationToken); var b = new StringBuilder("AuditId,DocumentId,Revision,Version,Actor,Role,Timestamp,Action,Details,Metadata,Fingerprint,RecomputedFingerprint,VerificationResult,FingerprintAlgorithm,FingerprintCanonicalizationVersion,MakerSignature,MakerUserId,MakerDisplayName,MakerRole,MakerTimestampUtc,MakerMethod,MakerTitle,MakerDepartment,CheckerSignature,CheckerUserId,CheckerDisplayName,CheckerRole,CheckerTimestampUtc,CheckerMethod,CheckerTitle,CheckerDepartment,PreviousStatus,NewStatus,Predecessor,IntegrityHash\r\n");
+        var entries = await QueryDocumentAsync(documentId, query, cancellationToken); var b = new StringBuilder("AuditId,DocumentId,Revision,Version,Actor,Role,Timestamp,Action,Details,Metadata,Fingerprint,RecomputedFingerprint,VerificationResult,FingerprintAlgorithm,FingerprintCanonicalizationVersion,MakerSignature,MakerUserId,MakerDisplayName,MakerRole,MakerTimestampUtc,MakerMethod,MakerTitle,MakerDepartment,CheckerSignature,CheckerUserId,CheckerDisplayName,CheckerRole,CheckerTimestampUtc,CheckerMethod,CheckerTitle,CheckerDepartment,ApproverSignature,ApproverUserId,ApproverDisplayName,ApproverRole,ApproverTimestampUtc,ApproverMethod,PreviousStatus,NewStatus,Predecessor,IntegrityHash\r\n");
         foreach (var e in entries)
         {
             var fingerprint = ReadDetail(e.DetailsJson, "storedFingerprint") ?? ReadDetail(e.DetailsJson, "fingerprint");
@@ -74,8 +74,15 @@ public sealed class AuditLogService
             var checkerMethod = ReadDetail(e.DetailsJson, "checkerSignatureMethod");
             var checkerTitle = ReadDetail(e.DetailsJson, "checkerSignatureTitle");
             var checkerDepartment = ReadDetail(e.DetailsJson, "checkerSignatureDepartment");
+            var approverSignature = ReadDetail(e.DetailsJson, "approverSignatureCanonical");
+            var approverUserId = ReadDetail(e.DetailsJson, "approverUserId");
+            var approverDisplayName = ReadDetail(e.DetailsJson, "approverDisplayName");
+            var approverRole = ReadDetail(e.DetailsJson, "approverRole") ?? (e.Action == DrawVerify.Core.Enums.DocumentAuditAction.ApproverSignatureApplied ? "Approver" : null);
+            var approverTimestamp = ReadDetail(e.DetailsJson, "approverSignatureTimestampUtc");
+            var approverMethod = ReadDetail(e.DetailsJson, "approverSignatureMethod");
+            if (e.Action == DrawVerify.Core.Enums.DocumentAuditAction.ApproverSignatureApplied && (string.IsNullOrWhiteSpace(approverSignature) || string.IsNullOrWhiteSpace(approverUserId) || string.IsNullOrWhiteSpace(approverDisplayName) || string.IsNullOrWhiteSpace(approverRole) || string.IsNullOrWhiteSpace(approverTimestamp) || string.IsNullOrWhiteSpace(approverMethod))) throw new InvalidDataException("Approver signature audit data is incomplete.");
             if (e.Action == DrawVerify.Core.Enums.DocumentAuditAction.MakerSignatureApplied && (string.IsNullOrWhiteSpace(makerSignature) || string.IsNullOrWhiteSpace(makerUserId) || string.IsNullOrWhiteSpace(makerDisplayName) || string.IsNullOrWhiteSpace(makerRole) || string.IsNullOrWhiteSpace(makerTimestamp) || string.IsNullOrWhiteSpace(makerMethod))) throw new InvalidDataException("Maker signature audit data is incomplete.");
-            b.AppendJoin(',', new[] { e.AuditId.ToString(), e.DocumentId.ToString(), e.DocumentRevision, e.DocumentVersion, e.ActorId, e.ActorRole, e.Timestamp.ToString("O"), e.Action.ToString(), e.DetailsJson, e.EventMetadataJson, fingerprint, recomputed, verificationResult, algorithm, canonicalization, makerSignature, makerUserId, makerDisplayName, makerRole, makerTimestamp, makerMethod, makerTitle, makerDepartment, checkerSignature, checkerUserId, checkerDisplayName, checkerRole, checkerTimestamp, checkerMethod, checkerTitle, checkerDepartment, e.PreviousWorkflowStatus, e.NewWorkflowStatus, e.PredecessorAuditId?.ToString(), e.IntegrityHash }.Select(Escape)).Append("\r\n");
+            b.AppendJoin(',', new[] { e.AuditId.ToString(), e.DocumentId.ToString(), e.DocumentRevision, e.DocumentVersion, e.ActorId, e.ActorRole, e.Timestamp.ToString("O"), e.Action.ToString(), e.DetailsJson, e.EventMetadataJson, fingerprint, recomputed, verificationResult, algorithm, canonicalization, makerSignature, makerUserId, makerDisplayName, makerRole, makerTimestamp, makerMethod, makerTitle, makerDepartment, checkerSignature, checkerUserId, checkerDisplayName, checkerRole, checkerTimestamp, checkerMethod, checkerTitle, checkerDepartment, approverSignature, approverUserId, approverDisplayName, approverRole, approverTimestamp, approverMethod, e.PreviousWorkflowStatus, e.NewWorkflowStatus, e.PredecessorAuditId?.ToString(), e.IntegrityHash }.Select(Escape)).Append("\r\n");
         }
         return b.ToString();
     }

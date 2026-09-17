@@ -9,6 +9,21 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class MakerSignatureWorkflowServiceTests
 {
+    [Fact(DisplayName = "TD-REG-01 additive Approver workflow preserves Maker and Checker compatibility")]
+    public void Approver_extension_keeps_legacy_signature_paths_and_finalization_guards()
+    {
+        var workflow = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "WorkflowService.cs")));
+        var fingerprint = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Fingerprinting", "DocumentFingerprintService.cs")));
+        Assert.Contains("ApplyCheckerSignatureAsync", workflow);
+        Assert.Contains("ApplyCheckerSignatureAsync", workflow);
+        Assert.Contains("ApplyApproverSignatureAsync", workflow);
+        Assert.Contains("CreateApprover", workflow);
+        Assert.Contains("CreateSignedStateFingerprint", workflow);
+        Assert.Contains("ApproverSignature", workflow);
+        Assert.Contains("SHA256", fingerprint);
+        Assert.Contains("ApproverSignatureApplied", workflow);
+    }
+
     private static readonly Guid Document = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private static readonly DateTimeOffset SignedAt = new(2026, 1, 10, 8, 0, 0, TimeSpan.Zero);
     private const string ValidPngPayload = "iVBORw0KGgo=";

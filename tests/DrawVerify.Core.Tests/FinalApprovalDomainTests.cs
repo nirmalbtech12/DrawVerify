@@ -7,6 +7,27 @@ namespace DrawVerify.Core.Tests;
 
 public sealed class FinalApprovalDomainTests
 {
+    [Fact(DisplayName = "TD-CORE-01 Approver signature domain contract is revision bound and immutable")]
+    public void Approver_signature_contract_preserves_identity_integrity_and_projection()
+    {
+        var signature = FindRepositoryFile(Path.Combine("src", "DrawVerify.Core", "Models", "SignatureData.cs"));
+        var submission = FindRepositoryFile(Path.Combine("src", "DrawVerify.Core", "Models", "ReviewSubmission.cs"));
+        var report = FindRepositoryFile(Path.Combine("src", "DrawVerify.Core", "Models", "VerificationReport.cs"));
+        var audit = FindRepositoryFile(Path.Combine("src", "DrawVerify.Core", "Enums", "DocumentAuditAction.cs"));
+        var workflow = FindRepositoryFile(Path.Combine("src", "DrawVerify.Core", "Interfaces", "IWorkflowService.cs"));
+        var model = File.ReadAllText(signature);
+        Assert.Contains("ApproverUserId", model);
+        Assert.Contains("ApproverDisplayName", model);
+        Assert.Contains("Approver", model);
+        Assert.Contains("IsTamperEvident", model);
+        Assert.Contains("DocumentId", model);
+        Assert.Contains("Revision", model);
+        Assert.Contains("ApproverSignature", File.ReadAllText(submission));
+        Assert.Contains("ApproverSignature", File.ReadAllText(report));
+        Assert.Contains("ApproverSignatureApplied", File.ReadAllText(audit));
+        Assert.Contains("ApplyApproverSignatureAsync", File.ReadAllText(workflow));
+    }
+
     [Fact(DisplayName = "TD-01 validates Approver rejection route metadata and required fields")]
     public void Td01_approver_rejection_metadata_is_revision_bound_and_explicit()
     {

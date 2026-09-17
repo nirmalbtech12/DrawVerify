@@ -103,8 +103,23 @@ public sealed class ReportService
             .OrderByDescending(x => x.Revision).ThenByDescending(x => x.SubmittedUtc).FirstOrDefault();
         var fingerprint = submission?.Fingerprint;
         if (submission?.MakerSignature is not null) submission.MakerSignature.Validate();
+        if (submission?.CheckerSignature is not null) submission.CheckerSignature.Validate();
+        if (submission?.ApproverSignature is not null)
+        {
+            try
+            {
+                submission.ApproverSignature.Validate();
+                if (!submission.ApproverSignature.IsApprover || submission.ApproverSignature.DocumentId != submission.PackageId || submission.ApproverSignature.Revision != submission.Revision)
+                    throw new InvalidDataException("Persisted Approver signature identity or revision is invalid.");
+            }
+            catch (Exception exception)
+            {
+                _logger?.Log(exception, "Approver report projection", $"Persisted Approver signature validation failed for packageId={submission.PackageId}, revision={submission.Revision}.");
+                throw;
+            }
+        }
         var verification = submission is null ? null : await _workflow!.GetFingerprintVerificationAsync(submission.PackageId, submission.Revision, cancellationToken).ConfigureAwait(false);
-        return new VerificationReport { DimensionMatches = matches, GdtResults = gdtResults, Fingerprint = fingerprint, FingerprintVerification = verification, MakerSignature = submission?.MakerSignature, CheckerSignature = submission?.CheckerSignature };
+        return new VerificationReport { DimensionMatches = matches, GdtResults = gdtResults, Fingerprint = fingerprint, FingerprintVerification = verification, MakerSignature = submission?.MakerSignature, CheckerSignature = submission?.CheckerSignature, ApproverSignature = submission?.ApproverSignature };
     }
     private static string Escape(string? value) { value ??= string.Empty; return value.IndexOfAny(new[] { ',', '"', '\r', '\n' }) >= 0 ? '"' + value.Replace("\"", "\"\"") + '"' : value; }
 }

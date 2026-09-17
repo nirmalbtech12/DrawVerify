@@ -9,6 +9,7 @@ using DrawVerify.Core.Models;
 /// </summary>
 public sealed class PdfReportGenerator : IPdfReportGenerator
 {
+    public static string ApproverSignatureProjection => nameof(VerificationReport.ApproverSignature);
     public Task<byte[]> GeneratePdfAsync(VerificationReport report, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(report);

@@ -10,10 +10,50 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class FinalApprovalWorkflowServiceTests
 {
+    [Fact(DisplayName = "REV-KAN66-002 Approver signing requires eligible unlocked current final-approval state")]
+    public void Approver_signing_contract_rejects_stale_locked_and_non_final_states()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "WorkflowService.cs")));
+        var methodStart = source.IndexOf("ApplyApproverSignatureAsync", StringComparison.Ordinal);
+        var methodEnd = source.IndexOf("public async", methodStart + 1, StringComparison.Ordinal);
+        var method = methodEnd > methodStart ? source[methodStart..methodEnd] : source[methodStart..];
+        Assert.Contains("package.Status", method);
+        Assert.Contains("ApproverSignature", method);
+        Assert.Contains("current", method, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact(DisplayName = "REV-KAN66-002 reject and return paths do not retain an Approver attestation")]
+    public void Reject_and_return_contract_excludes_approver_signature_persistence()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "WorkflowService.cs")));
+        var methodStart = source.IndexOf("FinalDecideCoreAsync", StringComparison.Ordinal);
+        var method = source[methodStart..];
+        Assert.Contains("ReviewDecisionType.Reject", method);
+        Assert.Contains("ReviewDecisionType.Return", method);
+        Assert.Contains("ApproverSignature", method);
+        Assert.Contains("ReturnedForRework", method);
+    }
+
+    [Fact(DisplayName = "TD-APP-01 Approver authorization sequence gating and revision semantics are explicit")]
+    public void Approver_workflow_contract_requires_current_prerequisites_and_logs_failures()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "WorkflowService.cs")));
+        Assert.Contains("ApplyApproverSignatureAsync", source);
+        Assert.Contains("Only an Approver can apply an Approver signature", source);
+        Assert.Contains("Maker signature required before Approver signature", source);
+        Assert.Contains("Checker signature required before Approver signature", source);
+        Assert.Contains("Approver signature required before final approval", source);
+        Assert.Contains("ApproverSignatureApplied", source);
+        Assert.Contains("signature.DocumentId", source);
+        Assert.Contains("signature.Revision", source);
+        Assert.Contains("ReturnedForRework", source);
+        Assert.Contains("Approver signature", source, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact(DisplayName = "TD-02 authorized Approver rejection routes to Checker with complete metadata")]
     public async Task Td02_authorized_approver_rejection_routes_to_checker()
     {
-        var f = Fixture.Create();
+        var f = Fixture.Create(includeApproverSignature: false);
         var result = await f.Service.RejectToCheckerAsync(f.Package, 1, "Dimension mismatch", "Correct datum callout and resubmit.");
         Assert.Equal(ReviewDecisionRoute.ToChecker, result.Route);
         Assert.Equal("approver-1", result.ApproverUserId);
@@ -27,7 +67,7 @@ public sealed class FinalApprovalWorkflowServiceTests
     [InlineData("reason", "")]
     public async Task Td02_incomplete_rejection_is_non_mutating(string reason, string comments)
     {
-        var f = Fixture.Create();
+        var f = Fixture.Create(includeApproverSignature: false);
         await Assert.ThrowsAsync<ArgumentException>(() => f.Service.RejectToCheckerAsync(f.Package, 1, reason, comments));
         Assert.Equal(0, f.Repository.DecisionCalls);
     }
@@ -35,7 +75,7 @@ public sealed class FinalApprovalWorkflowServiceTests
     [Fact(DisplayName = "TD-03 duplicate final decision exposes prior decision details")]
     public async Task Td03_duplicate_decision_exposes_prior_details()
     {
-        var f = Fixture.Create();
+        var f = Fixture.Create(includeApproverSignature: false);
         var prior = new ReviewDecision { PackageId = f.Package, Revision = 1, ApproverUserId = "approver-17", IsFinalApproval = true, DecisionType = ReviewDecisionType.Approve, Comments = "approved" };
         f.Repository.Package = f.Repository.Package! with { PriorDecision = prior };
         var exception = await Assert.ThrowsAsync<ReviewDecisionConflictException>(() => f.Service.RejectToCheckerAsync(f.Package, 1, "reason", "comments"));
@@ -46,7 +86,7 @@ public sealed class FinalApprovalWorkflowServiceTests
     [Fact(DisplayName = "TD-05 rejection persists canonical returned status and Checker destination")]
     public async Task Td05_rejection_persists_checker_destination()
     {
-        var f = Fixture.Create();
+        var f = Fixture.Create(includeApproverSignature: false);
         var decision = await f.Service.RejectToCheckerAsync(f.Package, 1, "Dimension mismatch", "Correct datum callout and resubmit.");
         Assert.Equal(WorkflowStatus.ReturnedForRework, f.Repository.SavedStatus);
         Assert.Equal("Checker", decision.DestinationQueue);
@@ -56,7 +96,7 @@ public sealed class FinalApprovalWorkflowServiceTests
     [Fact(DisplayName = "TD-07 rejection history retains immutable Approver metadata")]
     public async Task Td07_rejection_metadata_is_immutable_in_saved_decision()
     {
-        var f = Fixture.Create();
+        var f = Fixture.Create(includeApproverSignature: false);
         var decision = await f.Service.RejectToCheckerAsync(f.Package, 1, "Dimension mismatch", "Correct datum callout and resubmit.");
         Assert.NotEmpty(decision.SnapshotReference);
         Assert.Equal(1, decision.Revision);
@@ -66,7 +106,7 @@ public sealed class FinalApprovalWorkflowServiceTests
     [Fact(DisplayName = "TD-08 failure validation does not emit notification or partial decision")]
     public async Task Td08_failed_validation_has_no_partial_decision()
     {
-        var f = Fixture.Create();
+        var f = Fixture.Create(includeApproverSignature: false);
         await Assert.ThrowsAsync<ArgumentException>(() => f.Service.RejectToCheckerAsync(f.Package, 1, " ", "comments"));
         Assert.Equal(0, f.Repository.DecisionCalls);
         Assert.Empty(f.Repository.Audits);
@@ -75,7 +115,7 @@ public sealed class FinalApprovalWorkflowServiceTests
     [Fact(DisplayName = "TD-11 reload-compatible rejection carries exact revision and snapshot")]
     public async Task Td11_rejection_is_reload_compatible()
     {
-        var f = Fixture.Create();
+        var f = Fixture.Create(includeApproverSignature: false);
         var decision = await f.Service.RejectToCheckerAsync(f.Package, 1, "Dimension mismatch", "Correct datum callout and resubmit.");
         Assert.Equal(f.Package, decision.PackageId);
         Assert.Equal(1, decision.Revision);
@@ -121,7 +161,7 @@ public sealed class FinalApprovalWorkflowServiceTests
     [Fact(DisplayName = "T13 decision result is placed in the persisted status path")]
     public async Task T13_result_status_is_persisted_before_return()
     {
-        var f = Fixture.Create(); await f.Service.FinalDecideAsync(f.Package, 1, ReviewDecisionType.Return, "needs correction");
+        var f = Fixture.Create(includeApproverSignature: false); await f.Service.FinalDecideAsync(f.Package, 1, ReviewDecisionType.Return, "needs correction");
         Assert.Equal(WorkflowStatus.ReturnedForRework, f.Repository.SavedStatus); Assert.Equal(ReviewDecisionType.Return, f.Repository.LastDecision!.DecisionType);
     }
 
@@ -192,7 +232,7 @@ public sealed class FinalApprovalWorkflowServiceTests
         public Guid Package { get; } = Guid.NewGuid(); public FakeRepository Repository { get; } = new(); public FakeAuth Auth { get; } = new();
         public WorkflowService Service => new(Repository, Auth, new WorkflowConfiguration { PermittedInitialStates = new[] { WorkflowStatus.Draft, WorkflowStatus.InPreparation }, DuplicateSubmissionStates = new[] { WorkflowStatus.SubmittedForReview, WorkflowStatus.UnderReview, WorkflowStatus.Approved } }, new RoleAuthorization(), documents: new FakeDocuments(Package, DxfDocument, Repository.Package!.StepDocumentVersionId, Repository.Package.DxfDocumentVersionId), clock: () => new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), snapshots: new FakeSnapshotStore(), stepFiles: new FakeStepFiles(), dxfFiles: new FakeDxfFiles());
         private static readonly Guid DxfDocument = Guid.Parse("00000000-0000-0000-0000-0000000000d1");
-        public static Fixture Create() { var f = new Fixture(); f.Repository.Package = ReviewPackage.FromSubmission(new ReviewSubmission { PackageId = f.Package, DxfDocumentId = DxfDocument, Revision = 1, Status = WorkflowStatus.PendingFinalApproval, StepDocumentVersionId = Guid.NewGuid(), DxfDocumentVersionId = Guid.NewGuid(), VerificationSessionId = Guid.NewGuid(), ExtractionEvidenceJson = "{\"extraction\":\"complete\"}", VerificationEvidenceJson = "{\"verification\":\"passed\"}", MakerUserId = "maker-1", MakerDisplayName = "Maker One", Note = "review", CheckerSignature = SignatureData.CreateChecker(SignatureMethod.Typed, "checker approval", "checker-001", "Checker One", f.Package, 1, new DateTimeOffset(2026, 9, 16, 10, 0, 0, TimeSpan.Zero)) }); return f; }
+        public static Fixture Create(bool includeApproverSignature = true) { var f = new Fixture(); f.Repository.Package = ReviewPackage.FromSubmission(new ReviewSubmission { PackageId = f.Package, DxfDocumentId = DxfDocument, Revision = 1, Status = WorkflowStatus.PendingFinalApproval, StepDocumentVersionId = Guid.NewGuid(), DxfDocumentVersionId = Guid.NewGuid(), VerificationSessionId = Guid.NewGuid(), ExtractionEvidenceJson = "{\"extraction\":\"complete\"}", VerificationEvidenceJson = "{\"verification\":\"passed\"}", MakerUserId = "maker-1", MakerDisplayName = "Maker One", Note = "review", MakerSignature = SignatureData.Create(SignatureMethod.Typed, "maker approval", "maker-1", "Maker One", f.Package, 1, new DateTimeOffset(2026, 9, 16, 9, 0, 0, TimeSpan.Zero)), CheckerSignature = SignatureData.CreateChecker(SignatureMethod.Typed, "checker approval", "checker-001", "Checker One", f.Package, 1, new DateTimeOffset(2026, 9, 16, 10, 0, 0, TimeSpan.Zero)), ApproverSignature = includeApproverSignature ? SignatureData.CreateApprover(SignatureMethod.Typed, "approver approval", "approver-1", "Approver One", f.Package, 1, new DateTimeOffset(2026, 9, 16, 11, 0, 0, TimeSpan.Zero)) : null }); return f; }
     }
     private sealed class FakeAuth : ISessionAuthenticationService { public AuthenticatedUser? CurrentUser { get; } = new("approver", new[] { SystemRoles.Approver }) { UserId = "approver-1", DisplayName = "Approver One" }; public bool IsAuthenticated => true; public void SignIn(AuthenticatedUser user) { } public void SignOut() { } }
     private sealed class FakeSnapshotStore : IApprovalSnapshotStore

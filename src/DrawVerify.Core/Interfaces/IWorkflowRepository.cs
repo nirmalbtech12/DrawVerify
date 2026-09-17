@@ -32,6 +32,8 @@ public interface IWorkflowRepository
         => throw new NotSupportedException("Review decisions are not supported by this workflow repository.");
     Task<ReviewSubmission> SaveCheckerSignatureAsync(ReviewPackage package, SignatureData signature, DocumentFingerprint fingerprint, AuditEntry auditEntry, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("Checker signatures are not supported by this workflow repository.");
+    Task<ReviewSubmission> SaveApproverSignatureAsync(ReviewPackage package, SignatureData signature, DocumentFingerprint fingerprint, AuditEntry auditEntry, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("Approver signatures are not supported by this workflow repository.");
     async Task<IReadOnlyList<WorkflowQueueItem>> GetApproverQueueAsync(string? approverUserId, CancellationToken cancellationToken = default)
         => (await GetCheckerQueueAsync(approverUserId, cancellationToken).ConfigureAwait(false)).Where(x => x.Status is WorkflowStatus.ApprovedByChecker or WorkflowStatus.PendingFinalApproval).ToArray();
     Task LockRevisionAsync(Guid packageId, int revision, CancellationToken cancellationToken = default) => Task.CompletedTask;

@@ -8,6 +8,32 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class ReportAuthorizationTests
 {
+    [Fact(DisplayName = "REV-KAN66-003 authorized export emits every Approver CSV field")]
+    public void Approver_export_contract_has_matching_header_and_row_projection()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "AuditLogService.cs")));
+        var methodStart = source.IndexOf("ExportDocumentCsvAsync", StringComparison.Ordinal);
+        var method = source[methodStart..];
+        foreach (var field in new[] { "ApproverSignature", "ApproverUserId", "ApproverDisplayName", "ApproverRole", "ApproverTimestampUtc", "ApproverMethod" })
+        {
+            Assert.Contains(field, source);
+            Assert.Contains(field, method);
+        }
+    }
+
+    [Fact(DisplayName = "TD-REPORT-01 report and export access keeps persisted Approver attestation authorized")]
+    public void Approver_report_projection_contract_is_revision_bound_and_role_checked()
+    {
+        var report = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "ReportService.cs")));
+        var audit = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "AuditLogService.cs")));
+        Assert.Contains("ApproverSignature", report);
+        Assert.Contains("ApproverSignature", audit);
+        Assert.Contains("ViewDimensionMatchResults", report);
+        Assert.Contains("ApproverUserId", audit);
+        Assert.Contains("ApproverTimestampUtc", audit);
+        Assert.Contains("ApproverMethod", audit);
+    }
+
     [Theory(DisplayName = "TD-APP-EXTRA-005 extra report access follows existing role permissions")]
     [InlineData("Checker", true)] [InlineData("Approver", true)] [InlineData("Viewer", false)] [InlineData("Maker", true)]
     public async Task Extra_report_authorization_is_explicit(string role, bool allowed)
@@ -53,5 +79,16 @@ public sealed class ReportAuthorizationTests
         public Task<IReadOnlyList<DimensionMatch>> GetMatchesAsync(Guid id, DrawVerify.Core.Enums.DimensionMatchStatus? status = null, CancellationToken token = default) => Task.FromResult<IReadOnlyList<DimensionMatch>>(Array.Empty<DimensionMatch>());
         public Task<VerificationSession> GetOrCreateAsync(Guid step, Guid dxf, CancellationToken token = default) => throw new NotImplementedException();
         public Task ReplaceResultsAsync(VerificationSession session, IReadOnlyCollection<DimensionMatch> matches, DrawVerify.Core.Enums.DocumentAuditAction action, string userId, string detailsJson, CancellationToken token = default) => throw new NotImplementedException();
+    }
+
+    private static string FindRepositoryFile(string relativePath)
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var index = 0; index < 10 && current is not null; index++, current = current.Parent)
+        {
+            var candidate = Path.Combine(current.FullName, relativePath);
+            if (File.Exists(candidate)) return candidate;
+        }
+        throw new FileNotFoundException(relativePath);
     }
 }

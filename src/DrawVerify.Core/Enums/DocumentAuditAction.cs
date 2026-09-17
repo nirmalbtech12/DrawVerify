@@ -52,4 +52,5 @@ public enum DocumentAuditAction
     ,IntegrityCheckFailed = 64
     ,MakerSignatureApplied = 65
     ,CheckerSignatureApplied = 66
+    ,ApproverSignatureApplied = 67
 }

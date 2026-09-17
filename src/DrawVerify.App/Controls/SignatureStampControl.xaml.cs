@@ -15,6 +15,7 @@ public partial class SignatureStampControl : UserControl, INotifyPropertyChanged
 {
     public static readonly DependencyProperty IsMakerProperty = DependencyProperty.Register(nameof(IsMaker), typeof(bool), typeof(SignatureStampControl), new PropertyMetadata(false, OnIsMakerChanged));
     public static readonly DependencyProperty IsCheckerProperty = DependencyProperty.Register(nameof(IsChecker), typeof(bool), typeof(SignatureStampControl), new PropertyMetadata(false, OnIsMakerChanged));
+    public static readonly DependencyProperty IsApproverProperty = DependencyProperty.Register(nameof(IsApprover), typeof(bool), typeof(SignatureStampControl), new PropertyMetadata(false, OnIsMakerChanged));
     public static readonly DependencyProperty MakerUserIdProperty = DependencyProperty.Register(nameof(MakerUserId), typeof(string), typeof(SignatureStampControl), new PropertyMetadata(string.Empty));
     public static readonly DependencyProperty MakerDisplayNameProperty = DependencyProperty.Register(nameof(MakerDisplayName), typeof(string), typeof(SignatureStampControl), new PropertyMetadata(string.Empty));
     public static readonly DependencyProperty FinalizedSignatureProperty = DependencyProperty.Register(nameof(FinalizedSignature), typeof(SignatureData), typeof(SignatureStampControl), new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault, OnFinalizedChanged));
@@ -26,8 +27,9 @@ public partial class SignatureStampControl : UserControl, INotifyPropertyChanged
     public static readonly DependencyProperty RevisionProperty = DependencyProperty.Register(nameof(Revision), typeof(int), typeof(SignatureStampControl), new PropertyMetadata(0));
     public bool IsMaker { get => (bool)GetValue(IsMakerProperty); set => SetValue(IsMakerProperty, value); }
     public bool IsChecker { get => (bool)GetValue(IsCheckerProperty); set => SetValue(IsCheckerProperty, value); }
-    public bool IsSignatureVisible => IsMaker || IsChecker;
-    public string SignatureLabel => IsChecker ? "Checker Signature" : "Maker Signature";
+    public bool IsApprover { get => (bool)GetValue(IsApproverProperty); set => SetValue(IsApproverProperty, value); }
+    public bool IsSignatureVisible => IsMaker || IsChecker || IsApprover;
+    public string SignatureLabel => IsApprover ? "Approver Signature" : IsChecker ? "Checker Signature" : "Maker Signature";
     public string MakerUserId { get => (string)GetValue(MakerUserIdProperty); set => SetValue(MakerUserIdProperty, value); }
     public string MakerDisplayName { get => (string)GetValue(MakerDisplayNameProperty); set => SetValue(MakerDisplayNameProperty, value); }
     public SignatureData? FinalizedSignature { get => (SignatureData?)GetValue(FinalizedSignatureProperty); set => SetValue(FinalizedSignatureProperty, value); }
@@ -38,14 +40,15 @@ public partial class SignatureStampControl : UserControl, INotifyPropertyChanged
     public Guid DocumentId { get => (Guid)GetValue(DocumentIdProperty); set => SetValue(DocumentIdProperty, value); }
     public int Revision { get => (int)GetValue(RevisionProperty); set => SetValue(RevisionProperty, value); }
     public bool IsFinalized => FinalizedSignature is not null;
-    public bool CanEdit => (IsMaker || IsChecker) && !IsFinalized;
+    public bool CanEdit => (IsMaker || IsChecker || IsApprover) && !IsFinalized;
     public bool HasPreview => !string.IsNullOrWhiteSpace(PreviewText);
     public bool IsPreviewVisible => HasPreview;
     public string PreviewText { get; private set; } = string.Empty;
     public string ErrorText { get; private set; } = string.Empty;
     public SignatureData? PendingSignature { get; private set; }
     public event EventHandler? SignatureFinalizationRequested;
-    public string MetadataText => FinalizedSignature is null ? string.Empty : string.Join(" · ", new[] { FinalizedSignature.IsChecker ? FinalizedSignature.CheckerDisplayName : FinalizedSignature.MakerDisplayName, FinalizedSignature.Role, $"{FinalizedSignature.TimestampUtc:O}", FinalizedSignature.Method.ToString(), FinalizedSignature.Title, FinalizedSignature.Department }.Where(value => !string.IsNullOrWhiteSpace(value)));
+    public event EventHandler? ApproverSignatureFinalizationRequested;
+    public string MetadataText => FinalizedSignature is null ? string.Empty : string.Join(" · ", new[] { FinalizedSignature.IsChecker ? FinalizedSignature.CheckerDisplayName : FinalizedSignature.IsApprover ? FinalizedSignature.ApproverDisplayName : FinalizedSignature.MakerDisplayName, FinalizedSignature.Role, $"{FinalizedSignature.TimestampUtc:O}", FinalizedSignature.Method.ToString(), FinalizedSignature.Title, FinalizedSignature.Department }.Where(value => !string.IsNullOrWhiteSpace(value)));
     public event PropertyChangedEventHandler? PropertyChanged;
     public SignatureStampControl() { InitializeComponent(); }
     private static void OnIsMakerChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) { ((SignatureStampControl)d).NotifyState(); }
@@ -86,8 +89,9 @@ public partial class SignatureStampControl : UserControl, INotifyPropertyChanged
             var separator = PreviewText.IndexOf(": ", StringComparison.Ordinal);
             var method = Enum.Parse<SignatureMethod>(PreviewText[..separator]);
             var payload = PreviewText[(separator + 2)..];
-            var signature = IsChecker ? SignatureData.CreateChecker(method, payload, MakerUserId, MakerDisplayName, DocumentId, Revision, DateTimeOffset.UtcNow, Title, Department) : SignatureData.Create(method, payload, MakerUserId, MakerDisplayName, DocumentId, Revision, DateTimeOffset.UtcNow, Title, Department);
-            if (IsChecker) { PendingSignature = signature; SignatureFinalizationRequested?.Invoke(this, EventArgs.Empty); }
+            var signature = IsApprover ? SignatureData.CreateApprover(method, payload, MakerUserId, MakerDisplayName, DocumentId, Revision, DateTimeOffset.UtcNow, Title, Department) : IsChecker ? SignatureData.CreateChecker(method, payload, MakerUserId, MakerDisplayName, DocumentId, Revision, DateTimeOffset.UtcNow, Title, Department) : SignatureData.Create(method, payload, MakerUserId, MakerDisplayName, DocumentId, Revision, DateTimeOffset.UtcNow, Title, Department);
+            if (IsApprover) { PendingSignature = signature; ApproverSignatureFinalizationRequested?.Invoke(this, EventArgs.Empty); }
+            else if (IsChecker) { PendingSignature = signature; SignatureFinalizationRequested?.Invoke(this, EventArgs.Empty); }
             else FinalizedSignature = signature;
             ErrorText = string.Empty; NotifyState();
         }

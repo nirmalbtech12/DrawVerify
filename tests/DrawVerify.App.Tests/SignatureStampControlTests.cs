@@ -1,10 +1,84 @@
 using DrawVerify.App.Controls;
+using DrawVerify.Core.Enums;
+using DrawVerify.Core.Models;
 using Xunit;
 
 namespace DrawVerify.App.Tests;
 
 public sealed class SignatureStampControlTests
 {
+    [Fact(DisplayName = "REV-KAN66-001 Approver control is dedicated, bound, and persisted by the final-approval view")]
+    public void Approver_control_has_dedicated_bindings_and_finalization_route()
+    {
+        var xaml = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Views", "WorkflowView.xaml")));
+        var codeBehind = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Views", "WorkflowView.xaml.cs")));
+        var viewModel = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "ViewModels", "WorkflowViewModel.cs")));
+        Assert.Contains("IsApprover=\"{Binding IsApprover}\"", xaml);
+        Assert.Contains("FinalizedSignature=\"{Binding ApproverSignature", xaml);
+        Assert.Contains("SignatureFinalizationRequested=\"ApproverSignatureFinalizationRequested\"", xaml);
+        Assert.Contains("ApproverSignatureFinalizationRequested", codeBehind);
+        Assert.Contains("SetApproverSignatureAsync", codeBehind);
+        Assert.Contains("SetApproverSignatureAsync", viewModel);
+    }
+
+    [Fact(DisplayName = "TD-UI-01 Approver capture control exposes methods preview guidance metadata retry and role gating")]
+    public void Approver_control_contract_covers_capture_lifecycle_and_visibility()
+    {
+        var xaml = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Controls", "SignatureStampControl.xaml")));
+        var code = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Controls", "SignatureStampControl.xaml.cs")));
+        var workflow = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Views", "WorkflowView.xaml")));
+        Assert.Contains("SignatureLabel", xaml);
+        Assert.Contains("IsApprover ? \"Approver Signature\"", code);
+        Assert.Contains("Typed", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Draw", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Upload", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("SignatureMethod", code);
+        Assert.Contains("Preview", xaml);
+        Assert.Contains("Cancel / Re-enter", xaml);
+        Assert.Contains("legally binding", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("tamper-evident", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Failed to capture signature. Please try again.", code);
+        Assert.Contains("Approver", code);
+        Assert.Contains("Approver Signature", workflow);
+    }
+
+    [Fact(DisplayName = "REV-KAN66-005 finalized Approver metadata displays system identity and signature details")]
+    public void Finalized_approver_metadata_displays_approver_identity_and_details()
+    {
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                var documentId = Guid.NewGuid();
+                var timestamp = new DateTimeOffset(2026, 9, 16, 11, 0, 0, TimeSpan.Zero);
+                var control = new SignatureStampControl
+                {
+                    IsApprover = true,
+                    FinalizedSignature = SignatureData.CreateApprover(SignatureMethod.Typed, "approver approval", "approver-1", "Approver One", documentId, 3, timestamp, "Senior Approver", "Quality")
+                };
+
+                Assert.Contains("Approver One", control.MetadataText);
+                Assert.Contains("Approver", control.MetadataText);
+                Assert.Contains(timestamp.ToString("O"), control.MetadataText);
+                Assert.Contains(nameof(SignatureMethod.Typed), control.MetadataText);
+                Assert.Contains("Senior Approver", control.MetadataText);
+                Assert.Contains("Quality", control.MetadataText);
+                Assert.DoesNotContain("Maker One", control.MetadataText);
+                Assert.True(control.IsFinalized);
+                Assert.False(control.CanEdit);
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        Assert.True(thread.Join(TimeSpan.FromSeconds(5)), "Approver metadata UI assertion exceeded 5 seconds.");
+        if (failure is not null) throw new Xunit.Sdk.XunitException("Finalized Approver metadata assertion failed.", failure);
+    }
+
     [Fact(DisplayName = "TD-KAN64-APPUI-001 Maker Signature control exposes approved guidance and recovery text")]
     public void Signature_control_xaml_contains_required_user_guidance_and_states()
     {
