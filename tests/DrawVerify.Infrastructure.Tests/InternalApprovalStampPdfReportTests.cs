@@ -1,3 +1,6 @@
+using System.Text;
+using DrawVerify.Core.Models;
+using DrawVerify.Infrastructure.Pdf;
 using Xunit;
 
 namespace DrawVerify.Infrastructure.Tests;
@@ -5,18 +8,17 @@ namespace DrawVerify.Infrastructure.Tests;
 public sealed class InternalApprovalStampPdfReportTests
 {
     [Fact(DisplayName = "T11 PDF/report rendering preserves stamp representation and status")]
-    public void T11_pdf_generator_has_stamp_rendering_path()
+    public async Task T11_pdf_contains_stamp_representation_and_metadata()
     {
-        var source = Read("src", "DrawVerify.Infrastructure", "Pdf", "PdfReportGenerator.cs");
-        Assert.Contains("InternalApprovalStamp", source);
-        Assert.Contains("VerificationStatus", source);
-        Assert.Contains("StampId", source);
-    }
-
-    private static string Read(params string[] parts)
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null) { var path = Path.Combine(new[] { directory.FullName }.Concat(parts).ToArray()); if (File.Exists(path)) return File.ReadAllText(path); directory = directory.Parent; }
-        throw new FileNotFoundException(string.Join(Path.DirectorySeparatorChar, parts));
+        var stamp = InternalApprovalStamp.Create(Guid.Parse("11111111-1111-1111-1111-111111111111"), 1, "approver-001", "Approver One", new DateTimeOffset(2026, 1, 15, 10, 30, 0, TimeSpan.Zero), "fingerprint-001", Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
+        var pdf = await new PdfReportGenerator().GeneratePdfAsync(new VerificationReport { InternalApprovalStamp = stamp });
+        var content = Encoding.ASCII.GetString(pdf);
+        Assert.StartsWith("%PDF-1.4", content, StringComparison.Ordinal);
+        Assert.Contains("Internal Approval Stamp", content);
+        Assert.Contains(stamp.StampId.ToString(), content);
+        Assert.Contains(stamp.ApproverDisplayName, content);
+        Assert.Contains(stamp.FingerprintReference, content);
+        Assert.Contains(stamp.VerificationStatus.ToString(), content);
+        Assert.EndsWith("%%EOF\n", content, StringComparison.Ordinal);
     }
 }

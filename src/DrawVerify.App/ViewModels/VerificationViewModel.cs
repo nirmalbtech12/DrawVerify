@@ -20,6 +20,9 @@ public sealed class VerificationViewModel : TaskScreenViewModel, IDisposable
     public async Task LoadReviewContextAsync(ReviewPackage package, string? highlightIdentifier, CancellationToken cancellationToken = default)
     {
         SetHighlight(highlightIdentifier);
+        var persistedStamp = package.Submission.InternalApprovalStamp;
+        StepPreview.SetInternalApprovalStamp(persistedStamp);
+        DxfPreview.SetInternalApprovalStamp(persistedStamp);
         StepDocumentId = package.StepDocumentId.ToString();
         DxfDocumentId = package.DxfDocumentId.ToString();
         StepDocumentVersionId = package.StepDocumentVersionId.ToString();

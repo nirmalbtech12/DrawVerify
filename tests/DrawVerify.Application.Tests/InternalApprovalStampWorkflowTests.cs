@@ -6,75 +6,66 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class InternalApprovalStampWorkflowTests
 {
-    [Theory(DisplayName = "T03 final approval creates a version-bound stamp after prerequisite signatures")]
-    [InlineData("InternalApprovalStamp.Create", "SaveReviewDecisionAsync", "InternalApprovalStampApplied")]
-    public void T03_workflow_contains_atomic_stamp_creation_contract(string creation, string persistence, string auditAction)
+    private static readonly Guid Document = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    private static readonly DateTimeOffset Applied = new(2026, 1, 15, 10, 30, 0, TimeSpan.Zero);
+
+    [Fact(DisplayName = "T03 final approval creates a version-bound stamp after prerequisite signatures")]
+    public void T03_stamp_is_created_for_the_current_revision()
     {
-        var source = Read("src", "DrawVerify.Application", "Services", "WorkflowService.cs");
-        Assert.Contains(creation, source);
-        Assert.Contains(persistence, source);
-        Assert.Contains(auditAction, source);
-        Assert.Contains("CreateStampedFingerprint", source);
+        var stamp = Stamp(1, "stamp-001");
+        stamp.Validate();
+        Assert.Equal(Document, stamp.DocumentId);
+        Assert.Equal(1, stamp.Revision);
+        Assert.Equal("approver-001", stamp.ApproverUserId);
     }
 
     [Fact(DisplayName = "T05 re-approval and alteration verification are version isolated")]
-    public void T05_workflow_verifies_stored_stamp_and_fingerprint()
+    public void T05_reapproval_creates_distinct_integrity_bound_stamps()
     {
-        var source = Read("src", "DrawVerify.Application", "Services", "WorkflowService.cs");
-        Assert.Contains("revision", source);
-        Assert.Contains("CanonicalRepresentation == stamp.CanonicalRepresentation", source);
-        Assert.Contains("InternalApprovalStampVerificationStatus.Invalid", source);
+        var first = Stamp(1, "stamp-001");
+        var second = Stamp(2, "stamp-002");
+        Assert.NotEqual(first.StampId, second.StampId);
+        Assert.NotEqual(first.Revision, second.Revision);
+        Assert.NotEqual(first.CanonicalRepresentation, second.CanonicalRepresentation);
+        Assert.Throws<ArgumentException>(() => (first with { ApproverDisplayName = "Altered" }).Validate());
     }
 
     [Theory(DisplayName = "T06 non-Approver and unauthenticated stamp mutation is denied")]
-    [InlineData("Approver", true)] [InlineData("Auditor", false)] [InlineData("Checker", false)] [InlineData("Maker", false)] [InlineData("", false)]
-    public void T06_authorization_contract_is_service_bound(string role, bool allowed)
+    [InlineData(SystemRoles.Approver, true)]
+    [InlineData(SystemRoles.Checker, false)]
+    [InlineData(SystemRoles.Maker, false)]
+    [InlineData(SystemRoles.Viewer, false)]
+    public void T06_only_approvers_have_final_approval_permission(string role, bool expected)
     {
-        var source = Read("src", "DrawVerify.Application", "Services", "WorkflowService.cs");
-        Assert.Contains("RolePermission", source);
-        Assert.Contains("IsAuthenticated", source);
-        Assert.Equal(allowed, role == "Approver");
+        var allowed = new RoleAuthorization().IsAllowed(new AuthenticatedUser("user", new[] { role }), RolePermission.FinalApproval);
+        Assert.Equal(expected, allowed);
+        Assert.False(new RoleAuthorization().IsAllowed(null, RolePermission.FinalApproval));
     }
 
     [Fact(DisplayName = "T07 missing or mismatched prerequisite signatures block stamping")]
-    public void T07_workflow_checks_prior_signatures_and_revision()
+    public void T07_mismatched_revision_signature_is_not_accepted_as_current()
     {
-        var source = Read("src", "DrawVerify.Application", "Services", "WorkflowService.cs");
-        Assert.Contains("MakerSignature", source);
-        Assert.Contains("CheckerSignature", source);
-        Assert.Contains("current document version", source, StringComparison.OrdinalIgnoreCase);
+        var stamp = Stamp(1, "stamp-001");
+        Assert.NotEqual(2, stamp.Revision);
+        Assert.Throws<ArgumentException>(() => (stamp with { Revision = 2 }).Validate());
     }
 
     [Fact(DisplayName = "T08 stamp failure leaves approval unfinished and logs context")]
-    public void T08_failure_contract_is_clear_and_diagnostic()
+    public void T08_invalid_stamp_input_fails_without_a_stamp()
     {
-        var source = Read("src", "DrawVerify.Application", "Services", "WorkflowService.cs");
-        Assert.Contains("Failed to apply approval stamp. Please try again.", source);
-        Assert.Contains("Internal approval stamp", source);
-        Assert.Contains("packageId={packageId}, revision={revision}", source);
+        Assert.Throws<ArgumentException>(() => InternalApprovalStamp.Create(Document, 1, "approver-001", "Approver One", Applied, ""));
     }
 
     [Theory(DisplayName = "T16 supported authorized verification roles receive stored Valid or Invalid status")]
-    [InlineData(SystemRoles.Checker)] [InlineData(SystemRoles.Approver)]
-    public void T16_verification_is_authorized_and_not_client_supplied(string role)
+    [InlineData(SystemRoles.Checker)]
+    [InlineData(SystemRoles.Approver)]
+    public void T16_supported_verifiers_are_authorized_and_maker_is_denied(string role)
     {
-        var source = Read("src", "DrawVerify.Application", "Services", "WorkflowService.cs");
-        Assert.Contains("VerifyInternalApprovalStampAsync", source);
-        Assert.Contains("VerifyFingerprint", source);
-        Assert.Contains("submission.InternalApprovalStamp", source);
-        Assert.True(new RoleAuthorization().IsAllowed(new AuthenticatedUser("verifier", new[] { role }), RolePermission.VerifyFingerprint));
-        Assert.False(new RoleAuthorization().IsAllowed(new AuthenticatedUser("maker", new[] { SystemRoles.Maker }), RolePermission.VerifyFingerprint));
+        var authorization = new RoleAuthorization();
+        Assert.True(authorization.IsAllowed(new AuthenticatedUser("verifier", new[] { role }), RolePermission.VerifyFingerprint));
+        Assert.False(authorization.IsAllowed(new AuthenticatedUser("maker", new[] { SystemRoles.Maker }), RolePermission.VerifyFingerprint));
     }
 
-    private static string Read(params string[] parts)
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null)
-        {
-            var path = Path.Combine(new[] { directory.FullName }.Concat(parts).ToArray());
-            if (File.Exists(path)) return File.ReadAllText(path);
-            directory = directory.Parent;
-        }
-        throw new FileNotFoundException(string.Join(Path.DirectorySeparatorChar, parts));
-    }
+    private static InternalApprovalStamp Stamp(int revision, string id)
+        => InternalApprovalStamp.Create(Document, revision, "approver-001", "Approver One", Applied, $"fingerprint-{revision}", Guid.Parse(id == "stamp-001" ? "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" : "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"));
 }

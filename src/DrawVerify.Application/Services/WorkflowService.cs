@@ -602,11 +602,12 @@ public sealed class WorkflowService : IWorkflowService
     public async Task<InternalApprovalStampVerificationStatus> VerifyInternalApprovalStampAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
     {
         if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.VerifyFingerprint)) throw new UnauthorizedAccessException("Internal approval stamp verification is not authorized.");
-        var stamp = await _workflow.GetInternalApprovalStampAsync(packageId, revision, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException("The internal approval stamp was not found.");
-        stamp.Validate();
         var submission = (await _workflow.GetSubmissionsAsync(packageId, cancellationToken).ConfigureAwait(false)).FirstOrDefault(x => x.Revision == revision) ?? throw new KeyNotFoundException("The submitted version was not found.");
-        var valid = submission.InternalApprovalStamp is not null && submission.InternalApprovalStamp.CanonicalRepresentation == stamp.CanonicalRepresentation && submission.InternalApprovalStamp.IntegrityHash == stamp.IntegrityHash;
-        return valid ? InternalApprovalStampVerificationStatus.Valid : InternalApprovalStampVerificationStatus.Invalid;
+        var stamp = submission.InternalApprovalStamp ?? throw new KeyNotFoundException("The internal approval stamp was not found.");
+        stamp.Validate();
+        var currentFingerprint = await VerifyFingerprintAsync(packageId, revision, cancellationToken).ConfigureAwait(false);
+        if (currentFingerprint.Status != FingerprintVerificationStatus.Match) return InternalApprovalStampVerificationStatus.Invalid;
+        return InternalApprovalStampVerificationStatus.Valid;
     }
 
     public async Task<IReadOnlyList<ReviewDecision>> GetApprovalHistoryAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)

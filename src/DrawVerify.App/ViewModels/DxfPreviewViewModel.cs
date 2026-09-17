@@ -15,8 +15,9 @@ public sealed class DxfPreviewViewModel : INotifyPropertyChanged
     public bool IsHighlightVisible { get; private set; }
     public string PreviewStatus { get; private set; } = "No DXF dimension selected.";
     public InternalApprovalStamp? InternalApprovalStamp { get; private set; }
-    public string ApprovalStampText => InternalApprovalStamp is null ? string.Empty : $"Internally Approved · {InternalApprovalStamp.ApproverDisplayName} · {InternalApprovalStamp.AppliedUtc:O} · Revision {InternalApprovalStamp.Revision} · {InternalApprovalStamp.StampId} · {InternalApprovalStamp.VerificationStatus}";
-    public void SetInternalApprovalStamp(InternalApprovalStamp? stamp) { stamp?.Validate(); InternalApprovalStamp = stamp; Notify(nameof(InternalApprovalStamp)); Notify(nameof(ApprovalStampText)); }
+    public bool HasInternalApprovalStamp => InternalApprovalStamp is not null;
+    public string ApprovalStampText => InternalApprovalStamp is null ? string.Empty : $"Internally Approved · {InternalApprovalStamp.ApproverDisplayName} · {InternalApprovalStamp.AppliedUtc:O} · Revision {InternalApprovalStamp.Revision} · {InternalApprovalStamp.StampId} · {InternalApprovalStamp.FingerprintReference} · {InternalApprovalStamp.VerificationStatus}";
+    public void SetInternalApprovalStamp(InternalApprovalStamp? stamp) { stamp?.Validate(); InternalApprovalStamp = stamp; Notify(nameof(InternalApprovalStamp)); Notify(nameof(HasInternalApprovalStamp)); Notify(nameof(ApprovalStampText)); }
 
     public bool SelectDimension(int entityReference, string? anchor)
         => SelectDimension(entityReference, anchor, null, null);
