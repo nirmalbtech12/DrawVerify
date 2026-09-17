@@ -46,9 +46,25 @@ public sealed class SqliteInternalApprovalStampPersistenceTests
         var path = Path.Combine(Path.GetTempPath(), $"drawverify-stamp-audit-{Guid.NewGuid():N}.db");
         try
         {
+            var repository = new SqliteWorkflowRepository(path);
+            var submission = new ReviewSubmission
+            {
+                PackageId = Document, Revision = 1, Status = WorkflowStatus.PendingFinalApproval,
+                StepDocumentVersionId = Guid.Parse("33333333-3333-3333-3333-333333333333"),
+                DxfDocumentVersionId = Guid.Parse("44444444-4444-4444-4444-444444444444"),
+                VerificationSessionId = Guid.NewGuid(), MakerUserId = "maker-001", MakerDisplayName = "Maker One",
+                ExtractionEvidenceJson = "{\"complete\":true}", VerificationEvidenceJson = "{\"complete\":true}",
+                Fingerprint = new DocumentFingerprint { Value = new string('a', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 },
+                MakerSignature = SignatureData.Create(SignatureMethod.Typed, "maker", "maker-001", "Maker One", Document, 1, Applied.AddHours(-2)),
+                CheckerSignature = SignatureData.CreateChecker(SignatureMethod.Typed, "checker", "checker-001", "Checker One", Document, 1, Applied.AddHours(-1)),
+                ApproverSignature = SignatureData.CreateApprover(SignatureMethod.Typed, "approver", "approver-001", "Approver One", Document, 1, Applied)
+            };
+            await repository.SubmitAtomicallyAsync(new WorkflowState { PackageId = Document, Status = WorkflowStatus.Draft, Revision = 1 }, submission, new AuditEntry { AuditId = Guid.NewGuid(), DocumentId = Document, UserId = "maker-001", Action = DocumentAuditAction.SubmissionSucceeded, TimestampUtc = Applied.UtcDateTime });
+            var package = (await repository.GetReviewPackageAsync(Document, 1))!;
             var stamp = InternalApprovalStamp.Create(Document, 1, "approver-001", "Approver One", Applied, "fingerprint-001", Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
-            var entry = new AuditEntry { AuditId = Guid.NewGuid(), DocumentId = Document, UserId = stamp.ApproverUserId, ActorRole = stamp.ApproverRole, DocumentRevision = "1", DocumentVersion = "REV-001", Action = DocumentAuditAction.InternalApprovalStampApplied, TimestampUtc = Applied.UtcDateTime, DetailsJson = JsonSerializer.Serialize(new { stampId = stamp.StampId, stampApproverUserId = stamp.ApproverUserId, stampApproverDisplayName = stamp.ApproverDisplayName, stampApproverRole = stamp.ApproverRole, stampAppliedUtc = stamp.AppliedUtc, stampFingerprintReference = stamp.FingerprintReference, stampIntegrityHash = stamp.IntegrityHash, verificationResult = stamp.VerificationStatus.ToString() }) };
-            await new SqliteWorkflowRepository(path).RecordAuditAsync(entry);
+            var entry = new AuditEntry { AuditId = Guid.NewGuid(), DocumentId = Document, UserId = stamp.ApproverUserId, ActorRole = stamp.ApproverRole, DocumentRevision = "1", DocumentVersion = "REV-001", Action = DocumentAuditAction.InternalApprovalStampApplied, TimestampUtc = Applied.UtcDateTime };
+            var decision = new ReviewDecision { PackageId = Document, Revision = 1, DecisionType = ReviewDecisionType.Approve, ApproverUserId = stamp.ApproverUserId, ApproverDisplayName = stamp.ApproverDisplayName, IsFinalApproval = true, DecidedUtc = Applied.UtcDateTime };
+            await repository.SaveReviewDecisionAsync(package, decision, WorkflowStatus.FinallyApproved, entry, stamp);
             await using var connection = new SqliteConnection($"Data Source={path}");
             await connection.OpenAsync();
             await using var command = connection.CreateCommand();
@@ -60,7 +76,7 @@ public sealed class SqliteInternalApprovalStampPersistenceTests
             using var details = JsonDocument.Parse(reader.GetString(1));
             Assert.Equal(stamp.StampId.ToString(), details.RootElement.GetProperty("stampId").GetString());
             Assert.Equal(stamp.ApproverDisplayName, details.RootElement.GetProperty("stampApproverDisplayName").GetString());
-            Assert.Equal(stamp.FingerprintReference, details.RootElement.GetProperty("stampFingerprintReference").GetString());
+            Assert.Equal(stamp.FingerprintReference, details.RootElement.GetProperty("fingerprintReference").GetString());
             Assert.Equal(stamp.IntegrityHash, details.RootElement.GetProperty("stampIntegrityHash").GetString());
         }
         finally { SqliteConnection.ClearAllPools(); DeleteDatabase(path); }

@@ -52,11 +52,19 @@ public sealed class InternalApprovalStampWorkflowTests
         Assert.Null(fixture.Repository.Package!.Submission.InternalApprovalStamp);
     }
 
-    [Fact(DisplayName = "T07 application service rejects a mismatched prerequisite signature")]
-    public async Task T07_mismatched_revision_signature_is_not_accepted_as_current()
+    [Theory(DisplayName = "T07 application service rejects missing or mismatched prerequisite signatures")]
+    [InlineData(true, true, 2)]
+    [InlineData(false, true, 1)]
+    [InlineData(true, false, 1)]
+    public async Task T07_mismatched_revision_signature_is_not_accepted_as_current(bool makerPresent, bool checkerPresent, int checkerRevision)
     {
         var fixture = Fixture.Create();
-        fixture.Repository.Package = fixture.Repository.Package! with { Submission = fixture.Repository.Package.Submission with { CheckerSignature = fixture.Repository.Package.Submission.CheckerSignature! with { Revision = 2 } } };
+        var submission = fixture.Repository.Package!.Submission with
+        {
+            MakerSignature = makerPresent ? fixture.Repository.Package.Submission.MakerSignature : null,
+            CheckerSignature = checkerPresent ? fixture.Repository.Package.Submission.CheckerSignature! with { Revision = checkerRevision } : null
+        };
+        fixture.Repository.Package = fixture.Repository.Package with { Submission = submission };
         await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Service.FinalDecideAsync(fixture.PackageId, 1, ReviewDecisionType.Approve, null));
         Assert.Null(fixture.Repository.Package.Submission.InternalApprovalStamp);
         Assert.Empty(fixture.Repository.Audits);
@@ -81,12 +89,10 @@ public sealed class InternalApprovalStampWorkflowTests
     {
         var fixture = Fixture.Create(role, fingerprintStatus: status);
         var stamp = InternalApprovalStamp.Create(fixture.PackageId, 1, "approver-001", "Approver One", Applied, "fingerprint-001");
-        var submission = fixture.Repository.Package!.Submission with { InternalApprovalStamp = stamp };
+        var submission = fixture.Repository.Package!.Submission with { InternalApprovalStamp = stamp, MakerSignature = null, CheckerSignature = null, ApproverSignature = null };
         if (status == FingerprintVerificationStatus.Match)
         {
             var value = new string('a', 64);
-            value = SignatureData.ComputePayloadHash($"{value}|{submission.CheckerSignature!.CanonicalRepresentation}");
-            value = SignatureData.ComputePayloadHash($"{value}|{submission.ApproverSignature!.CanonicalRepresentation}");
             value = SignatureData.ComputePayloadHash($"{value}|{stamp.CanonicalRepresentation}");
             submission = submission with { Fingerprint = new DocumentFingerprint { Value = value, Algorithm = "SHA-256", CanonicalizationVersion = 1 } };
         }
@@ -112,7 +118,7 @@ public sealed class InternalApprovalStampWorkflowTests
             Repository.Package = ReviewPackage.FromSubmission(CreateSubmission(PackageId, 1));
             Repository.FingerprintStatus = status;
             Repository.FailSave = failSave;
-            Service = new WorkflowService(Repository, authentication, new WorkflowConfiguration { PermittedInitialStates = new[] { WorkflowStatus.Draft, WorkflowStatus.InPreparation }, DuplicateSubmissionStates = new[] { WorkflowStatus.SubmittedForReview, WorkflowStatus.UnderReview, WorkflowStatus.Approved } }, new RoleAuthorization(), logger, new FakeDocuments(PackageId, Repository.Package.Submission.StepDocumentVersionId, Repository.Package.Submission.DxfDocumentId, Repository.Package.Submission.DxfDocumentVersionId), clock: () => Applied.UtcDateTime, snapshots: new FakeSnapshots(), stepFiles: new FakeStepFiles(), dxfFiles: new FakeDxfFiles(), fingerprintService: new FakeFingerprintService(status));
+            Service = new WorkflowService(Repository, authentication, new WorkflowConfiguration { PermittedInitialStates = new[] { WorkflowStatus.Draft, WorkflowStatus.InPreparation }, DuplicateSubmissionStates = new[] { WorkflowStatus.SubmittedForReview, WorkflowStatus.UnderReview, WorkflowStatus.Approved } }, new RoleAuthorization(), logger, new FakeDocuments(Repository), clock: () => Applied.UtcDateTime, snapshots: new FakeSnapshots(), stepFiles: new FakeStepFiles(), dxfFiles: new FakeDxfFiles(), fingerprintService: new FakeFingerprintService(status));
         }
         public static Fixture Create(string role = SystemRoles.Approver, bool failSave = false, CapturingLogger? logger = null, FingerprintVerificationStatus fingerprintStatus = FingerprintVerificationStatus.Match) => new(role, failSave, logger, fingerprintStatus);
         public void ReplaceWithRevision(int revision) { HistoryCopy(); Repository.Package = ReviewPackage.FromSubmission(CreateSubmission(PackageId, revision)); }
@@ -123,23 +129,23 @@ public sealed class InternalApprovalStampWorkflowTests
     private sealed class FakeAuthentication(string role) : ISessionAuthenticationService { public AuthenticatedUser? CurrentUser { get; } = new AuthenticatedUser("user", new[] { role }) { UserId = role + "-001", DisplayName = role }; public bool IsAuthenticated => true; public void SignIn(AuthenticatedUser user) { } public void SignOut() { } }
     private sealed class CapturingLogger : ICentralizedLogger { public List<(string Operation, string Context)> Entries { get; } = new(); public void Log(Exception exception, string operation, string context) => Entries.Add((operation, context)); }
     private sealed class FakeSnapshots : IApprovalSnapshotStore { private readonly Dictionary<Guid, ApprovalSnapshot> items = new(); public Task<ApprovalSnapshot> SaveAsync(ApprovalSnapshot s, CancellationToken ct = default) { items[s.SnapshotId] = s; return Task.FromResult(s); } public Task<ApprovalSnapshot?> GetAsync(Guid id, CancellationToken ct = default) => Task.FromResult(items.TryGetValue(id, out var s) ? s : null); public Task DeleteAsync(Guid id, CancellationToken ct = default) { items.Remove(id); return Task.CompletedTask; } }
-    private sealed class FakeDocuments(Guid packageId, Guid stepVersion, Guid dxfDocument, Guid dxfVersion) : IDocumentRepository
+    private sealed class FakeDocuments(FakeRepository repository) : IDocumentRepository
     {
         public Task<Document?> GetAsync(Guid id, CancellationToken ct = default)
         {
-            if (id == dxfDocument)
+            if (id == repository.Package?.DxfDocumentId)
             {
-                var version = new DocumentVersion { DocumentId = id, VersionId = dxfVersion, StoredRelativePath = "dxf" };
+                var version = new DocumentVersion { DocumentId = id, VersionId = repository.Package.DxfDocumentVersionId, StoredRelativePath = "dxf" };
                 return Task.FromResult<Document?>(new Document { DocumentId = id, OriginalFileName = "drawing.dxf", FileSizeBytes = 3, Version = version, Versions = new[] { version } });
             }
-            if (id == packageId)
+            if (id == repository.Package?.PackageId)
             {
-                var version = new DocumentVersion { DocumentId = id, VersionId = stepVersion, StoredRelativePath = "step" };
+                var version = new DocumentVersion { DocumentId = id, VersionId = repository.Package.StepDocumentVersionId, StoredRelativePath = "step" };
                 return Task.FromResult<Document?>(new Document { DocumentId = id, OriginalFileName = "model.step", FileSizeBytes = 3, Version = version, Versions = new[] { version } });
             }
             return Task.FromResult<Document?>(null);
         }
-        public Task<DocumentVersion?> GetVersionAsync(Guid id, Guid version, CancellationToken ct = default) => Task.FromResult<DocumentVersion?>(new DocumentVersion { DocumentId = id, VersionId = version, StoredRelativePath = id == packageId ? "step" : "dxf" });
+        public Task<DocumentVersion?> GetVersionAsync(Guid id, Guid version, CancellationToken ct = default) => Task.FromResult<DocumentVersion?>(new DocumentVersion { DocumentId = id, VersionId = version, StoredRelativePath = id == repository.Package?.PackageId ? "step" : "dxf" });
     }
     private sealed class FakeStepFiles : IStepUploadFileStore { public Task<Stream> OpenReadAsync(string p, CancellationToken ct = default) => Task.FromResult<Stream>(new MemoryStream(new byte[] { 1, 2, 3 })); public Task<StepUploadStagingFile> CreateStagingFileAsync(string n, CancellationToken ct = default) => throw new NotSupportedException(); public Task<string> MoveToFinalAsync(StepUploadStagingFile f, CancellationToken ct = default) => throw new NotSupportedException(); public Task DeleteAsync(string p, CancellationToken ct = default) => Task.CompletedTask; }
     private sealed class FakeDxfFiles : IDxfUploadFileStore { public Task<Stream> OpenReadAsync(string p, CancellationToken ct = default) => Task.FromResult<Stream>(new MemoryStream(new byte[] { 4, 5, 6 })); public Task<DxfUploadStagingFile> CreateStagingFileAsync(string n, CancellationToken ct = default) => throw new NotSupportedException(); public Task<string> MoveToFinalAsync(DxfUploadStagingFile f, CancellationToken ct = default) => throw new NotSupportedException(); public Task DeleteAsync(string p, CancellationToken ct = default) => Task.CompletedTask; }

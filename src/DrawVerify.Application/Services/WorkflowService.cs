@@ -508,6 +508,9 @@ public sealed class WorkflowService : IWorkflowService
         var user = _authentication.CurrentUser!;
         if (decisionType == ReviewDecisionType.Approve)
         {
+            var makerSignature = package.Submission.MakerSignature ?? throw new InvalidOperationException("Maker signature required before approval");
+            makerSignature.Validate();
+            if (makerSignature.DocumentId != packageId || makerSignature.Revision != revision || !string.Equals(makerSignature.MakerUserId, package.MakerUserId, StringComparison.Ordinal) || !string.Equals(makerSignature.MakerDisplayName, package.MakerDisplayName, StringComparison.Ordinal)) throw new InvalidOperationException("The current revision Maker signature does not match the package.");
             var checkerSignature = package.Submission.CheckerSignature ?? throw new InvalidOperationException("Checker signature required before approval");
             checkerSignature.Validate();
             if (checkerSignature.DocumentId != packageId || checkerSignature.Revision != revision) throw new InvalidOperationException("The current revision Checker signature does not match the package.");
