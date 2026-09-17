@@ -72,7 +72,14 @@ public sealed class SqliteAuditRepository : IAuditLogger, IDocumentAuditReposito
     }
     public async Task VerifyIntegrityAsync(Guid documentId, CancellationToken token = default)
     {
-        var records = await QueryAsync(new AuditLogQuery(DocumentId: documentId, PageSize: 1000), token); string? previousHash = null; Guid? previousId = null; foreach (var record in records) { if (record.IntegrityHash is null) throw new InvalidOperationException($"Audit integrity data is missing for document {documentId}."); if (record.PredecessorAuditId.HasValue && record.PredecessorAuditId != previousId) throw new InvalidOperationException($"Audit integrity predecessor verification failed for document {documentId}."); var expected = ComputeHash(previousHash ?? string.Empty, record); if (!string.Equals(expected, record.IntegrityHash, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException($"Audit integrity hash verification failed for document {documentId}."); previousHash = record.IntegrityHash; previousId = record.AuditId; }
+        var records = new List<DocumentAuditRecord>();
+        for (var page = 1; ; page++)
+        {
+            var batch = await QueryAsync(new AuditLogQuery(DocumentId: documentId, Page: page, PageSize: 1000), token);
+            records.AddRange(batch);
+            if (batch.Count < 1000) break;
+        }
+        string? previousHash = null; Guid? previousId = null; foreach (var record in records) { if (record.IntegrityHash is null) throw new InvalidOperationException($"Audit integrity data is missing for document {documentId}."); if (record.PredecessorAuditId.HasValue && record.PredecessorAuditId != previousId) throw new InvalidOperationException($"Audit integrity predecessor verification failed for document {documentId}."); var expected = ComputeHash(previousHash ?? string.Empty, record); if (!string.Equals(expected, record.IntegrityHash, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException($"Audit integrity hash verification failed for document {documentId}."); previousHash = record.IntegrityHash; previousId = record.AuditId; }
     }
     private static string? Text(SqliteDataReader reader, int index) => reader.IsDBNull(index) ? null : reader.GetString(index);
     private static int? ParseAction(string? value) => string.IsNullOrWhiteSpace(value) ? null : Enum.TryParse<DocumentAuditAction>(value, true, out var action) ? (int)action : throw new ArgumentException("Unsupported audit action.", nameof(value));

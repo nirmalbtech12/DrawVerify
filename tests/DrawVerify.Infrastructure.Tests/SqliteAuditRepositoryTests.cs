@@ -99,6 +99,34 @@ public sealed class SqliteAuditRepositoryTests
         finally { Cleanup(path); }
     }
 
+    [Fact(DisplayName = "TSD-AC08-ORDERING orders equal timestamps by AuditId and returns all rows")]
+    public async Task TSD_AC08_ORDERING_uses_deterministic_timestamp_and_audit_id_order()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-audit-order-{Guid.NewGuid():N}.db");
+        try
+        {
+            var document = Guid.NewGuid(); var timestamp = DateTimeOffset.Parse("2026-01-01T00:00:00Z"); var repository = new SqliteAuditRepository(path);
+            foreach (var id in new[] { Guid.Parse("00000000-0000-0000-0000-000000000002"), Guid.Parse("00000000-0000-0000-0000-000000000001") }) await repository.AppendAsync(new AuditEntry { AuditId = id, DocumentId = document, UserId = "maker", Action = DocumentAuditAction.DocumentCreated, TimestampOffset = timestamp, TimestampUtc = timestamp.UtcDateTime, DetailsJson = "{}" });
+            var records = await repository.QueryAsync(new AuditLogQuery(DocumentId: document));
+            Assert.Equal(new[] { Guid.Parse("00000000-0000-0000-0000-000000000001"), Guid.Parse("00000000-0000-0000-0000-000000000002") }, records.Select(record => record.AuditId));
+        }
+        finally { Cleanup(path); }
+    }
+
+    [Fact(DisplayName = "TSD-AC13-GENERATION-AUDIT stores report-generation metadata")]
+    public async Task TSD_AC13_GENERATION_AUDIT_stores_complete_generation_event()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-audit-generation-{Guid.NewGuid():N}.db");
+        try
+        {
+            var document = Guid.NewGuid(); var repository = new SqliteAuditRepository(path); var timestamp = DateTimeOffset.Parse("2026-09-17T10:00:00Z");
+            await repository.AppendAsync(new AuditEntry { DocumentId = document, UserId = "checker", ActorRole = "Checker", DocumentVersion = "v3", Action = DocumentAuditAction.VerificationReportGenerated, TimestampOffset = timestamp, TimestampUtc = timestamp.UtcDateTime, DetailsJson = "{\"reportType\":\"VerificationReportWithAuditTrail\"}" });
+            var record = Assert.Single(await repository.QueryAsync(new AuditLogQuery(DocumentId: document)));
+            Assert.Equal(DocumentAuditAction.VerificationReportGenerated, record.Action); Assert.Equal("checker", record.ActorId); Assert.Contains("VerificationReportWithAuditTrail", record.DetailsJson);
+        }
+        finally { Cleanup(path); }
+    }
+
     private static void Cleanup(string path)
     {
         SqliteConnection.ClearAllPools();

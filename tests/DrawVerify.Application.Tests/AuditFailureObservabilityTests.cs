@@ -7,6 +7,14 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class AuditFailureObservabilityTests
 {
+    [Fact(DisplayName = "TSD-AC09-TAMPER-EVIDENCE exposes integrity failures with document context")]
+    public async Task TSD_AC09_TAMPER_EVIDENCE_exposes_integrity_failure_context()
+    {
+        var logger = new LoggerFake(); var document = Guid.NewGuid(); var session = new SessionAuthenticationService(); session.SignIn(new AuthenticatedUser("approver", new[] { "Approver" }));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new AuditLogService(new FailingRepository(), session, logger: logger).QueryDocumentAsync(document));
+        Assert.Contains(document.ToString(), logger.Context); Assert.NotNull(logger.Exception);
+    }
+
     [Fact]
     public async Task TD_APP_005_repository_and_integrity_failures_are_logged_and_rethrown()
     {

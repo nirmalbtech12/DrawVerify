@@ -7,6 +7,14 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class InternalApprovalStampPdfReportTests
 {
+    [Fact(DisplayName = "TSD-AC06-SIGNATURE-ACTIONS renders internal stamp identity and status")]
+    public async Task TSD_AC06_SIGNATURE_ACTIONS_renders_stamp_action_fields()
+    {
+        var stamp = InternalApprovalStamp.Create(Guid.NewGuid(), 1, "approver", "Approver One", DateTimeOffset.Parse("2026-01-01T00:00:00Z"), "fingerprint", Guid.NewGuid());
+        var content = Encoding.ASCII.GetString(await new PdfReportGenerator().GeneratePdfAsync(new VerificationReport { InternalApprovalStamp = stamp }));
+        Assert.Contains(stamp.ApproverDisplayName, content); Assert.Contains(stamp.StampId.ToString(), content); Assert.Contains(stamp.VerificationStatus.ToString(), content);
+    }
+
     [Fact(DisplayName = "T11 PDF/report rendering preserves stamp representation and status")]
     public async Task T11_pdf_contains_stamp_representation_and_metadata()
     {

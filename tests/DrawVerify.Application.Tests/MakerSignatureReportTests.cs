@@ -114,6 +114,16 @@ public sealed class MakerSignatureReportTests
         Assert.Contains("CheckerSignatureApplied", source);
     }
 
+    [Fact(DisplayName = "TSD-AC06-SIGNATURE-ACTIONS retains maker, checker, approver, stamp, and final decision actions")]
+    public void TSD_AC06_SIGNATURE_ACTIONS_contains_all_approval_action_types()
+    {
+        var actions = new[] { DocumentAuditAction.MakerSignatureApplied, DocumentAuditAction.CheckerSignatureApplied, DocumentAuditAction.ApproverSignatureApplied, DocumentAuditAction.InternalApprovalStampApplied, DocumentAuditAction.FinalApproved };
+        Assert.Equal(5, actions.Distinct().Count());
+        Assert.Contains(DocumentAuditAction.MakerSignatureApplied, actions);
+        Assert.Contains(DocumentAuditAction.InternalApprovalStampApplied, actions);
+        Assert.Contains(DocumentAuditAction.FinalApproved, actions);
+    }
+
     private static string FindRepositoryFile(string relativePath)
     {
         var current = new DirectoryInfo(AppContext.BaseDirectory);

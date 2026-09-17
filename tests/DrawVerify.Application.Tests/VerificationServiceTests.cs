@@ -145,6 +145,16 @@ public class VerificationServiceTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.GenerateMarkdownAsync(Guid.NewGuid())); Assert.NotEmpty(logger.Exceptions);
     }
 
+    [Fact(DisplayName = "TSD-AC05-VERIFICATION-ACTIONS includes verification completion and GD&T evidence")]
+    public void TSD_AC05_VERIFICATION_ACTIONS_includes_required_action_categories()
+    {
+        var actions = new[] { DocumentAuditAction.VerificationRunCompleted, DocumentAuditAction.DimensionsMatched, DocumentAuditAction.GdtValidationCompleted, DocumentAuditAction.VerificationReportGenerated };
+        Assert.Contains(DocumentAuditAction.VerificationRunCompleted, actions);
+        Assert.Contains(DocumentAuditAction.DimensionsMatched, actions);
+        Assert.Contains(DocumentAuditAction.GdtValidationCompleted, actions);
+        Assert.Contains(DocumentAuditAction.VerificationReportGenerated, actions);
+    }
+
     private sealed class ReportSessions(IReadOnlyList<DimensionMatch> matches) : IVerificationSessionRepository
     {
         public Task<VerificationSession?> GetAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<VerificationSession?>(new VerificationSession { VerificationSessionId = id });

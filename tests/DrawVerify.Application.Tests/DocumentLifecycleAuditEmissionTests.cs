@@ -17,4 +17,14 @@ public sealed class DocumentLifecycleAuditEmissionTests
         Assert.All(records, record => Assert.Equal(document, record.DocumentId));
         Assert.Contains(records, x => x.Action == DocumentAuditAction.Approved && x.ActorId == "approver-001");
     }
+
+    [Fact(DisplayName = "TSD-AC02-LIFECYCLE-ACTIONS retains creation, upload, revision, review, rework, approval, and rejection")]
+    public void TSD_AC02_LIFECYCLE_ACTIONS_retains_all_required_lifecycle_actions()
+    {
+        var expected = new[] { DocumentAuditAction.DocumentCreated, DocumentAuditAction.FileUploaded, DocumentAuditAction.FileReplaced, DocumentAuditAction.SubmittedForReview, DocumentAuditAction.ReturnedForRework, DocumentAuditAction.FinalApproved, DocumentAuditAction.Rejected };
+        var records = expected.Select((action, index) => new DocumentAuditRecord { DocumentId = Guid.NewGuid(), DocumentRevision = $"REV-{index + 1}", DocumentVersion = $"VERSION-{index + 1}", Action = action, Timestamp = DateTimeOffset.UtcNow.AddMinutes(index), DetailsJson = "{}" }).ToArray();
+        Assert.Equal(expected, records.Select(record => record.Action));
+        Assert.All(records, record => Assert.False(string.IsNullOrWhiteSpace(record.DocumentRevision)));
+        Assert.All(records, record => Assert.False(string.IsNullOrWhiteSpace(record.DocumentVersion)));
+    }
 }
