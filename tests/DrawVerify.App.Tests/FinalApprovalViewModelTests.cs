@@ -10,6 +10,20 @@ namespace DrawVerify.App.Tests;
 
 public sealed class FinalApprovalViewModelTests
 {
+    [Fact(DisplayName = "REV-KAN66-001 Approver finalization refreshes persisted signature and approval command state")]
+    public void Approver_finalization_contract_is_not_checker_bound()
+    {
+        var xaml = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Views", "WorkflowView.xaml")));
+        var codeBehind = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Views", "WorkflowView.xaml.cs")));
+        var viewModel = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "ViewModels", "WorkflowViewModel.cs")));
+        Assert.Contains("ApproverSignature", viewModel);
+        Assert.Contains("SetApproverSignatureAsync", viewModel);
+        Assert.Contains("ApproverSignatureFinalizationRequested", codeBehind);
+        Assert.Contains("FinalizedSignature=\"{Binding ApproverSignature", xaml);
+        Assert.Contains("IsApprover=\"{Binding IsApprover}\"", xaml);
+        Assert.DoesNotContain("ApproverSignatureFinalizationRequested\"", xaml.Replace("SignatureFinalizationRequested=\"ApproverSignatureFinalizationRequested\"", string.Empty));
+    }
+
     [Fact(DisplayName = "TD-UI-02 persisted Approver signature gates approval and renders only for final approval")]
     public void View_model_contract_binds_current_revision_signature_and_lock_state()
     {

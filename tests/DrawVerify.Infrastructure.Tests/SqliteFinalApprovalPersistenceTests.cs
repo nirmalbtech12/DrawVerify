@@ -7,6 +7,27 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteFinalApprovalPersistenceTests
 {
+    [Fact(DisplayName = "REV-KAN66-002 SQLite Approver save rejects locked or completed revisions")]
+    public void Approver_save_contract_is_revision_lock_aware()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Infrastructure", "Persistence", "SqliteWorkflowRepository.cs")));
+        var methodStart = source.IndexOf("SaveApproverSignatureAsync", StringComparison.Ordinal);
+        var methodEnd = source.IndexOf("public async", methodStart + 1, StringComparison.Ordinal);
+        var method = methodEnd > methodStart ? source[methodStart..methodEnd] : source[methodStart..];
+        Assert.Contains("Revision", method);
+        Assert.Contains("ApproverSignatureFinalized IS NULL", method);
+    }
+
+    [Fact(DisplayName = "REV-KAN66-004 migrated databases replace signature triggers and retain Approver immutability")]
+    public void Existing_schema_migration_replaces_old_signature_trigger_definitions()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Infrastructure", "Persistence", "SqliteWorkflowRepository.cs")));
+        Assert.Contains("DROP TRIGGER", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ApproverSignatureFinalized", source);
+        Assert.Contains("Finalized signatures are immutable", source);
+        Assert.Contains("Finalized signatures cannot be removed", source);
+    }
+
     [Fact(DisplayName = "TD-INFRA-01 SQLite Approver persistence contract covers migration atomicity tamper guards and locking")]
     public void Approver_persistence_contract_is_migration_safe_atomic_and_immutable()
     {

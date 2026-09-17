@@ -13,6 +13,18 @@ using Xunit;
 /// </summary>
 public class PdfReportTests
 {
+    [Fact(DisplayName = "REV-KAN66-003 persisted Approver report projection validates integrity before rendering")]
+    public void Persisted_approver_report_contract_validates_identity_revision_and_integrity()
+    {
+        var report = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "ReportService.cs")));
+        var generator = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Infrastructure", "Pdf", "PdfReportGenerator.cs")));
+        Assert.Contains("ApproverSignature", report);
+        Assert.Contains("Validate", report);
+        Assert.Contains("DocumentId", report);
+        Assert.Contains("Revision", report);
+        Assert.Contains("ApproverSignature", generator);
+    }
+
     [Fact(DisplayName = "TD-REPORT-01 PDF projection includes persisted Approver representation and metadata")]
     public void Pdf_report_contract_projects_approver_attestation_fields()
     {

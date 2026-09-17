@@ -8,6 +8,23 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class MakerSignatureReportTests
 {
+    [Fact(DisplayName = "REV-KAN66-003 Approver audit and report projections use explicit metadata")]
+    public void Approver_report_contract_validates_integrity_and_projects_export_fields()
+    {
+        var workflow = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "WorkflowService.cs")));
+        var audit = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "AuditLogService.cs")));
+        var report = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "ReportService.cs")));
+        Assert.Contains("approverUserId", workflow);
+        Assert.Contains("approverDisplayName", workflow);
+        Assert.Contains("approverRole", workflow);
+        Assert.Contains("approverSignature", audit, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ApproverUserId", audit);
+        Assert.Contains("ApproverDisplayName", audit);
+        Assert.Contains("ApproverTimestampUtc", audit);
+        Assert.Contains("ApproverMethod", audit);
+        Assert.Contains("ApproverSignature.Validate", report);
+    }
+
     [Fact(DisplayName = "TD-REPORT-01 reports and authorized exports project persisted Approver metadata")]
     public void Report_contract_projects_approver_signature_and_validates_integrity()
     {

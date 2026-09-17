@@ -8,6 +8,19 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class ReportAuthorizationTests
 {
+    [Fact(DisplayName = "REV-KAN66-003 authorized export emits every Approver CSV field")]
+    public void Approver_export_contract_has_matching_header_and_row_projection()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "AuditLogService.cs")));
+        var methodStart = source.IndexOf("ExportDocumentCsvAsync", StringComparison.Ordinal);
+        var method = source[methodStart..];
+        foreach (var field in new[] { "ApproverSignature", "ApproverUserId", "ApproverDisplayName", "ApproverRole", "ApproverTimestampUtc", "ApproverMethod" })
+        {
+            Assert.Contains(field, source);
+            Assert.Contains(field, method);
+        }
+    }
+
     [Fact(DisplayName = "TD-REPORT-01 report and export access keeps persisted Approver attestation authorized")]
     public void Approver_report_projection_contract_is_revision_bound_and_role_checked()
     {

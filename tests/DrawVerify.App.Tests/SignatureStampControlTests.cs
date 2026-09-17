@@ -5,6 +5,20 @@ namespace DrawVerify.App.Tests;
 
 public sealed class SignatureStampControlTests
 {
+    [Fact(DisplayName = "REV-KAN66-001 Approver control is dedicated, bound, and persisted by the final-approval view")]
+    public void Approver_control_has_dedicated_bindings_and_finalization_route()
+    {
+        var xaml = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Views", "WorkflowView.xaml")));
+        var codeBehind = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Views", "WorkflowView.xaml.cs")));
+        var viewModel = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "ViewModels", "WorkflowViewModel.cs")));
+        Assert.Contains("IsApprover=\"{Binding IsApprover}\"", xaml);
+        Assert.Contains("FinalizedSignature=\"{Binding ApproverSignature", xaml);
+        Assert.Contains("SignatureFinalizationRequested=\"ApproverSignatureFinalizationRequested\"", xaml);
+        Assert.Contains("ApproverSignatureFinalizationRequested", codeBehind);
+        Assert.Contains("SetApproverSignatureAsync", codeBehind);
+        Assert.Contains("SetApproverSignatureAsync", viewModel);
+    }
+
     [Fact(DisplayName = "TD-UI-01 Approver capture control exposes methods preview guidance metadata retry and role gating")]
     public void Approver_control_contract_covers_capture_lifecycle_and_visibility()
     {

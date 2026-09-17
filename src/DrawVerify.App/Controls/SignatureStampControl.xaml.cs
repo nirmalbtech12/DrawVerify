@@ -47,6 +47,7 @@ public partial class SignatureStampControl : UserControl, INotifyPropertyChanged
     public string ErrorText { get; private set; } = string.Empty;
     public SignatureData? PendingSignature { get; private set; }
     public event EventHandler? SignatureFinalizationRequested;
+    public event EventHandler? ApproverSignatureFinalizationRequested;
     public string MetadataText => FinalizedSignature is null ? string.Empty : string.Join(" · ", new[] { FinalizedSignature.IsChecker ? FinalizedSignature.CheckerDisplayName : FinalizedSignature.MakerDisplayName, FinalizedSignature.Role, $"{FinalizedSignature.TimestampUtc:O}", FinalizedSignature.Method.ToString(), FinalizedSignature.Title, FinalizedSignature.Department }.Where(value => !string.IsNullOrWhiteSpace(value)));
     public event PropertyChangedEventHandler? PropertyChanged;
     public SignatureStampControl() { InitializeComponent(); }
@@ -89,7 +90,8 @@ public partial class SignatureStampControl : UserControl, INotifyPropertyChanged
             var method = Enum.Parse<SignatureMethod>(PreviewText[..separator]);
             var payload = PreviewText[(separator + 2)..];
             var signature = IsApprover ? SignatureData.CreateApprover(method, payload, MakerUserId, MakerDisplayName, DocumentId, Revision, DateTimeOffset.UtcNow, Title, Department) : IsChecker ? SignatureData.CreateChecker(method, payload, MakerUserId, MakerDisplayName, DocumentId, Revision, DateTimeOffset.UtcNow, Title, Department) : SignatureData.Create(method, payload, MakerUserId, MakerDisplayName, DocumentId, Revision, DateTimeOffset.UtcNow, Title, Department);
-            if (IsChecker || IsApprover) { PendingSignature = signature; SignatureFinalizationRequested?.Invoke(this, EventArgs.Empty); }
+            if (IsApprover) { PendingSignature = signature; ApproverSignatureFinalizationRequested?.Invoke(this, EventArgs.Empty); }
+            else if (IsChecker) { PendingSignature = signature; SignatureFinalizationRequested?.Invoke(this, EventArgs.Empty); }
             else FinalizedSignature = signature;
             ErrorText = string.Empty; NotifyState();
         }
