@@ -224,14 +224,32 @@ public class PdfReportTests
     {
         var report = new VerificationReport
         {
-            DimensionMatches = Enumerable.Range(1, 40).Select(i => new DimensionMatch { DxfDimensionReference = i, Status = DimensionMatchStatus.Mismatched, NominalValue = i, MeasuredValue = i + .5, ReasonExplanation = "a (long) \\ diagnostic" }).ToArray(),
+            DimensionMatches = Enumerable.Range(1, 140).Select(i => new DimensionMatch { DxfDimensionReference = i, Status = DimensionMatchStatus.Mismatched, NominalValue = i, MeasuredValue = i + .5, ReasonExplanation = i == 1 ? "critical-first" : i == 140 ? "critical-last" : "a (long) \\ diagnostic" }).ToArray(),
             InternalApprovalStamp = InternalApprovalStamp.Create(Guid.Parse("11111111-1111-1111-1111-111111111111"), 1, "approver", "Approver", DateTimeOffset.UtcNow, "fp", Guid.NewGuid())
         };
         var generator = new PdfReportGenerator();
         var content = System.Text.Encoding.ASCII.GetString(await generator.GeneratePdfAsync(report));
         Assert.Contains("a \\(long\\) \\\\ diagnostic", content);
+        Assert.Contains("critical-first", content);
+        Assert.Contains("critical-last", content);
+        Assert.True(CountOccurrences(content, "/Type /Page ") > 1, "A long report must be rendered as multiple PDF page objects.");
+        var contentStreams = content.Split("stream\n", StringSplitOptions.None).Skip(1).Select(stream => stream.Split("\nendstream", StringSplitOptions.None)[0]).Where(stream => stream.Contains("BT /F1", StringComparison.Ordinal)).ToArray();
+        Assert.True(contentStreams.Length > 1, "A long report must have multiple page content streams.");
+        Assert.All(contentStreams, stream => Assert.InRange(CountOccurrences(stream, "0 -12 Td"), 0, 60));
         Assert.Contains("Internal Approval Stamp", content);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => generator.GeneratePdfAsync(report, new CancellationToken(canceled: true)));
+
+        using var cancellation = new CancellationTokenSource();
+        var longReport = report with { DimensionMatches = Enumerable.Range(1, 20_000).Select(i => new DimensionMatch { DxfDimensionReference = i, Status = DimensionMatchStatus.Mismatched, NominalValue = i, MeasuredValue = i + .5, ReasonExplanation = "cancellation-boundary" }).ToArray() };
+        cancellation.CancelAfter(10);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Task.Run(() => generator.GeneratePdfAsync(longReport, cancellation.Token)).WaitAsync(TimeSpan.FromSeconds(2)));
+    }
+
+    private static int CountOccurrences(string value, string token)
+    {
+        var count = 0;
+        for (var index = 0; (index = value.IndexOf(token, index, StringComparison.Ordinal)) >= 0; index += token.Length) count++;
+        return count;
     }
 
     private static string FindRepositoryFile(string relativePath)

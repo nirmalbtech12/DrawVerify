@@ -24,18 +24,8 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
             stamp.Validate();
             markdown += Environment.NewLine + RenderInternalApprovalStamp(stamp);
         }
-        var lines = markdown.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None)
-            .SelectMany(line => Wrap(line, 108))
-            .ToArray();
-        var stream = new StringBuilder();
-        stream.Append("BT /F1 9 Tf 40 760 Td ");
-        for (var index = 0; index < lines.Length; index++)
-        {
-            if (index > 0) stream.Append("0 -12 Td ");
-            stream.Append('(').Append(Escape(lines[index])).Append(") Tj ");
-        }
-        stream.Append("ET");
-        return Task.FromResult(BuildDocument(stream.ToString()));
+        var pages = RenderPages(markdown, cancellationToken);
+        return Task.FromResult(BuildDocument(pages));
     }
 
     private static string BuildStructuredReport(VerificationReport report, VerificationReportRequest request)
@@ -89,6 +79,35 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
 
     private static string Value(double? value) => value is double number && double.IsFinite(number) ? number.ToString("0.###", CultureInfo.InvariantCulture) : "-";
 
+    private static IReadOnlyList<string> RenderPages(string markdown, CancellationToken cancellationToken)
+    {
+        const int linesPerPage = 59;
+        var pages = new List<StringBuilder> { new() };
+        var currentPage = pages[0];
+        var currentLineCount = 0;
+        foreach (var sourceLine in markdown.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var rowLines = Wrap(sourceLine, 108).ToArray();
+            if (currentLineCount > 0 && currentLineCount + rowLines.Length > linesPerPage)
+            {
+                currentPage = new StringBuilder();
+                pages.Add(currentPage);
+                currentLineCount = 0;
+            }
+            foreach (var line in rowLines)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (currentLineCount == 0) currentPage.Append("BT /F1 9 Tf 40 760 Td ");
+                else currentPage.Append("0 -12 Td ");
+                currentPage.Append('(').Append(Escape(line)).Append(") Tj ");
+                currentLineCount++;
+            }
+        }
+        foreach (var page in pages) page.Append("ET");
+        return pages.Select(page => page.ToString()).ToArray();
+    }
+
     private static IEnumerable<string> Wrap(string value, int width)
     {
         if (value.Length == 0) return new[] { string.Empty };
@@ -97,16 +116,22 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
 
     private static string Escape(string value) => value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("(", "\\(", StringComparison.Ordinal).Replace(")", "\\)", StringComparison.Ordinal).Select(character => character is >= ' ' and <= '~' ? character : '?').Aggregate(new StringBuilder(), (builder, character) => builder.Append(character)).ToString();
 
-    private static byte[] BuildDocument(string content)
+    private static byte[] BuildDocument(IReadOnlyList<string> pageContents)
     {
-        var objects = new[]
+        if (pageContents.Count == 0) throw new InvalidOperationException("A PDF report must contain at least one page.");
+        var pageObjects = Enumerable.Range(0, pageContents.Count).Select(index => 3 + index).ToArray();
+        var contentObjects = Enumerable.Range(0, pageContents.Count).Select(index => 3 + pageContents.Count + index).ToArray();
+        var fontObject = 3 + pageContents.Count * 2;
+        var objects = new List<string>
         {
-            "<< /Type /Catalog /Pages 2 0 R >>",
-            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
-            $"<< /Length {Encoding.ASCII.GetByteCount(content)} >>\nstream\n{content}\nendstream",
-            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+            $"<< /Type /Catalog /Pages 2 0 R >>",
+            $"<< /Type /Pages /Kids [{string.Join(" ", pageObjects.Select(id => $"{id} 0 R"))}] /Count {pageContents.Count} >>"
         };
+        for (var index = 0; index < pageContents.Count; index++)
+            objects.Add($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 {fontObject} 0 R >> >> /Contents {contentObjects[index]} 0 R >>");
+        foreach (var content in pageContents)
+            objects.Add($"<< /Length {Encoding.ASCII.GetByteCount(content)} >>\nstream\n{content}\nendstream");
+        objects.Add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
         var result = new StringBuilder("%PDF-1.4\n");
         var offsets = new List<int> { 0 };
         foreach (var (value, index) in objects.Select((value, index) => (value, index + 1)))
@@ -115,9 +140,9 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
             result.Append(index).Append(" 0 obj\n").Append(value).Append("\nendobj\n");
         }
         var xref = Encoding.ASCII.GetByteCount(result.ToString());
-        result.Append("xref\n0 ").Append(objects.Length + 1).Append("\n0000000000 65535 f \n");
+        result.Append("xref\n0 ").Append(objects.Count + 1).Append("\n0000000000 65535 f \n");
         for (var index = 1; index < offsets.Count; index++) result.Append(offsets[index].ToString("D10")).Append(" 00000 n \n");
-        result.Append("trailer\n<< /Size ").Append(objects.Length + 1).Append(" /Root 1 0 R >>\nstartxref\n").Append(xref).Append("\n%%EOF\n");
+        result.Append("trailer\n<< /Size ").Append(objects.Count + 1).Append(" /Root 1 0 R >>\nstartxref\n").Append(xref).Append("\n%%EOF\n");
         return Encoding.ASCII.GetBytes(result.ToString());
     }
 }
