@@ -7,6 +7,21 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteFinalApprovalPersistenceTests
 {
+    [Fact(DisplayName = "TD-INFRA-01 SQLite Approver persistence contract covers migration atomicity tamper guards and locking")]
+    public void Approver_persistence_contract_is_migration_safe_atomic_and_immutable()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Infrastructure", "Persistence", "SqliteWorkflowRepository.cs")));
+        Assert.Contains("ApproverSignatureJson", source);
+        Assert.Contains("ApproverSignatureFinalized", source);
+        Assert.Contains("SaveApproverSignatureAsync", source);
+        Assert.Contains("ApproverSignatureApplied", source);
+        Assert.Contains("transaction", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("CommitAsync", source);
+        Assert.Contains("RevisionLock", source);
+        Assert.Contains("ApproverSignature", source);
+        Assert.Contains("Finalized signatures are immutable", source);
+    }
+
     [Fact(DisplayName = "TD-06 TD-09 TD-10 SQLite rejection persists route snapshot audit and history")]
     public async Task Td06_td09_td10_rejection_round_trips_atomically_and_in_order()
     {

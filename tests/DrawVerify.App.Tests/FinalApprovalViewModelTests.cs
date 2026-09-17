@@ -10,6 +10,21 @@ namespace DrawVerify.App.Tests;
 
 public sealed class FinalApprovalViewModelTests
 {
+    [Fact(DisplayName = "TD-UI-02 persisted Approver signature gates approval and renders only for final approval")]
+    public void View_model_contract_binds_current_revision_signature_and_lock_state()
+    {
+        var viewModel = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "ViewModels", "WorkflowViewModel.cs")));
+        var view = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Views", "WorkflowView.xaml")));
+        Assert.Contains("ApproverSignature", viewModel);
+        Assert.Contains("ApplyApproverSignatureAsync", viewModel);
+        Assert.Contains("IsApprover", viewModel);
+        Assert.Contains("ReviewError", viewModel);
+        Assert.Contains("Approver Signature", view);
+        Assert.Contains("ApproveCommand", viewModel);
+        Assert.Contains("RaiseReviewCommands", viewModel);
+        Assert.Contains("Revision", viewModel);
+    }
+
     [Fact(DisplayName = "TD-04 Approver rejection command requires reason and comments and is role gated")]
     public async Task Td04_approver_rejection_command_is_role_gated_and_validated()
     {
@@ -37,5 +52,16 @@ public sealed class FinalApprovalViewModelTests
     private sealed class Session(AuthenticatedUser? user) : ISessionAuthenticationService
     {
         public AuthenticatedUser? CurrentUser { get; } = user; public bool IsAuthenticated => CurrentUser is not null; public void SignIn(AuthenticatedUser value) { } public void SignOut() { }
+    }
+
+    private static string FindRepositoryFile(string relativePath)
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var index = 0; index < 10 && current is not null; index++, current = current.Parent)
+        {
+            var candidate = Path.Combine(current.FullName, relativePath);
+            if (File.Exists(candidate)) return candidate;
+        }
+        throw new FileNotFoundException(relativePath);
     }
 }

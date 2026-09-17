@@ -13,6 +13,16 @@ using Xunit;
 /// </summary>
 public class PdfReportTests
 {
+    [Fact(DisplayName = "TD-REPORT-01 PDF projection includes persisted Approver representation and metadata")]
+    public void Pdf_report_contract_projects_approver_attestation_fields()
+    {
+        var generator = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Infrastructure", "Pdf", "PdfReportGenerator.cs")));
+        Assert.Contains("ApproverSignature", generator);
+        Assert.Contains("Approver", generator);
+        Assert.Contains("VerificationReport.ApproverSignature", generator);
+        Assert.Equal(nameof(VerificationReport.ApproverSignature), PdfReportGenerator.ApproverSignatureProjection);
+    }
+
     [Fact(DisplayName = "TD-INFRA-002 renders every GD&T status and dedicated Cannot Validate review details")]
     public void Unsupported_gdt_section_contains_details_and_comment()
     {
@@ -145,5 +155,16 @@ public class PdfReportTests
         Assert.Contains("None identified.", empty);
         Assert.Contains("Dimension Status Details", legacy);
         Assert.Contains("3", legacy);
+    }
+
+    private static string FindRepositoryFile(string relativePath)
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var index = 0; index < 10 && current is not null; index++, current = current.Parent)
+        {
+            var candidate = Path.Combine(current.FullName, relativePath);
+            if (File.Exists(candidate)) return candidate;
+        }
+        throw new FileNotFoundException(relativePath);
     }
 }

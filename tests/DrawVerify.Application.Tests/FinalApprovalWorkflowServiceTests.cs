@@ -10,6 +10,22 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class FinalApprovalWorkflowServiceTests
 {
+    [Fact(DisplayName = "TD-APP-01 Approver authorization sequence gating and revision semantics are explicit")]
+    public void Approver_workflow_contract_requires_current_prerequisites_and_logs_failures()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Application", "Services", "WorkflowService.cs")));
+        Assert.Contains("ApplyApproverSignatureAsync", source);
+        Assert.Contains("Only an Approver can apply an Approver signature", source);
+        Assert.Contains("Maker signature required before Approver signature", source);
+        Assert.Contains("Checker signature required before Approver signature", source);
+        Assert.Contains("Approver signature required before final approval", source);
+        Assert.Contains("ApproverSignatureApplied", source);
+        Assert.Contains("signature.DocumentId", source);
+        Assert.Contains("signature.Revision", source);
+        Assert.Contains("ReturnedForRework", source);
+        Assert.Contains("Approver signature", source, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact(DisplayName = "TD-02 authorized Approver rejection routes to Checker with complete metadata")]
     public async Task Td02_authorized_approver_rejection_routes_to_checker()
     {
@@ -192,7 +208,7 @@ public sealed class FinalApprovalWorkflowServiceTests
         public Guid Package { get; } = Guid.NewGuid(); public FakeRepository Repository { get; } = new(); public FakeAuth Auth { get; } = new();
         public WorkflowService Service => new(Repository, Auth, new WorkflowConfiguration { PermittedInitialStates = new[] { WorkflowStatus.Draft, WorkflowStatus.InPreparation }, DuplicateSubmissionStates = new[] { WorkflowStatus.SubmittedForReview, WorkflowStatus.UnderReview, WorkflowStatus.Approved } }, new RoleAuthorization(), documents: new FakeDocuments(Package, DxfDocument, Repository.Package!.StepDocumentVersionId, Repository.Package.DxfDocumentVersionId), clock: () => new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), snapshots: new FakeSnapshotStore(), stepFiles: new FakeStepFiles(), dxfFiles: new FakeDxfFiles());
         private static readonly Guid DxfDocument = Guid.Parse("00000000-0000-0000-0000-0000000000d1");
-        public static Fixture Create() { var f = new Fixture(); f.Repository.Package = ReviewPackage.FromSubmission(new ReviewSubmission { PackageId = f.Package, DxfDocumentId = DxfDocument, Revision = 1, Status = WorkflowStatus.PendingFinalApproval, StepDocumentVersionId = Guid.NewGuid(), DxfDocumentVersionId = Guid.NewGuid(), VerificationSessionId = Guid.NewGuid(), ExtractionEvidenceJson = "{\"extraction\":\"complete\"}", VerificationEvidenceJson = "{\"verification\":\"passed\"}", MakerUserId = "maker-1", MakerDisplayName = "Maker One", Note = "review", CheckerSignature = SignatureData.CreateChecker(SignatureMethod.Typed, "checker approval", "checker-001", "Checker One", f.Package, 1, new DateTimeOffset(2026, 9, 16, 10, 0, 0, TimeSpan.Zero)) }); return f; }
+        public static Fixture Create() { var f = new Fixture(); f.Repository.Package = ReviewPackage.FromSubmission(new ReviewSubmission { PackageId = f.Package, DxfDocumentId = DxfDocument, Revision = 1, Status = WorkflowStatus.PendingFinalApproval, StepDocumentVersionId = Guid.NewGuid(), DxfDocumentVersionId = Guid.NewGuid(), VerificationSessionId = Guid.NewGuid(), ExtractionEvidenceJson = "{\"extraction\":\"complete\"}", VerificationEvidenceJson = "{\"verification\":\"passed\"}", MakerUserId = "maker-1", MakerDisplayName = "Maker One", Note = "review", MakerSignature = SignatureData.Create(SignatureMethod.Typed, "maker approval", "maker-1", "Maker One", f.Package, 1, new DateTimeOffset(2026, 9, 16, 9, 0, 0, TimeSpan.Zero)), CheckerSignature = SignatureData.CreateChecker(SignatureMethod.Typed, "checker approval", "checker-001", "Checker One", f.Package, 1, new DateTimeOffset(2026, 9, 16, 10, 0, 0, TimeSpan.Zero)), ApproverSignature = SignatureData.CreateApprover(SignatureMethod.Typed, "approver approval", "approver-1", "Approver One", f.Package, 1, new DateTimeOffset(2026, 9, 16, 11, 0, 0, TimeSpan.Zero)) }); return f; }
     }
     private sealed class FakeAuth : ISessionAuthenticationService { public AuthenticatedUser? CurrentUser { get; } = new("approver", new[] { SystemRoles.Approver }) { UserId = "approver-1", DisplayName = "Approver One" }; public bool IsAuthenticated => true; public void SignIn(AuthenticatedUser user) { } public void SignOut() { } }
     private sealed class FakeSnapshotStore : IApprovalSnapshotStore

@@ -5,7 +5,7 @@
     <Border BorderBrush="DarkGray" BorderThickness="1" Padding="12" Margin="4" Visibility="{Binding IsSignatureVisible, ElementName=root, Converter={StaticResource BooleanToVisibilityConverter}}">
         <StackPanel>
             <TextBlock Text="{Binding SignatureLabel, ElementName=root}" FontWeight="Bold" FontSize="16" />
-            <TextBlock Text="This attests that your submission is complete. Signatures are legally binding and tamper-evident." TextWrapping="Wrap" Margin="0,6,0,8" />
+            <TextBlock Text="This attests that your submission is complete. Approver signatures are legally binding and tamper-evident." TextWrapping="Wrap" Margin="0,6,0,8" />
             <TextBlock Text="Use a typed name, drawing, or signature image. Preview before finalizing." TextWrapping="Wrap" />
             <TextBox Text="{Binding DraftName, ElementName=root, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CanEdit, ElementName=root}" ToolTip="Typed signature" Margin="0,8,0,0" />
             <TextBox Text="{Binding Title, ElementName=root, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CanEdit, ElementName=root}" ToolTip="Optional title" Margin="0,4,0,0" />

@@ -403,6 +403,7 @@ public sealed class WorkflowService : IWorkflowService
             metadata["dxfDocumentVersionId"] = submission.DxfDocumentVersionId.ToString("D");
             var computedBase = await _fingerprintService.ComputeAsync(new DocumentFingerprintContext(packageId, revision, submission.StepDocumentVersionId, submission.DxfDocumentVersionId, metadata), new[] { new DocumentFingerprintArtifact(step.StoredRelativePath, stepStream, step.FileSizeBytes), new DocumentFingerprintArtifact(dxf.StoredRelativePath, dxfStream, dxf.FileSizeBytes) }, cancellationToken: cancellationToken).ConfigureAwait(false);
             var computed = submission.CheckerSignature is null ? computedBase : CreateSignedStateFingerprint(computedBase, submission.CheckerSignature);
+            if (submission.ApproverSignature is not null) computed = CreateSignedStateFingerprint(computed, submission.ApproverSignature);
             var matches = CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(submission.Fingerprint.Value.ToLowerInvariant()), Encoding.ASCII.GetBytes(computed.Value));
             result = new FingerprintVerificationResult(matches ? FingerprintVerificationStatus.Match : FingerprintVerificationStatus.Mismatch, computed, matches ? "Fingerprint Verified - Document Unchanged" : "Fingerprint Mismatch - Document May Have Been Altered") { Stored = submission.Fingerprint };
             }
@@ -462,6 +463,25 @@ public sealed class WorkflowService : IWorkflowService
         catch (Exception exception) { _logger?.Log(exception, "Checker signature", $"Unable to persist Checker signature for packageId={packageId}, revision={revision}."); throw; }
     }
 
+    public async Task<SignatureData> ApplyApproverSignatureAsync(Guid packageId, int revision, SignatureMethod method, string payload, string? title = null, string? department = null, CancellationToken cancellationToken = default)
+    {
+        RequireFinalApprovalPermission();
+        var user = _authentication.CurrentUser!;
+        if (!user.HasRole(SystemRoles.Approver)) throw new UnauthorizedAccessException("Only an Approver can apply an Approver signature.");
+        var package = await _workflow.GetReviewPackageAsync(packageId, revision, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException($"Review package '{packageId}' revision {revision} was not found.");
+        if (package.Submission.MakerSignature is null) throw new InvalidOperationException("Maker signature required before Approver signature.");
+        if (package.Submission.CheckerSignature is null) throw new InvalidOperationException("Checker signature required before Approver signature.");
+        if (package.Submission.ApproverSignature is not null) throw new InvalidOperationException("An Approver signature already exists for this document version.");
+        package.Submission.MakerSignature.Validate(); package.Submission.CheckerSignature.Validate();
+        if (package.Submission.MakerSignature.Revision != revision || package.Submission.CheckerSignature.Revision != revision) throw new InvalidOperationException("Maker and Checker signatures must belong to the current document version.");
+        var signature = SignatureData.CreateApprover(method, payload, user.UserId, user.DisplayName, packageId, revision, _clock().ToUniversalTime(), title, department);
+        var fingerprint = package.Fingerprint ?? throw new InvalidOperationException("A document fingerprint is required before Approver signing.");
+        var signedFingerprint = CreateSignedStateFingerprint(fingerprint, signature);
+        var audit = CreateAudit(packageId, revision, DocumentAuditAction.ApproverSignatureApplied, "ApproverSignatureApplied", signature.TimestampUtc.UtcDateTime, user, snapshotReference: package.SnapshotReference, documentVersionId: package.StepDocumentVersionId, fingerprint: signedFingerprint, signature: signature);
+        try { var saved = await _workflow.SaveApproverSignatureAsync(package, signature, signedFingerprint, audit, cancellationToken).ConfigureAwait(false); return saved.ApproverSignature ?? throw new InvalidOperationException("Approver signature persistence returned no signature."); }
+        catch (Exception exception) { _logger?.Log(exception, "Approver signature", $"Unable to persist Approver signature for packageId={packageId}, revision={revision}."); throw; }
+    }
+
     public async Task<ReviewDecision> RejectToCheckerAsync(Guid packageId, int revision, string reason, string comments, CancellationToken cancellationToken = default)
     {
         RequireFinalApprovalPermission();
@@ -488,6 +508,9 @@ public sealed class WorkflowService : IWorkflowService
             var checkerSignature = package.Submission.CheckerSignature ?? throw new InvalidOperationException("Checker signature required before approval");
             checkerSignature.Validate();
             if (checkerSignature.DocumentId != packageId || checkerSignature.Revision != revision) throw new InvalidOperationException("The current revision Checker signature does not match the package.");
+            var approverSignature = package.Submission.ApproverSignature ?? throw new InvalidOperationException("Approver signature required before final approval");
+            approverSignature.Validate();
+            if (approverSignature.DocumentId != packageId || approverSignature.Revision != revision) throw new InvalidOperationException("The current revision Approver signature does not match the package.");
         }
         if (_snapshots is null) throw new NotSupportedException("Final approval cannot proceed because immutable snapshot storage is unavailable.");
         if (_documents is null || _stepFiles is null || _dxfFiles is null) throw new NotSupportedException("Final approval cannot proceed because versioned artifact access is unavailable.");

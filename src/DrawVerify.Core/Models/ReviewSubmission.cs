@@ -27,6 +27,7 @@ public sealed record ReviewSubmission
     public DocumentFingerprint? Fingerprint { get; init; }
     public SignatureData? MakerSignature { get; init; }
     public SignatureData? CheckerSignature { get; init; }
+    public SignatureData? ApproverSignature { get; init; }
 }
 
 public sealed record SubmissionReadiness(bool IsReady, IReadOnlyList<string> Failures)

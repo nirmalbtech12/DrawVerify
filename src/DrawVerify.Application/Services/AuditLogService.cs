@@ -50,7 +50,7 @@ public sealed class AuditLogService
     }
     public async Task<string> ExportDocumentCsvAsync(Guid documentId, AuditLogQuery? query = null, CancellationToken cancellationToken = default)
     {
-        var entries = await QueryDocumentAsync(documentId, query, cancellationToken); var b = new StringBuilder("AuditId,DocumentId,Revision,Version,Actor,Role,Timestamp,Action,Details,Metadata,Fingerprint,RecomputedFingerprint,VerificationResult,FingerprintAlgorithm,FingerprintCanonicalizationVersion,MakerSignature,MakerUserId,MakerDisplayName,MakerRole,MakerTimestampUtc,MakerMethod,MakerTitle,MakerDepartment,CheckerSignature,CheckerUserId,CheckerDisplayName,CheckerRole,CheckerTimestampUtc,CheckerMethod,CheckerTitle,CheckerDepartment,PreviousStatus,NewStatus,Predecessor,IntegrityHash\r\n");
+        var entries = await QueryDocumentAsync(documentId, query, cancellationToken); var b = new StringBuilder("AuditId,DocumentId,Revision,Version,Actor,Role,Timestamp,Action,Details,Metadata,Fingerprint,RecomputedFingerprint,VerificationResult,FingerprintAlgorithm,FingerprintCanonicalizationVersion,MakerSignature,MakerUserId,MakerDisplayName,MakerRole,MakerTimestampUtc,MakerMethod,MakerTitle,MakerDepartment,CheckerSignature,CheckerUserId,CheckerDisplayName,CheckerRole,CheckerTimestampUtc,CheckerMethod,CheckerTitle,CheckerDepartment,ApproverSignature,ApproverUserId,ApproverDisplayName,ApproverRole,ApproverTimestampUtc,ApproverMethod,PreviousStatus,NewStatus,Predecessor,IntegrityHash\r\n");
         foreach (var e in entries)
         {
             var fingerprint = ReadDetail(e.DetailsJson, "storedFingerprint") ?? ReadDetail(e.DetailsJson, "fingerprint");

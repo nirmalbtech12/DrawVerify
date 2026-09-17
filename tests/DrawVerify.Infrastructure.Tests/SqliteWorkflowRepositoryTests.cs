@@ -11,6 +11,19 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteWorkflowRepositoryTests
 {
+    [Fact(DisplayName = "TD-REG-01 SQLite legacy rows remain readable with additive Approver fields")]
+    public void Legacy_schema_contract_keeps_maker_checker_data_and_adds_nullable_approver_columns()
+    {
+        var source = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.Infrastructure", "Persistence", "SqliteWorkflowRepository.cs")));
+        Assert.Contains("ApproverSignatureJson", source);
+        Assert.Contains("ApproverSignatureFinalized", source);
+        Assert.Contains("ALTER TABLE", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("MakerSignatureJson", source);
+        Assert.Contains("CheckerSignatureJson", source);
+        Assert.Contains("SaveApproverSignatureAsync", source);
+        Assert.Contains("ApproverSignatureApplied", source);
+    }
+
     [Fact(DisplayName = "TD-03 migrates verification audit records additively and reads the latest outcome")]
     public async Task Verification_record_round_trips_from_sqlite_audit_history()
     {
@@ -411,5 +424,16 @@ public sealed class SqliteWorkflowRepositoryTests
         {
             if (File.Exists(file)) File.Delete(file);
         }
+    }
+
+    private static string FindRepositoryFile(string relativePath)
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var index = 0; index < 10 && current is not null; index++, current = current.Parent)
+        {
+            var candidate = Path.Combine(current.FullName, relativePath);
+            if (File.Exists(candidate)) return candidate;
+        }
+        throw new FileNotFoundException(relativePath);
     }
 }

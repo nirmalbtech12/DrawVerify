@@ -5,6 +5,27 @@ namespace DrawVerify.App.Tests;
 
 public sealed class SignatureStampControlTests
 {
+    [Fact(DisplayName = "TD-UI-01 Approver capture control exposes methods preview guidance metadata retry and role gating")]
+    public void Approver_control_contract_covers_capture_lifecycle_and_visibility()
+    {
+        var xaml = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Controls", "SignatureStampControl.xaml")));
+        var code = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Controls", "SignatureStampControl.xaml.cs")));
+        var workflow = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Views", "WorkflowView.xaml")));
+        Assert.Contains("SignatureLabel", xaml);
+        Assert.Contains("IsApprover ? \"Approver Signature\"", code);
+        Assert.Contains("Typed", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Draw", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Upload", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("SignatureMethod", code);
+        Assert.Contains("Preview", xaml);
+        Assert.Contains("Cancel / Re-enter", xaml);
+        Assert.Contains("legally binding", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("tamper-evident", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Failed to capture signature. Please try again.", code);
+        Assert.Contains("Approver", code);
+        Assert.Contains("Approver Signature", workflow);
+    }
+
     [Fact(DisplayName = "TD-KAN64-APPUI-001 Maker Signature control exposes approved guidance and recovery text")]
     public void Signature_control_xaml_contains_required_user_guidance_and_states()
     {

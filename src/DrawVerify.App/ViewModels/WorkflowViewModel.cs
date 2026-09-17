@@ -36,6 +36,7 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     private ReviewPackage? _selectedMakerPackage;
     private SignatureData? _makerSignature;
     private SignatureData? _checkerSignature;
+    private SignatureData? _approverSignature;
     private string _signatureError = string.Empty;
     public WorkflowViewModel() { SubmitCommand = new Command(async _ => await SubmitAsync(), _ => false); CancelCommand = new Command(async _ => await CancelAsync(true), _ => IsConfirmationVisible); InitializeReviewCommands(); }
     public WorkflowViewModel(IWorkflowService service, ISessionAuthenticationService? authentication = null, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null)
@@ -48,8 +49,10 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     public string Note { get => _note; set { _note = value ?? string.Empty; MarkDirtyFromUserInput(); RaisePropertyChanged(nameof(Note)); } }
     public SignatureData? MakerSignature { get => _makerSignature; set { if (_makerSignature is not null && value is null) return; _makerSignature = value; SignatureError = string.Empty; RaisePropertyChanged(nameof(MakerSignature)); ((Command)SubmitCommand).Raise(); } }
     public SignatureData? CheckerSignature { get => _checkerSignature; private set { _checkerSignature = value; RaisePropertyChanged(nameof(CheckerSignature)); RaiseReviewCommands(); } }
+    public SignatureData? ApproverSignature { get => _approverSignature; private set { _approverSignature = value; RaisePropertyChanged(nameof(ApproverSignature)); RaiseReviewCommands(); } }
     public bool IsMaker => _authentication?.CurrentUser?.HasRole(SystemRoles.Maker) == true;
     public bool IsChecker => _authentication?.CurrentUser?.HasRole(SystemRoles.Checker) == true;
+    public bool IsApprover => _authentication?.CurrentUser?.HasRole(SystemRoles.Approver) == true;
     public string MakerUserId => _authentication?.CurrentUser?.UserId ?? string.Empty;
     public string MakerDisplayName => _authentication?.CurrentUser?.DisplayName ?? string.Empty;
     public ICentralizedLogger? Logger => _logger;
@@ -60,6 +63,12 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
         if (!IsChecker || ReviewPackage is null || _service is null) { ReviewError = "Only an authorized Checker can apply a Checker signature."; return; }
         try { CheckerSignature = await _service.ApplyCheckerSignatureAsync(ReviewPackage.PackageId, ReviewPackage.Revision, signature.Method, signature.Payload, signature.Title, signature.Department); ReviewError = string.Empty; }
         catch (Exception exception) { _logger?.Log(exception, "WPF Checker signature", $"Unable to apply Checker signature for packageId={ReviewPackage.PackageId}, revision={ReviewPackage.Revision}."); ReviewError = exception.Message; }
+    }
+    public async Task SetApproverSignatureAsync(SignatureData signature)
+    {
+        if (!IsApprover || ReviewPackage is null || _service is null) { ReviewError = "Only an authorized Approver can apply an Approver signature."; return; }
+        try { ApproverSignature = await _service.ApplyApproverSignatureAsync(ReviewPackage.PackageId, ReviewPackage.Revision, signature.Method, signature.Payload, signature.Title, signature.Department); ReviewError = string.Empty; }
+        catch (Exception exception) { _logger?.Log(exception, "WPF Approver signature", $"Unable to apply Approver signature for packageId={ReviewPackage.PackageId}, revision={ReviewPackage.Revision}."); ReviewError = exception.Message; }
     }
     public string Message { get => _message; private set { _message = value; RaisePropertyChanged(nameof(Message)); } }
     public long FingerprintProgress { get => _fingerprintProgress; private set { _fingerprintProgress = value; RaisePropertyChanged(nameof(FingerprintProgress)); RaisePropertyChanged(nameof(FingerprintProgressText)); } }
@@ -122,7 +131,7 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     public ICommand MarkVerificationViewedCommand { get; private set; } = null!;
     private void InitializeReviewCommands()
     {
-        ApproveCommand = new Command(async _ => await DecideAsync(ReviewDecisionType.Approve), _ => ReviewPackage is not null && (!IsApproverReview || CheckerSignature is not null));
+        ApproveCommand = new Command(async _ => await DecideAsync(ReviewDecisionType.Approve), _ => ReviewPackage is not null && (!IsApproverReview || (CheckerSignature is not null && ApproverSignature is not null)));
         RejectCommand = new Command(async _ => await DecideAsync(ReviewDecisionType.Reject), _ => ReviewPackage is not null && !string.IsNullOrWhiteSpace(ReviewComment));
         RequestChangesCommand = new Command(async _ => await DecideAsync(ReviewDecisionType.RequestChanges), _ => ReviewPackage is not null && !string.IsNullOrWhiteSpace(ReviewComment));
         ReturnForReworkCommand = new Command(async _ => await DecideAsync(ReviewDecisionType.Return), _ => ReviewPackage is not null && !string.IsNullOrWhiteSpace(ReviewComment));
@@ -153,6 +162,7 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
         {
             ReviewPackage = await _service!.OpenReviewPackageAsync(item.PackageId, item.Revision);
             CheckerSignature = ReviewPackage?.Submission.CheckerSignature;
+            ApproverSignature = ReviewPackage?.Submission.ApproverSignature;
             ApprovalHistory.Clear();
             if (ReviewPackage is not null)
                 foreach (var decision in await _service.GetApprovalHistoryAsync(ReviewPackage.PackageId, ReviewPackage.Revision))
