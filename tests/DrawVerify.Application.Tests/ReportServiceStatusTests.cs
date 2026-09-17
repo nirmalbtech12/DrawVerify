@@ -187,6 +187,94 @@ public sealed class ReportServiceStatusTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => new ReportService(new Sessions(Fixtures()), session, generator: generatorFailure).GenerateMarkdownAsync(Guid.NewGuid()));
     }
 
+    [Fact(DisplayName = "TD-KAN70-02 request normalization rejects invalid scope and preserves deterministic filters")]
+    public void Report_request_normalization_validates_scope_and_deduplicates_filters()
+    {
+        var normalized = new VerificationReportRequest { FeatureFilters = new[] { " Hole ", "hole", "" }, ZoneFilters = new[] { " Front " } }.Normalize();
+        Assert.Equal(new[] { "Hole" }, normalized.FeatureFilters);
+        Assert.Equal(new[] { "Front" }, normalized.ZoneFilters);
+        var exception = Assert.Throws<ArgumentException>(() => new VerificationReportRequest { GdtOnly = true, MismatchedAndMissingOnly = true }.Normalize());
+        Assert.Contains("cannot be combined", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact(DisplayName = "TD-KAN70-05 service uses the current snapshot and audits only after PDF success")]
+    public async Task Pdf_service_projects_current_rows_scope_metadata_and_audit_order()
+    {
+        var sessionId = Guid.NewGuid();
+        var matches = new[]
+        {
+            new DimensionMatch { VerificationSessionId = sessionId, DxfDimensionReference = 1, Status = DimensionMatchStatus.Matched, GeometryType = "Hole" },
+            new DimensionMatch { VerificationSessionId = sessionId, DxfDimensionReference = 2, Status = DimensionMatchStatus.Mismatched, GeometryType = "Slot" }
+        };
+        var auth = Authenticated("checker-id", "Checker");
+        var renderer = new CapturingPdfGenerator();
+        var audit = new CapturingAudit();
+        var service = new ReportService(new Sessions(matches), auth, new RoleAuthorization(), pdfGenerator: renderer, audit: audit);
+
+        var bytes = await service.GeneratePdfAsync(sessionId, new VerificationReportRequest { MismatchedAndMissingOnly = true, FeatureFilters = new[] { "Slot" } });
+
+        Assert.Equal(new byte[] { 37, 80, 68, 70 }, bytes);
+        Assert.NotNull(renderer.Report);
+        Assert.Single(renderer.Report!.DimensionMatches);
+        Assert.Equal(2, renderer.Report.DimensionMatches[0].DxfDimensionReference);
+        Assert.True(renderer.Report.Request.MismatchedAndMissingOnly);
+        Assert.Equal(new[] { "Slot" }, renderer.Report.Request.FeatureFilters);
+        var entry = Assert.Single(audit.Entries);
+        Assert.Equal(DocumentAuditAction.VerificationReportGenerated, entry.Action);
+        using var details = JsonDocument.Parse(entry.DetailsJson);
+        Assert.Equal("VerificationReport", details.RootElement.GetProperty("reportType").GetString());
+        Assert.Equal("PDF", details.RootElement.GetProperty("reportFormat").GetString());
+        Assert.Equal("checker-id", entry.UserId);
+    }
+
+    [Fact(DisplayName = "TD-KAN70-03 service projects persisted document metadata and checker identity")]
+    public async Task Pdf_service_projects_exact_document_version_and_checker_metadata()
+    {
+        var sessionId = Guid.NewGuid();
+        var drawingId = Guid.NewGuid();
+        var modelId = Guid.NewGuid();
+        var drawingVersionId = Guid.NewGuid();
+        var modelVersionId = Guid.NewGuid();
+        var session = new VerificationSession
+        {
+            VerificationSessionId = sessionId, DxfDocumentId = drawingId, StepDocumentId = modelId,
+            DxfDocumentVersionId = drawingVersionId, StepDocumentVersionId = modelVersionId, ToleranceThresholdMm = .25
+        };
+        var renderer = new CapturingPdfGenerator();
+        var auth = Authenticated("checker-id", "Checker");
+        var service = new ReportService(new MetadataSessions(session), auth, new RoleAuthorization(), pdfGenerator: renderer, documents: new MetadataDocuments(drawingId, modelId, drawingVersionId, modelVersionId));
+
+        await service.GeneratePdfAsync(sessionId);
+
+        Assert.NotNull(renderer.Report);
+        Assert.Equal("drawing-rev7.dxf", renderer.Report!.Metadata.DocumentName);
+        Assert.Equal(drawingId, renderer.Report.Metadata.DocumentId);
+        Assert.Equal("7", renderer.Report.Metadata.DrawingVersion);
+        Assert.Equal("3", renderer.Report.Metadata.ModelVersion);
+        Assert.Equal(drawingVersionId, renderer.Report.Metadata.DrawingVersionId);
+        Assert.Equal(modelVersionId, renderer.Report.Metadata.ModelVersionId);
+        Assert.Equal("checker-id", renderer.Report.Metadata.CheckerIdentity);
+        Assert.Contains("0.25", renderer.Report.Metadata.VerificationMethod, StringComparison.Ordinal);
+        Assert.Equal(sessionId, renderer.Report.Metadata.VerificationSessionId);
+    }
+
+    [Fact(DisplayName = "TD-KAN70-06 PDF renderer and audit failures are rethrown without false-success audit")]
+    public async Task Pdf_service_failures_are_distinguishable_and_do_not_emit_success_audit()
+    {
+        var sessionId = Guid.NewGuid();
+        var auth = Authenticated("checker-id", "Checker");
+        var audit = new CapturingAudit();
+        var renderer = new CapturingPdfGenerator { Failure = new InvalidOperationException("renderer failure") };
+        var service = new ReportService(new Sessions(Fixtures()), auth, new RoleAuthorization(), pdfGenerator: renderer, audit: audit);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.GeneratePdfAsync(sessionId));
+        Assert.Equal("renderer failure", exception.Message);
+        Assert.Empty(audit.Entries);
+
+        var unauthorized = new ReportService(new Sessions(Fixtures()), new SessionAuthenticationService(), new RoleAuthorization(), pdfGenerator: new CapturingPdfGenerator());
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => unauthorized.GeneratePdfAsync(sessionId));
+    }
+
     [Fact(DisplayName = "TD-004 exports missing dimensions with location fields and CSV escaping")]
     public async Task Missing_dimension_csv_contains_location_and_escaped_comment()
     {
@@ -213,6 +301,41 @@ public sealed class ReportServiceStatusTests
     private sealed class FailingGenerator : IReportGenerator
     {
         public Task<string> GenerateMarkdownAsync(VerificationReport report, CancellationToken cancellationToken = default) => Task.FromException<string>(new InvalidOperationException("generator failure"));
+    }
+
+    private sealed class CapturingPdfGenerator : IPdfReportGenerator
+    {
+        public VerificationReport? Report { get; private set; }
+        public Exception? Failure { get; init; }
+        public Task<byte[]> GeneratePdfAsync(VerificationReport report, CancellationToken cancellationToken = default)
+        {
+            Report = report;
+            return Failure is null ? Task.FromResult(new byte[] { 37, 80, 68, 70 }) : Task.FromException<byte[]>(Failure);
+        }
+    }
+
+    private sealed class CapturingAudit : IAuditLogger
+    {
+        public List<AuditEntry> Entries { get; } = new();
+        public Task WriteAsync(AuditEntry entry, CancellationToken cancellationToken = default)
+        {
+            Entries.Add(entry);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class MetadataSessions(VerificationSession session) : IVerificationSessionRepository
+    {
+        public Task<VerificationSession?> GetAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<VerificationSession?>(session);
+        public Task<IReadOnlyList<DimensionMatch>> GetMatchesAsync(Guid id, DimensionMatchStatus? status = null, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DimensionMatch>>(Array.Empty<DimensionMatch>());
+        public Task<VerificationSession> GetOrCreateAsync(Guid stepDocumentId, Guid dxfDocumentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task ReplaceResultsAsync(VerificationSession session, IReadOnlyCollection<DimensionMatch> matches, DocumentAuditAction auditAction, string userId, string detailsJson, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class MetadataDocuments(Guid drawingId, Guid modelId, Guid drawingVersionId, Guid modelVersionId) : IDocumentRepository
+    {
+        public Task<Document?> GetAsync(Guid documentId, CancellationToken cancellationToken = default) => Task.FromResult<Document?>(documentId == drawingId ? new Document { DocumentId = drawingId, OriginalFileName = "drawing-rev7.dxf" } : new Document { DocumentId = modelId, OriginalFileName = "model-rev3.step" });
+        public Task<DocumentVersion?> GetVersionAsync(Guid documentId, Guid versionId, CancellationToken cancellationToken = default) => Task.FromResult<DocumentVersion?>(documentId == drawingId ? new DocumentVersion { DocumentId = drawingId, VersionId = drawingVersionId, VersionNumber = 7 } : new DocumentVersion { DocumentId = modelId, VersionId = modelVersionId, VersionNumber = 3 });
     }
     private sealed class Sessions(IReadOnlyList<DimensionMatch> matches) : IVerificationSessionRepository
     {

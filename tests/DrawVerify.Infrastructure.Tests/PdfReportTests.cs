@@ -169,6 +169,71 @@ public class PdfReportTests
         Assert.Contains("3", legacy);
     }
 
+    [Fact(DisplayName = "TD-KAN70-01 populated PDF contains every required verification section and field")]
+    public async Task Populated_pdf_contains_required_sections_fields_and_summary()
+    {
+        var report = new VerificationReport
+        {
+            Metadata = new VerificationReportMetadata
+            {
+                DocumentName = "bracket.dxf", DocumentId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+                DrawingVersion = "7", ModelVersion = "3", VerificationSessionId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+                VerificationMethod = "Tolerance profile A", CheckerIdentity = "Checker One",
+                GeneratedUtc = new DateTimeOffset(2026, 9, 17, 10, 0, 0, TimeSpan.Zero)
+            },
+            DimensionMatches = new[]
+            {
+                new DimensionMatch { DxfDimensionReference = 1, Status = DimensionMatchStatus.Matched, NominalValue = 10, MeasuredValue = 10.01, EffectiveLowerTolerance = -.1, EffectiveUpperTolerance = .1 },
+                new DimensionMatch { DxfDimensionReference = 2, Status = DimensionMatchStatus.Mismatched, NominalValue = 20, MeasuredValue = 20.5, EffectiveLowerTolerance = -.2, EffectiveUpperTolerance = .2, ReasonExplanation = "Tolerance exceeded", RequiresManualReview = true },
+                new DimensionMatch { DxfDimensionReference = 3, Status = DimensionMatchStatus.Unmatched, NominalValue = 30, ReasonExplanation = "Feature missing in 3D" }
+            },
+            GdtResults = new[]
+            {
+                new GdtResult { Identifier = "FCF-1", ControlType = GdtControlType.Position, DatumReferences = new[] { "A", "B" }, ToleranceValue = "0.2", ComparisonDetails = "0.12 measured", Status = VerificationStatus.Passed }
+            }
+        };
+
+        var content = System.Text.Encoding.ASCII.GetString(await new PdfReportGenerator().GeneratePdfAsync(report));
+
+        Assert.StartsWith("%PDF-1.4", content, StringComparison.Ordinal);
+        Assert.EndsWith("%%EOF\n", content, StringComparison.Ordinal);
+        foreach (var value in new[] { "Summary", "Matched Dimensions", "Mismatched Dimensions", "Missing Dimensions", "GD&T Results", "Identifier", "Nominal", "Measured 3D", "Lower Tolerance", "Upper Tolerance", "Deviation", "Pass/Fail", "Reason", "Severity", "1", "10.01", "Tolerance exceeded", "High", "Feature missing in 3D", "FCF-1", "Position", "A, B", "0.2", "0.12 measured", "Passed", "Total Dimensions: 3", "Matched: 1", "Mismatched: 1", "Missing: 1", "GD&T Checked: 1", "50% dimensions within tolerance" })
+            Assert.Contains(value, content);
+    }
+
+    [Fact(DisplayName = "TD-KAN70-02 and TD-KAN70-03 filters normalize and empty sections remain explicit")]
+    public async Task Filtered_and_empty_reports_preserve_scope_and_empty_markers()
+    {
+        var report = new VerificationReport
+        {
+            DimensionMatches = new[] { new DimensionMatch { DxfDimensionReference = 8, Status = DimensionMatchStatus.Matched, GeometryType = "Hole", ViewName = "Front", NominalValue = 8 } },
+            Request = new VerificationReportRequest { IncludeVisuals = false, Visuals = new[] { new VerificationReportVisual("V1", "not-rendered.png") } }
+        };
+        var generator = new PdfReportGenerator();
+        var empty = System.Text.Encoding.ASCII.GetString(await generator.GeneratePdfAsync(new VerificationReport()));
+        var scopedRequest = new VerificationReportRequest { FeatureFilters = new[] { " Hole ", "hole" }, ZoneFilters = new[] { " Front " }, IncludeVisuals = true, Visuals = new[] { new VerificationReportVisual("V1", "snapshot.png", "callout") } };
+        var scoped = System.Text.Encoding.ASCII.GetString(await generator.GeneratePdfAsync(report with { Request = scopedRequest }));
+
+        Assert.Contains("Matched Dimensions", empty); Assert.Contains("Mismatched Dimensions", empty); Assert.Contains("Missing Dimensions", empty); Assert.Contains("GD&T Results", empty); Assert.Contains("No items", empty);
+        Assert.Contains("V1: callout", scoped); Assert.Contains("8", scoped);
+        await Assert.ThrowsAsync<ArgumentException>(() => generator.GeneratePdfAsync(report with { Request = new VerificationReportRequest { GdtOnly = true, MismatchedAndMissingOnly = true } }));
+    }
+
+    [Fact(DisplayName = "TD-KAN70-04 PDF escaping, cancellation, pagination input, and approval stamp remain safe")]
+    public async Task Pdf_escapes_special_text_and_honors_cancellation_and_stamp()
+    {
+        var report = new VerificationReport
+        {
+            DimensionMatches = Enumerable.Range(1, 40).Select(i => new DimensionMatch { DxfDimensionReference = i, Status = DimensionMatchStatus.Mismatched, NominalValue = i, MeasuredValue = i + .5, ReasonExplanation = "a (long) \\ diagnostic" }).ToArray(),
+            InternalApprovalStamp = InternalApprovalStamp.Create(Guid.Parse("11111111-1111-1111-1111-111111111111"), 1, "approver", "Approver", DateTimeOffset.UtcNow, "fp", Guid.NewGuid())
+        };
+        var generator = new PdfReportGenerator();
+        var content = System.Text.Encoding.ASCII.GetString(await generator.GeneratePdfAsync(report));
+        Assert.Contains("a \\(long\\) \\\\ diagnostic", content);
+        Assert.Contains("Internal Approval Stamp", content);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => generator.GeneratePdfAsync(report, new CancellationToken(canceled: true)));
+    }
+
     private static string FindRepositoryFile(string relativePath)
     {
         var current = new DirectoryInfo(AppContext.BaseDirectory);

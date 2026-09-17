@@ -73,6 +73,17 @@ public sealed class ReportAuthorizationTests
         Assert.True(authorization.IsAllowed(new AuthenticatedUser("auditor-001", new[] { "Checker" }), RolePermission.ViewDimensionMatchResults));
     }
 
+    [Fact(DisplayName = "TD-KAN70-06 PDF report denies anonymous and unauthorized users before loading data")]
+    public async Task Pdf_report_requires_report_view_permission()
+    {
+        var anonymous = new SessionAuthenticationService();
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => new ReportService(new Sessions(), anonymous, new RoleAuthorization()).GeneratePdfAsync(Guid.NewGuid()));
+
+        var viewer = new SessionAuthenticationService();
+        viewer.SignIn(new AuthenticatedUser("viewer", new[] { "Viewer" }));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => new ReportService(new Sessions(), viewer, new RoleAuthorization()).GeneratePdfAsync(Guid.NewGuid()));
+    }
+
     private sealed class Sessions : IVerificationSessionRepository
     {
         public Task<VerificationSession?> GetAsync(Guid id, CancellationToken token = default) => Task.FromResult<VerificationSession?>(new VerificationSession { VerificationSessionId = id });

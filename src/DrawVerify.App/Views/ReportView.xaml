@@ -7,7 +7,7 @@
         <WrapPanel Grid.Row="1" Margin="0,12,0,8">
             <TextBlock Text="Session ID:" VerticalAlignment="Center" />
             <TextBox Width="300" Margin="8,0" Text="{Binding SessionId, UpdateSourceTrigger=PropertyChanged}" />
-            <Button Content="Generate Markdown report" Command="{Binding GenerateCommand}" /><Button Content="Export missing dimensions CSV" Command="{Binding ExportMissingDimensionsCommand}" Margin="6,0,0,0" /><Button Content="Export extra dimensions CSV" Command="{Binding ExportExtraDimensionsCommand}" Margin="6,0,0,0" />
+            <Button Content="Generate Markdown report" Command="{Binding GenerateCommand}" /><Button Content="Download PDF report" Command="{Binding GeneratePdfCommand}" Margin="6,0,0,0" /><CheckBox Content="Mismatched and missing only" IsChecked="{Binding MismatchedAndMissingOnly}" Margin="6,0,0,0" VerticalAlignment="Center" /><CheckBox Content="GD&amp;T only" IsChecked="{Binding GdtOnly}" Margin="6,0,0,0" VerticalAlignment="Center" /><Button Content="Export missing dimensions CSV" Command="{Binding ExportMissingDimensionsCommand}" Margin="6,0,0,0" /><Button Content="Export extra dimensions CSV" Command="{Binding ExportExtraDimensionsCommand}" Margin="6,0,0,0" />
         </WrapPanel>
         <Grid Grid.Row="2">
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>

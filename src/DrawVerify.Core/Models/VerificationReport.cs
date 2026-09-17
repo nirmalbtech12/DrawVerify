@@ -1,7 +1,9 @@
 namespace DrawVerify.Core.Models;
 
-public sealed class VerificationReport
+public sealed record VerificationReport
 {
+    public VerificationReportMetadata Metadata { get; init; } = new();
+    public VerificationReportRequest Request { get; init; } = new();
     public SignatureData? MakerSignature { get; init; }
     public SignatureData? CheckerSignature { get; init; }
     public SignatureData? ApproverSignature { get; init; }

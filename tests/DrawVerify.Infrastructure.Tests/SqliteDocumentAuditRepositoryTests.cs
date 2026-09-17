@@ -1,6 +1,7 @@
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Models;
 using DrawVerify.Infrastructure.Persistence;
+using System.Text.Json;
 using Xunit;
 
 namespace DrawVerify.Infrastructure.Tests;
@@ -74,6 +75,41 @@ public sealed class SqliteDocumentAuditRepositoryTests
         Assert.Contains("checkerSignatureTimestampUtc", source);
         Assert.Contains("checkerUserId", source);
         Assert.Contains("checkerDisplayName", source);
+    }
+
+    [Fact(DisplayName = "TD-KAN70-07 VerificationReportGenerated audit round-trips report metadata and normalized scope")]
+    public async Task Verification_report_audit_round_trips_history_fields()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"audit-report-{Guid.NewGuid():N}.db");
+        var document = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        var session = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        var timestamp = new DateTimeOffset(2026, 9, 17, 10, 0, 0, TimeSpan.Zero);
+        try
+        {
+            var repository = new SqliteAuditRepository(path);
+            var entry = new AuditEntry
+            {
+                AuditId = Guid.NewGuid(), DocumentId = document, UserId = "checker-id", ActorRole = "Checker",
+                DocumentRevision = "7", DocumentVersion = "model-3", TimestampOffset = timestamp, TimestampUtc = timestamp.UtcDateTime,
+                Action = DocumentAuditAction.VerificationReportGenerated,
+                DetailsJson = JsonSerializer.Serialize(new { verificationSessionId = session, documentId = document, drawingVersionId = "drawing-7", modelVersionId = "model-3", reportType = "VerificationReport", reportFormat = "PDF", generatedUtc = timestamp, scope = new { mismatchedAndMissingOnly = true, featureFilters = new[] { "Slot" } } })
+            };
+            await repository.AppendAsync(entry);
+
+            var record = Assert.Single(await repository.QueryAsync(new AuditLogQuery(DocumentId: document)));
+            Assert.Equal(DocumentAuditAction.VerificationReportGenerated, record.Action);
+            Assert.Equal("checker-id", record.ActorId);
+            Assert.Equal("Checker", record.ActorRole);
+            Assert.Equal("7", record.DocumentRevision);
+            Assert.Equal("model-3", record.DocumentVersion);
+            using var json = JsonDocument.Parse(record.DetailsJson);
+            Assert.Equal(session, json.RootElement.GetProperty("verificationSessionId").GetGuid());
+            Assert.Equal("VerificationReport", json.RootElement.GetProperty("reportType").GetString());
+            Assert.Equal("PDF", json.RootElement.GetProperty("reportFormat").GetString());
+            Assert.True(json.RootElement.GetProperty("scope").GetProperty("mismatchedAndMissingOnly").GetBoolean());
+            Assert.Equal("Slot", json.RootElement.GetProperty("scope").GetProperty("featureFilters")[0].GetString());
+        }
+        finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); if (File.Exists(path)) File.Delete(path); }
     }
 
     private static string FindRepositoryFile(string relativePath)
