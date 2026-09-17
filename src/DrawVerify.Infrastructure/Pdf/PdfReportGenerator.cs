@@ -2,6 +2,7 @@ namespace DrawVerify.Infrastructure.Pdf;
 
 using System.Text;
 using System.Globalization;
+using System.IO.Compression;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
 
@@ -35,14 +36,15 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
         template.Validate();
         cancellationToken.ThrowIfCancellationRequested();
         var normalized = report.Request.Normalize();
+        var logoPath = string.IsNullOrWhiteSpace(template.Header.LogoAssetPath) ? null : ResolveManagedLogo(template.Header.LogoAssetPath);
         var markdown = BuildStructuredReport(report with { Metadata = report.Metadata with { TemplateId = template.Id, TemplateVersion = template.Version } }, normalized, template);
         if (report.InternalApprovalStamp is { } stamp)
         {
             stamp.Validate();
             markdown += Environment.NewLine + RenderInternalApprovalStamp(stamp);
         }
-        var pages = RenderPages(markdown, cancellationToken, template);
-        return Task.FromResult(BuildDocument(pages, template));
+        var pages = RenderPages(markdown, cancellationToken, template, logoPath);
+        return Task.FromResult(BuildDocument(pages, template, logoPath));
     }
 
     private static string BuildStructuredReport(VerificationReport report, VerificationReportRequest request, ReportTemplate? template = null)
@@ -62,7 +64,7 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
             if (!string.IsNullOrWhiteSpace(template.Header.LogoAssetPath))
             {
                 var logoPath = ResolveManagedLogo(template.Header.LogoAssetPath);
-                builder.AppendLine("Logo: organization branding asset rendered");
+                builder.AppendLine($"Logo: managed branding asset embedded ({Path.GetFileName(logoPath)})");
             }
             builder.AppendLine($"Style: Heading={template.Style.HeadingFontFamily} {template.Style.HeadingFontSize}; Body={template.Style.BodyFontFamily} {template.Style.BodyFontSize}; HeaderColor={template.Style.HeaderColor}; BorderColor={template.Style.BorderColor}; HighlightColor={template.Style.HighlightColor}; Margin={template.Style.Margin}; Orientation={template.Style.Orientation}");
             var dimensionsTable = template.Tables.FirstOrDefault(x => x.Key == "Dimensions");
@@ -198,7 +200,7 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
 
     private static string Value(double? value) => value is double number && double.IsFinite(number) ? number.ToString("0.###", CultureInfo.InvariantCulture) : "-";
 
-    private static IReadOnlyList<string> RenderPages(string markdown, CancellationToken cancellationToken, ReportTemplate? template = null)
+    private static IReadOnlyList<string> RenderPages(string markdown, CancellationToken cancellationToken, ReportTemplate? template = null, string? logoPath = null)
     {
         var margin = template?.Style.Margin ?? 40;
         var pageHeight = template?.Style.Orientation == "Landscape" ? 612d : 792d;
@@ -222,7 +224,11 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var fontSize = IsHeading(line) ? template?.Style.HeadingFontSize ?? 14 : IsTableContent(line) ? template?.Style.TableFontSize ?? 8 : template?.Style.BodyFontSize ?? 9;
-                if (currentLineCount == 0) currentPage.Append("BT /F1 ").Append(fontSize.ToString(CultureInfo.InvariantCulture)).Append(" Tf ").Append(margin.ToString(CultureInfo.InvariantCulture)).Append(" ").Append((pageHeight - margin).ToString(CultureInfo.InvariantCulture)).Append(" Td ");
+                if (currentLineCount == 0)
+                {
+                    currentPage.Append("BT /F1 ").Append(fontSize.ToString(CultureInfo.InvariantCulture)).Append(" Tf ").Append(TextX(line, template, margin, pageWidth, fontSize).ToString(CultureInfo.InvariantCulture)).Append(" ").Append((pageHeight - margin).ToString(CultureInfo.InvariantCulture)).Append(" Td ");
+                    if (logoPath is not null) currentPage.Append(LogoPlacement(template!, margin, pageWidth, pageHeight));
+                }
                 else currentPage.Append("0 -").Append(lineHeight.ToString(CultureInfo.InvariantCulture)).Append(" Td ");
                 if (template is not null)
                 {
@@ -283,6 +289,19 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
         return path;
     }
 
+    private static double TextX(string line, ReportTemplate? template, double margin, double pageWidth, double fontSize)
+    {
+        if (template is null || !IsHeading(line) && !line.StartsWith("Organization:", StringComparison.Ordinal)) return margin;
+        var estimatedWidth = line.Length * fontSize * 0.5d;
+        return template.Header.TextAlignment switch { "Center" => Math.Max(margin, (pageWidth - estimatedWidth) / 2d), "Right" => Math.Max(margin, pageWidth - margin - estimatedWidth), _ => margin };
+    }
+
+    private static string LogoPlacement(ReportTemplate template, double margin, double pageWidth, double pageHeight)
+    {
+        var x = template.Header.LogoPosition switch { "Center" => pageWidth / 2 - 36, "Right" => pageWidth - margin - 72, _ => margin };
+        return $"q 72 0 0 36 {x.ToString(CultureInfo.InvariantCulture)} {(pageHeight - margin - 48).ToString(CultureInfo.InvariantCulture)} cm /Im1 Do Q ";
+    }
+
     private static IEnumerable<string> Wrap(string value, int width)
     {
         if (value.Length == 0) return new[] { string.Empty };
@@ -291,25 +310,40 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
 
     private static string Escape(string value) => value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("(", "\\(", StringComparison.Ordinal).Replace(")", "\\)", StringComparison.Ordinal).Select(character => character is >= ' ' and <= '~' ? character : '?').Aggregate(new StringBuilder(), (builder, character) => builder.Append(character)).ToString();
 
-    private static byte[] BuildDocument(IReadOnlyList<string> pageContents, ReportTemplate? template = null)
+    private static byte[] BuildDocument(IReadOnlyList<string> pageContents, ReportTemplate? template = null, string? logoPath = null)
     {
         if (pageContents.Count == 0) throw new InvalidOperationException("A PDF report must contain at least one page.");
         var pageObjects = Enumerable.Range(0, pageContents.Count).Select(index => 3 + index).ToArray();
         var contentObjects = Enumerable.Range(0, pageContents.Count).Select(index => 3 + pageContents.Count + index).ToArray();
-        var fontObject = 3 + pageContents.Count * 2;
+        var firstAuxiliaryObject = 3 + pageContents.Count * 2;
+        var imageObject = logoPath is null ? 0 : firstAuxiliaryObject;
+        var embeddedAssetObject = logoPath is null ? 0 : firstAuxiliaryObject + 1;
+        var fontObject = firstAuxiliaryObject + (logoPath is null ? 0 : 2);
         var objects = new List<string>
         {
-            $"<< /Type /Catalog /Pages 2 0 R >>",
+            logoPath is null
+                ? "<< /Type /Catalog /Pages 2 0 R >>"
+                : $"<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles << /Names [(managed-logo) {embeddedAssetObject} 0 R] >> >> >>",
             $"<< /Type /Pages /Kids [{string.Join(" ", pageObjects.Select(id => $"{id} 0 R"))}] /Count {pageContents.Count} >>"
         };
         for (var index = 0; index < pageContents.Count; index++)
         {
             var landscape = template?.Style.Orientation == "Landscape";
             var width = landscape ? 792 : 612; var height = landscape ? 612 : 792;
-            objects.Add($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}] /Resources << /Font << /F1 {fontObject} 0 R >> >> /Contents {contentObjects[index]} 0 R >>");
+            var resources = logoPath is null
+                ? $"/Font << /F1 {fontObject} 0 R >>"
+                : $"/Font << /F1 {fontObject} 0 R >> /XObject << /Im1 {imageObject} 0 R >>";
+            objects.Add($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}] /Resources << {resources} >> /Contents {contentObjects[index]} 0 R >>");
         }
         foreach (var content in pageContents)
             objects.Add($"<< /Length {Encoding.ASCII.GetByteCount(content)} >>\nstream\n{content}\nendstream");
+        if (logoPath is not null)
+        {
+            var logoBytes = File.ReadAllBytes(logoPath);
+            var logoHex = Convert.ToHexString(logoBytes);
+            objects.Add(BuildImageObject(logoPath, logoBytes, embeddedAssetObject));
+            objects.Add($"<< /Type /EmbeddedFile /Subtype /application#2Foctet-stream /Filter /ASCIIHexDecode /Length {logoHex.Length + 1} >>\nstream\n{logoHex}>\nendstream");
+        }
         objects.Add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
         var result = new StringBuilder("%PDF-1.4\n");
         var offsets = new List<int> { 0 };
@@ -322,8 +356,79 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
         result.Append("xref\n0 ").Append(objects.Count + 1).Append("\n0000000000 65535 f \n");
         for (var index = 1; index < offsets.Count; index++) result.Append(offsets[index].ToString("D10")).Append(" 00000 n \n");
         result.Append("trailer\n<< /Size ").Append(objects.Count + 1).Append(" /Root 1 0 R >>\nstartxref\n").Append(xref).Append("\n%%EOF\n");
-        return Encoding.ASCII.GetBytes(result.ToString());
+        return Encoding.Latin1.GetBytes(result.ToString());
     }
+
+    private static string BuildImageObject(string logoPath, byte[] logoBytes, int embeddedAssetObject)
+    {
+        var extension = Path.GetExtension(logoPath).ToLowerInvariant();
+        if (extension is ".jpg" or ".jpeg")
+            return $"<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length {logoBytes.Length} /AssetObject {embeddedAssetObject} 0 R >>\nstream\n{Encoding.Latin1.GetString(logoBytes)}\nendstream";
+
+        var (width, height, pixels) = extension == ".png" ? DecodePng(logoBytes) : DecodeBmp(logoBytes);
+        var pixelHex = Convert.ToHexString(pixels);
+        return $"<< /Type /XObject /Subtype /Image /Width {width} /Height {height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /ASCIIHexDecode /Length {pixelHex.Length + 1} /AssetObject {embeddedAssetObject} 0 R >>\nstream\n{pixelHex}>\nendstream";
+    }
+
+    private static (int Width, int Height, byte[] Pixels) DecodePng(byte[] bytes)
+    {
+        if (bytes.Length < 33 || !bytes.AsSpan(0, 8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }))
+            throw new InvalidOperationException("Configured report template logo is not a valid PNG asset.");
+        var width = ReadBigEndianInt32(bytes, 16);
+        var height = ReadBigEndianInt32(bytes, 20);
+        if (width <= 0 || height <= 0 || bytes[24] != 8 || bytes[25] is not (2 or 6))
+            throw new InvalidOperationException("Configured report template PNG must use 8-bit RGB or RGBA pixels.");
+        using var compressed = new MemoryStream();
+        var offset = 8;
+        while (offset + 12 <= bytes.Length)
+        {
+            var length = ReadBigEndianInt32(bytes, offset);
+            var type = Encoding.ASCII.GetString(bytes, offset + 4, 4);
+            if (length < 0 || offset + 12 + length > bytes.Length) throw new InvalidOperationException("Configured report template PNG is truncated.");
+            if (type == "IHDR" && bytes[offset + 9] != 0) throw new InvalidOperationException("Configured report template PNG uses unsupported compression settings.");
+            if (type == "IDAT") compressed.Write(bytes, offset + 8, length);
+            offset += length + 12;
+            if (type == "IEND") break;
+        }
+        compressed.Position = 0;
+        using var decoded = new MemoryStream();
+        using (var inflater = new DeflateStream(compressed, CompressionMode.Decompress, leaveOpen: true)) inflater.CopyTo(decoded);
+        var channels = bytes[25] == 6 ? 4 : 3;
+        var stride = checked(width * channels);
+        var scanlines = decoded.ToArray();
+        if (scanlines.Length != checked((stride + 1) * height)) throw new InvalidOperationException("Configured report template PNG pixel data is invalid.");
+        var previous = new byte[stride];
+        var rgb = new byte[checked(width * height * 3)];
+        var source = 0; var destination = 0;
+        for (var row = 0; row < height; row++)
+        {
+            var filter = scanlines[source++];
+            var current = scanlines.AsSpan(source, stride).ToArray(); source += stride;
+            for (var i = 0; i < stride; i++)
+            {
+                byte left = i >= channels ? current[i - channels] : (byte)0;
+                var up = previous[i];
+                byte upperLeft = i >= channels ? previous[i - channels] : (byte)0;
+                current[i] = filter switch { 0 => current[i], 1 => (byte)(current[i] + left), 2 => (byte)(current[i] + up), 3 => (byte)(current[i] + ((left + up) / 2)), 4 => (byte)(current[i] + Paeth(left, up, upperLeft)), _ => throw new InvalidOperationException("Configured report template PNG uses an unsupported filter.") };
+            }
+            for (var pixel = 0; pixel < width; pixel++) { rgb[destination++] = current[pixel * channels]; rgb[destination++] = current[pixel * channels + 1]; rgb[destination++] = current[pixel * channels + 2]; }
+            previous = current;
+        }
+        return (width, height, rgb);
+    }
+
+    private static (int Width, int Height, byte[] Pixels) DecodeBmp(byte[] bytes)
+    {
+        if (bytes.Length < 54 || bytes[0] != 'B' || bytes[1] != 'M') throw new InvalidOperationException("Configured report template logo is not a valid BMP asset.");
+        var offset = BitConverter.ToInt32(bytes, 10); var width = BitConverter.ToInt32(bytes, 18); var signedHeight = BitConverter.ToInt32(bytes, 22); var bits = BitConverter.ToInt16(bytes, 28);
+        if (width <= 0 || signedHeight == 0 || bits is not (24 or 32)) throw new InvalidOperationException("Configured report template BMP must use 24-bit or 32-bit pixels.");
+        var height = Math.Abs(signedHeight); var bytesPerPixel = bits / 8; var stride = ((width * bytesPerPixel + 3) / 4) * 4; var rgb = new byte[checked(width * height * 3)];
+        for (var y = 0; y < height; y++) { var sourceY = signedHeight > 0 ? height - 1 - y : y; for (var x = 0; x < width; x++) { var source = offset + sourceY * stride + x * bytesPerPixel; var destination = (y * width + x) * 3; rgb[destination] = bytes[source + 2]; rgb[destination + 1] = bytes[source + 1]; rgb[destination + 2] = bytes[source]; } }
+        return (width, height, rgb);
+    }
+
+    private static int ReadBigEndianInt32(byte[] bytes, int offset) => (bytes[offset] << 24) | (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3];
+    private static byte Paeth(byte a, byte b, byte c) { var p = a + b - c; var pa = Math.Abs(p - a); var pb = Math.Abs(p - b); var pc = Math.Abs(p - c); return pa <= pb && pa <= pc ? a : pb <= pc ? b : c; }
 
     private static string ColorOperator(string color)
     {
