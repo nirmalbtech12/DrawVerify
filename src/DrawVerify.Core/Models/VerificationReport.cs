@@ -5,6 +5,7 @@ public sealed class VerificationReport
     public SignatureData? MakerSignature { get; init; }
     public SignatureData? CheckerSignature { get; init; }
     public SignatureData? ApproverSignature { get; init; }
+    public InternalApprovalStamp? InternalApprovalStamp { get; init; }
     public DocumentFingerprint? Fingerprint { get; init; }
     public FingerprintVerificationResult? FingerprintVerification { get; init; }
     public IReadOnlyList<DimensionMatch> DimensionMatches { get; init; } = Array.Empty<DimensionMatch>();
@@ -41,6 +42,11 @@ public sealed class VerificationReport
             lines.InsertRange(1, new[] { $"- Checker Signature: {CheckerSignature.Payload}", $"- Checker: {CheckerSignature.CheckerDisplayName} ({CheckerSignature.Role})", $"- Checker signature timestamp: {CheckerSignature.TimestampUtc:O}", $"- Checker signature method: {CheckerSignature.Method}" });
         if (ApproverSignature is not null)
             lines.InsertRange(1, new[] { $"- Approver Signature: {ApproverSignature.Payload}", $"- Approver: {ApproverSignature.ApproverDisplayName} ({ApproverSignature.Role})", $"- Approver signature timestamp: {ApproverSignature.TimestampUtc:O}", $"- Approver signature method: {ApproverSignature.Method}" });
+        if (InternalApprovalStamp is not null)
+        {
+            InternalApprovalStamp.Validate();
+            lines.InsertRange(1, new[] { $"- Internal Approval Stamp: {InternalApprovalStamp.StampId}", $"- Stamp approver: {InternalApprovalStamp.ApproverDisplayName} ({InternalApprovalStamp.ApproverRole})", $"- Stamp timestamp: {InternalApprovalStamp.AppliedUtc:O}", $"- Stamp revision: {InternalApprovalStamp.Revision}", $"- Stamp fingerprint: {InternalApprovalStamp.FingerprintReference}", $"- Stamp verification: {InternalApprovalStamp.VerificationStatus}" });
+        }
         foreach (var type in summary.DimensionTypes)
             lines.Add($"- {type.DimensionType}: {type.MatchedDimensions} Matched, {type.MismatchedDimensions} Mismatched, {type.UnmatchedDimensions} Unmatched");
         lines.Add(string.Empty);

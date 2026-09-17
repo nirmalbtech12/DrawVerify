@@ -6,6 +6,7 @@ public interface IDxfDrawingGenerationService
 {
     bool CanGenerate { get; }
     Task<DxfDrawingGenerationResult> GenerateAsync(Guid stepDocumentId, CancellationToken cancellationToken = default, IProgress<DxfDrawingGenerationProgress>? progress = null);
+    /// <summary>Downloads the selected DXF with persisted approval metadata attached when the approved revision has a stamp.</summary>
     Task<Stream> DownloadAsync(Guid documentId, Guid versionId, CancellationToken cancellationToken = default);
 }
 

@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using DrawVerify.Application.DxfUpload;
 using DrawVerify.Core.Authorization;
@@ -138,8 +139,36 @@ public sealed class DxfDrawingGenerationService : IDxfDrawingGenerationService
         await EnsureDownloadAccessAsync(documentId, versionId, cancellationToken).ConfigureAwait(false);
         var version = document.Versions.FirstOrDefault(candidate => candidate.VersionId == versionId) ?? throw new InvalidOperationException("The selected drawing version was not found.");
         var stream = await _dxfFiles.OpenReadAsync(version.StoredRelativePath, cancellationToken).ConfigureAwait(false);
-        try { await WriteAuditAsync(documentId, DocumentAuditAction.DxfDownloaded, new { versionId }, cancellationToken).ConfigureAwait(false); return stream; }
+        try
+        {
+            var submission = (await _workflow!.GetSubmissionsAsync(Guid.Empty, cancellationToken).ConfigureAwait(false))
+                .Where(item => item.DxfDocumentId == documentId && item.DxfDocumentVersionId == versionId)
+                .OrderByDescending(item => item.Revision)
+                .FirstOrDefault();
+            if (submission?.InternalApprovalStamp is { } stamp)
+            {
+                stamp.Validate();
+                stream = await AttachStampMetadataAsync(stream, stamp, cancellationToken).ConfigureAwait(false);
+            }
+            await WriteAuditAsync(documentId, DocumentAuditAction.DxfDownloaded, new { versionId, stampId = submission?.InternalApprovalStamp?.StampId }, cancellationToken).ConfigureAwait(false);
+            return stream;
+        }
         catch { await stream.DisposeAsync().ConfigureAwait(false); throw; }
+    }
+    private static async Task<Stream> AttachStampMetadataAsync(Stream source, InternalApprovalStamp stamp, CancellationToken cancellationToken)
+    {
+        await using (source.ConfigureAwait(false))
+        using (var buffer = new MemoryStream())
+        {
+            await source.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
+            var text = Encoding.UTF8.GetString(buffer.ToArray());
+            var lineEnding = text.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+            var eof = text.LastIndexOf($"0{lineEnding}EOF{lineEnding}", StringComparison.OrdinalIgnoreCase);
+            if (eof < 0) throw new InvalidDataException("The DXF export does not contain a valid EOF marker for approval metadata attachment.");
+            var metadata = JsonSerializer.Serialize(new { stampId = stamp.StampId, approverUserId = stamp.ApproverUserId, approverDisplayName = stamp.ApproverDisplayName, approverRole = stamp.ApproverRole, stampAppliedUtc = stamp.AppliedUtc, revision = stamp.Revision, fingerprintReference = stamp.FingerprintReference, stampIntegrityHash = stamp.IntegrityHash, verificationStatus = stamp.VerificationStatus.ToString() });
+            var attached = text.Insert(eof, $"999{lineEnding}DRAWVERIFY_INTERNAL_APPROVAL_STAMP{lineEnding}999{lineEnding}{metadata}{lineEnding}");
+            return new MemoryStream(Encoding.UTF8.GetBytes(attached), writable: false);
+        }
     }
     private async Task EnsureDownloadAccessAsync(Guid documentId, Guid versionId, CancellationToken cancellationToken)
     {

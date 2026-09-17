@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
 using DrawVerify.Core.Interfaces;
+using DrawVerify.Core.Models;
 using DrawVerify.OcctService;
 
 namespace DrawVerify.App.ViewModels;
@@ -18,6 +19,10 @@ public sealed class StepPreviewViewModel : INotifyPropertyChanged, IDisposable
     public StepPreviewViewModel(ICentralizedLogger? logger = null, IStepPreviewService? preview = null) { _logger = logger; _preview = preview ?? new StepPreviewService(logger: logger); }
     public event PropertyChangedEventHandler? PropertyChanged;
     public string? ModelPath { get; private set; }
+    public InternalApprovalStamp? InternalApprovalStamp { get; private set; }
+    public bool HasInternalApprovalStamp => InternalApprovalStamp is not null;
+    public string ApprovalStampText => InternalApprovalStamp is null ? string.Empty : $"Internally Approved · {InternalApprovalStamp.ApproverDisplayName} · {InternalApprovalStamp.AppliedUtc:O} · Revision {InternalApprovalStamp.Revision} · {InternalApprovalStamp.StampId} · {InternalApprovalStamp.FingerprintReference} · {InternalApprovalStamp.VerificationStatus}";
+    public void SetInternalApprovalStamp(InternalApprovalStamp? stamp) { stamp?.Validate(); InternalApprovalStamp = stamp; Notify(nameof(InternalApprovalStamp)); Notify(nameof(HasInternalApprovalStamp)); Notify(nameof(ApprovalStampText)); }
     public string? HighlightedFeatureReference { get; private set; }
     public double? HighlightedLocationX { get; private set; }
     public double? HighlightedLocationY { get; private set; }
