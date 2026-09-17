@@ -92,7 +92,18 @@ public sealed class ReportService
 
     private async Task<IReadOnlyList<AuditTrailEntry>> BuildAuditTrailAsync(Guid? documentId, VerificationReportRequest request, DateTimeOffset snapshotTime, CancellationToken cancellationToken)
     {
-        if (_audit is not IDocumentAuditRepository repository || documentId is not { } id || id == Guid.Empty) return Array.Empty<AuditTrailEntry>();
+        if (_audit is not IDocumentAuditRepository repository)
+        {
+            var exception = new InvalidOperationException("The document audit repository is required to generate a verification report with an audit trail.");
+            _logger?.Log(exception, "Audit trail snapshot", "The configured audit service does not support document audit queries.");
+            throw exception;
+        }
+        if (documentId is not { } id || id == Guid.Empty)
+        {
+            var exception = new InvalidOperationException("A non-empty document identity is required to generate a verification report with an audit trail.");
+            _logger?.Log(exception, "Audit trail snapshot", "The verification report metadata did not contain a document identity.");
+            throw exception;
+        }
         await repository.VerifyIntegrityAsync(id, cancellationToken).ConfigureAwait(false);
         var toUtc = request.AuditToUtc is { } requestedTo && requestedTo < snapshotTime ? requestedTo : snapshotTime;
         var records = new List<DocumentAuditRecord>();

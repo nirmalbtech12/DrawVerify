@@ -263,13 +263,28 @@ public class PdfReportTests
         Assert.Contains("Approver One", content); Assert.Contains("Approver", content); Assert.Contains("2026-09-17T10:15:00.0000000+05:30", content); Assert.Contains("UTC", content);
     }
 
+    [Fact(DisplayName = "REV-KAN71-002 PDF audit rows include stable actor identity and integrity reference")]
+    public async Task REV_KAN71_002_pdf_audit_row_includes_identity_and_integrity_fields()
+    {
+        var entry = new AuditTrailEntry { DocumentId = Guid.NewGuid(), UserId = "approver-001", UserName = "Approver One", UserRole = "Approver", UserEmail = "approver@example.test", Timestamp = DateTimeOffset.Parse("2026-09-17T10:15:00+05:30"), Action = DocumentAuditAction.Approved, Outcome = "Success", Details = "approval", Identifier = "run-42", IntegrityReference = "integrity-hash-42" };
+        var content = ExtractRenderedPdfText(await new PdfReportGenerator().GeneratePdfAsync(new VerificationReport { AuditTrail = new[] { entry } }));
+
+        Assert.Contains("User ID: approver-001", content);
+        Assert.Contains("User Email: approver@example.test", content);
+        Assert.Contains("Integrity Reference: integrity-hash-42", content);
+    }
+
     [Fact(DisplayName = "TSD-AC07-ACTION-DETAILS preserves outcomes details identifiers and integrity reference")]
     public async Task TSD_AC07_ACTION_DETAILS_renders_status_details_and_identifiers()
     {
         var entry = new AuditTrailEntry { DocumentId = Guid.NewGuid(), Action = DocumentAuditAction.ReturnedForRework, Outcome = "Returned", Details = "created", Identifier = "run-42", IntegrityReference = "hash-42" };
         var content = ExtractRenderedPdfText(await new PdfReportGenerator().GeneratePdfAsync(new VerificationReport { AuditTrail = new[] { entry } }));
         Assert.Equal("Returned", entry.Outcome); Assert.Equal("created", entry.Details); Assert.Equal("run-42", entry.Identifier); Assert.Equal("hash-42", entry.IntegrityReference);
-        Assert.Contains("Audit Trail", content); Assert.Contains("Timestamp | User | Role | Action | Outcome | Details | Identifier", content);
+        Assert.Contains("Audit Trail", content);
+        Assert.Contains("Timestamp | User | Role | User ID | User Email | Action | Outcome | Details |", content);
+        Assert.Contains("Identifier", content);
+        Assert.Contains("Integrity", content);
+        Assert.Contains("Reference", content);
     }
 
     [Fact(DisplayName = "TSD-AC08-ORDERING, TSD-AC12-READABLE-PDF, and TSD-AC14-LOG-CONSISTENCY preserve ordered labeled rows")]
@@ -279,7 +294,10 @@ public class PdfReportTests
         var first = new AuditTrailEntry { AuditId = Guid.Parse("00000000-0000-0000-0000-000000000001"), DocumentId = document, Timestamp = DateTimeOffset.Parse("2026-01-01T00:00:00Z"), Action = DocumentAuditAction.DocumentCreated, Details = new string('A', 180), Identifier = "first" };
         var second = first with { AuditId = Guid.Parse("00000000-0000-0000-0000-000000000002"), Timestamp = first.Timestamp.AddMinutes(1), Action = DocumentAuditAction.VerificationRunCompleted, Details = new string('B', 180), Identifier = "second" };
         var content = ExtractRenderedPdfText(await new PdfReportGenerator().GeneratePdfAsync(new VerificationReport { AuditTrail = new[] { first, second } }));
-        Assert.Contains("Timestamp | User | Role | Action | Outcome | Details | Identifier", content);
+        Assert.Contains("Timestamp | User | Role | User ID | User Email | Action | Outcome | Details |", content);
+        Assert.Contains("Identifier", content);
+        Assert.Contains("Integrity", content);
+        Assert.Contains("Reference", content);
         Assert.True(content.IndexOf("DocumentCreated", StringComparison.Ordinal) < content.IndexOf("VerificationRunCompleted", StringComparison.Ordinal));
         Assert.Contains(new string('A', 108), content); Assert.Contains(new string('A', 72), content); Assert.Contains(new string('B', 108), content); Assert.Contains(new string('B', 72), content);
     }
@@ -303,7 +321,14 @@ public class PdfReportTests
             var streamEnd = source.IndexOf("\nendstream", streamStart + 7, StringComparison.Ordinal);
             if (streamEnd < 0) break;
             var contentStream = source.Substring(streamStart + 7, streamEnd - streamStart - 7);
-            output.AppendLine(contentStream.Replace("\\(", "(", StringComparison.Ordinal).Replace("\\)", ")", StringComparison.Ordinal).Replace("\\\\", "\\", StringComparison.Ordinal));
+            foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(contentStream, @"\(((?:\\.|[^\\)])*)\)\s*Tj", System.Text.RegularExpressions.RegexOptions.Singleline))
+            {
+                var text = match.Groups[1].Value
+                    .Replace("\\(", "(", StringComparison.Ordinal)
+                    .Replace("\\)", ")", StringComparison.Ordinal)
+                    .Replace("\\\\", "\\", StringComparison.Ordinal);
+                output.AppendLine(text);
+            }
             streamStart = streamEnd + 10;
         }
         return output.ToString();

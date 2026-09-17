@@ -209,7 +209,7 @@ public sealed class ReportServiceStatusTests
         var auth = Authenticated("checker-id", "Checker");
         var renderer = new CapturingPdfGenerator();
         var audit = new CapturingAudit();
-        var service = new ReportService(new Sessions(matches), auth, new RoleAuthorization(), pdfGenerator: renderer, audit: audit);
+        var service = new ReportService(new Sessions(matches), auth, new RoleAuthorization(), pdfGenerator: renderer, audit: audit, documents: new MetadataDocuments(sessionId, sessionId, Guid.NewGuid(), Guid.NewGuid()));
 
         var bytes = await service.GeneratePdfAsync(sessionId, new VerificationReportRequest { MismatchedAndMissingOnly = true, FeatureFilters = new[] { "Slot" } });
 
@@ -242,7 +242,7 @@ public sealed class ReportServiceStatusTests
         };
         var renderer = new CapturingPdfGenerator();
         var auth = Authenticated("checker-id", "Checker");
-        var service = new ReportService(new MetadataSessions(session), auth, new RoleAuthorization(), pdfGenerator: renderer, documents: new MetadataDocuments(drawingId, modelId, drawingVersionId, modelVersionId));
+        var service = new ReportService(new MetadataSessions(session), auth, new RoleAuthorization(), pdfGenerator: renderer, documents: new MetadataDocuments(drawingId, modelId, drawingVersionId, modelVersionId), audit: new DocumentAuditRepository());
 
         await service.GeneratePdfAsync(sessionId);
 
@@ -265,7 +265,7 @@ public sealed class ReportServiceStatusTests
         var auth = Authenticated("checker-id", "Checker");
         var audit = new CapturingAudit();
         var renderer = new CapturingPdfGenerator { Failure = new InvalidOperationException("renderer failure") };
-        var service = new ReportService(new Sessions(Fixtures()), auth, new RoleAuthorization(), pdfGenerator: renderer, audit: audit);
+        var service = new ReportService(new Sessions(Fixtures()), auth, new RoleAuthorization(), pdfGenerator: renderer, audit: audit, documents: new MetadataDocuments(sessionId, sessionId, Guid.NewGuid(), Guid.NewGuid()));
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.GeneratePdfAsync(sessionId));
         Assert.Equal("renderer failure", exception.Message);
@@ -340,7 +340,7 @@ public sealed class ReportServiceStatusTests
         }
     }
 
-    private sealed class CapturingAudit : IAuditLogger
+    private sealed class CapturingAudit : IAuditLogger, IDocumentAuditRepository
     {
         public List<AuditEntry> Entries { get; } = new();
         public Task WriteAsync(AuditEntry entry, CancellationToken cancellationToken = default)
@@ -348,6 +348,18 @@ public sealed class ReportServiceStatusTests
             Entries.Add(entry);
             return Task.CompletedTask;
         }
+
+        public Task AppendAsync(AuditEntry entry, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<IReadOnlyList<DocumentAuditRecord>> QueryAsync(AuditLogQuery query, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DocumentAuditRecord>>(Array.Empty<DocumentAuditRecord>());
+        public Task VerifyIntegrityAsync(Guid documentId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class DocumentAuditRepository : IAuditLogger, IDocumentAuditRepository
+    {
+        public Task WriteAsync(AuditEntry entry, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task AppendAsync(AuditEntry entry, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<IReadOnlyList<DocumentAuditRecord>> QueryAsync(AuditLogQuery query, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DocumentAuditRecord>>(Array.Empty<DocumentAuditRecord>());
+        public Task VerifyIntegrityAsync(Guid documentId, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     private sealed class MetadataSessions(VerificationSession session) : IVerificationSessionRepository
@@ -365,7 +377,7 @@ public sealed class ReportServiceStatusTests
     }
     private sealed class Sessions(IReadOnlyList<DimensionMatch> matches) : IVerificationSessionRepository
     {
-        public Task<VerificationSession?> GetAsync(Guid id, CancellationToken token = default) => Task.FromResult<VerificationSession?>(new VerificationSession { VerificationSessionId = id });
+        public Task<VerificationSession?> GetAsync(Guid id, CancellationToken token = default) => Task.FromResult<VerificationSession?>(new VerificationSession { VerificationSessionId = id, StepDocumentId = id, DxfDocumentId = id });
         public Task<IReadOnlyList<DimensionMatch>> GetMatchesAsync(Guid id, DimensionMatchStatus? status = null, CancellationToken token = default) => Task.FromResult<IReadOnlyList<DimensionMatch>>(status is null ? matches : matches.Where(match => match.Status == status).ToArray());
         public Task<VerificationSession> GetOrCreateAsync(Guid step, Guid dxf, CancellationToken token = default) => throw new NotImplementedException();
         public Task ReplaceResultsAsync(VerificationSession session, IReadOnlyCollection<DimensionMatch> matches, DocumentAuditAction action, string userId, string detailsJson, CancellationToken token = default) => throw new NotImplementedException();
