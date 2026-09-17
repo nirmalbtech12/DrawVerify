@@ -1,0 +1,2 @@
+namespace DrawVerify.Core.Models;
+public sealed record ReportTemplateAuditEntry { public Guid AuditId { get; init; } = Guid.NewGuid(); public Guid TemplateId { get; init; } public int Version { get; init; } public string ActorId { get; init; } = "Unknown"; public DateTimeOffset TimestampUtc { get; init; } = DateTimeOffset.UtcNow; public string Action { get; init; } = "Modified"; public string Summary { get; init; } = ""; }

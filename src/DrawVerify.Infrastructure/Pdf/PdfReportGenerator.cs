@@ -28,41 +28,123 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
         return Task.FromResult(BuildDocument(pages));
     }
 
-    private static string BuildStructuredReport(VerificationReport report, VerificationReportRequest request)
+    public Task<byte[]> GeneratePdfAsync(VerificationReport report, ReportTemplate template, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        ArgumentNullException.ThrowIfNull(template);
+        template.Validate();
+        cancellationToken.ThrowIfCancellationRequested();
+        var normalized = report.Request.Normalize();
+        var markdown = BuildStructuredReport(report with { Metadata = report.Metadata with { TemplateId = template.Id, TemplateVersion = template.Version } }, normalized, template);
+        if (report.InternalApprovalStamp is { } stamp)
+        {
+            stamp.Validate();
+            markdown += Environment.NewLine + RenderInternalApprovalStamp(stamp);
+        }
+        var pages = RenderPages(markdown, cancellationToken, template);
+        return Task.FromResult(BuildDocument(pages, template));
+    }
+
+    private static string BuildStructuredReport(VerificationReport report, VerificationReportRequest request, ReportTemplate? template = null)
     {
         var summary = report.ComparisonSummary;
         var metadata = report.Metadata;
         var builder = new StringBuilder();
-        builder.AppendLine("# Verification Report");
-        builder.AppendLine("## Summary");
-        builder.AppendLine($"Document: {metadata.DocumentName} | Document ID: {metadata.DocumentId?.ToString() ?? "Unavailable"}");
-        builder.AppendLine($"2D Version: {metadata.DrawingVersion} | 3D Version: {metadata.ModelVersion}");
-        builder.AppendLine($"Verification Method: {metadata.VerificationMethod} | Checker: {metadata.CheckerIdentity ?? "Unavailable"}");
-        builder.AppendLine($"Verification Session: {metadata.VerificationSessionId} | Generated UTC: {metadata.GeneratedUtc:O}");
-        builder.AppendLine($"Total Dimensions: {summary.TotalDimensions} | Matched: {summary.MatchedDimensions} | Mismatched: {summary.MismatchedDimensions} | Missing: {summary.UnmatchedDimensions} | GD&T Checked: {report.GdtResults.Count}");
-        var checkedDimensions = summary.MatchedDimensions + summary.MismatchedDimensions;
-        var percentageText = checkedDimensions > 0
-            ? (summary.MatchedDimensions * 100d / checkedDimensions).ToString("0.##", CultureInfo.InvariantCulture) + "% dimensions within tolerance"
-            : "No dimensions checked";
-        builder.AppendLine($"Overall: {percentageText}");
-        AppendAuditTrail(builder, report);
-        // Keep the summary value as a short, standalone PDF text item so fixed-width
-        // wrapping cannot split the required percentage phrase.
-        builder.AppendLine(percentageText);
-        AppendDimensions(builder, "Matched Dimensions", report.DimensionMatches.Where(x => x.Status == DrawVerify.Core.Enums.DimensionMatchStatus.Matched));
-        AppendDimensions(builder, "Mismatched Dimensions", report.DimensionMatches.Where(x => x.Status == DrawVerify.Core.Enums.DimensionMatchStatus.Mismatched));
-        AppendDimensions(builder, "Missing Dimensions", report.DimensionMatches.Where(x => x.Status is DrawVerify.Core.Enums.DimensionMatchStatus.Unmatched or DrawVerify.Core.Enums.DimensionMatchStatus.MissingDimension));
-        builder.AppendLine("## GD&T Results");
-        if (report.GdtResults.Count == 0) builder.AppendLine("No items");
-        foreach (var result in report.GdtResults)
-            builder.AppendLine($"Identifier | Type | Datums | Tolerance | Measured Results | Status | Details\n{result.Identifier} | {result.ControlType} | {string.Join(", ", result.DatumReferences)} | {result.ToleranceValue ?? "Unavailable"} | {result.ComparisonDetails ?? "Unavailable"} | {result.Status} | {result.Reason ?? string.Join("; ", result.Diagnostics)}");
+        var sections = template?.Sections.OrderBy(x => x.Ordinal).Where(x => x.Enabled).ToArray();
+        builder.AppendLine($"# {(template?.Header.ReportTitleFormat ?? "Verification Report")}");
+        if (metadata.TemplateId is { } templateId)
+            builder.AppendLine($"Template ID: {templateId} | Template Version: {metadata.TemplateVersion?.ToString(CultureInfo.InvariantCulture) ?? "Unavailable"}");
+        if (template is not null)
+        {
+            builder.AppendLine($"Template ID: {template.Id} | Template Version: {template.Version}");
+            builder.AppendLine($"Report Title: {template.Header.ReportTitleFormat} | Logo Position: {template.Header.LogoPosition} | Text Alignment: {template.Header.TextAlignment}");
+            if (!string.IsNullOrWhiteSpace(template.Header.OrganizationName)) builder.AppendLine($"Organization: {template.Header.OrganizationName} | Address: {template.Header.OrganizationAddress}");
+            if (!string.IsNullOrWhiteSpace(template.Header.LogoAssetPath)) builder.AppendLine($"Logo: {template.Header.LogoAssetPath}");
+            builder.AppendLine($"Style: Heading={template.Style.HeadingFontFamily} {template.Style.HeadingFontSize}; Body={template.Style.BodyFontFamily} {template.Style.BodyFontSize}; HeaderColor={template.Style.HeaderColor}; BorderColor={template.Style.BorderColor}; HighlightColor={template.Style.HighlightColor}; Margin={template.Style.Margin}; Orientation={template.Style.Orientation}");
+        }
+        if (template is null)
+        {
+            builder.AppendLine("## Summary");
+            builder.AppendLine($"Document: {metadata.DocumentName} | Document ID: {metadata.DocumentId?.ToString() ?? "Unavailable"}");
+            builder.AppendLine($"2D Version: {metadata.DrawingVersion} | 3D Version: {metadata.ModelVersion}");
+            builder.AppendLine($"Verification Method: {metadata.VerificationMethod} | Checker: {metadata.CheckerIdentity ?? "Unavailable"}");
+            builder.AppendLine($"Verification Session: {metadata.VerificationSessionId} | Generated UTC: {metadata.GeneratedUtc:O}");
+            builder.AppendLine($"Total Dimensions: {summary.TotalDimensions} | Matched: {summary.MatchedDimensions} | Mismatched: {summary.MismatchedDimensions} | Missing: {summary.UnmatchedDimensions} | GD&T Checked: {report.GdtResults.Count}");
+            var checkedDimensions = summary.MatchedDimensions + summary.MismatchedDimensions;
+            var percentageText = checkedDimensions > 0 ? (summary.MatchedDimensions * 100d / checkedDimensions).ToString("0.##", CultureInfo.InvariantCulture) + "% dimensions within tolerance" : "No dimensions checked";
+            builder.AppendLine($"Overall: {percentageText}");
+            AppendAuditTrail(builder, report);
+            builder.AppendLine(percentageText);
+            AppendDimensions(builder, "Matched Dimensions", report.DimensionMatches.Where(x => x.Status == DrawVerify.Core.Enums.DimensionMatchStatus.Matched));
+            AppendDimensions(builder, "Mismatched Dimensions", report.DimensionMatches.Where(x => x.Status == DrawVerify.Core.Enums.DimensionMatchStatus.Mismatched));
+            AppendDimensions(builder, "Missing Dimensions", report.DimensionMatches.Where(x => x.Status is DrawVerify.Core.Enums.DimensionMatchStatus.Unmatched or DrawVerify.Core.Enums.DimensionMatchStatus.MissingDimension));
+            builder.AppendLine("## GD&T Results");
+            if (report.GdtResults.Count == 0) builder.AppendLine("No items");
+            foreach (var result in report.GdtResults)
+                builder.AppendLine($"Identifier | Type | Datums | Tolerance | Measured Results | Status | Details\n{result.Identifier} | {result.ControlType} | {string.Join(", ", result.DatumReferences)} | {result.ToleranceValue ?? "Unavailable"} | {result.ComparisonDetails ?? "Unavailable"} | {result.Status} | {result.Reason ?? string.Join("; ", result.Diagnostics)}");
+            builder.AppendLine(report.ToMarkdown());
+        }
+        else
+        {
+            foreach (var section in sections!)
+            {
+                builder.AppendLine($"## {section.Title}");
+                if (!string.IsNullOrWhiteSpace(section.Description)) builder.AppendLine(section.Description);
+                switch (section.Key)
+                {
+                    case "Summary": AppendSummary(builder, report, summary, template); break;
+                    case "MatchedDimensions": AppendDimensions(builder, "Matched Dimensions", report.DimensionMatches.Where(x => x.Status == DrawVerify.Core.Enums.DimensionMatchStatus.Matched), template); break;
+                    case "MismatchedDimensions": AppendDimensions(builder, "Mismatched Dimensions", report.DimensionMatches.Where(x => x.Status == DrawVerify.Core.Enums.DimensionMatchStatus.Mismatched), template); break;
+                    case "MissingDimensions": AppendDimensions(builder, "Missing Dimensions", report.DimensionMatches.Where(x => x.Status is DrawVerify.Core.Enums.DimensionMatchStatus.Unmatched or DrawVerify.Core.Enums.DimensionMatchStatus.MissingDimension), template); break;
+                    case "GdtResults": AppendGdt(builder, report, template); break;
+                    case "AuditTrail": AppendAuditTrail(builder, report); break;
+                }
+            }
+            foreach (var table in template.Tables)
+            {
+                foreach (var rule in table.ConditionalRules)
+                    builder.AppendLine($"Conditional formatting: {table.Key} | {rule.Field} {rule.Operator} {rule.Value} => {rule.Color}");
+            }
+        }
         if (request.IncludeVisuals && request.Visuals.Count > 0)
         {
             builder.AppendLine("## Visual Callouts");
             foreach (var visual in request.Visuals) builder.AppendLine($"{visual.Reference}: {visual.Caption ?? visual.SnapshotPath}");
         }
-        builder.AppendLine(report.ToMarkdown());
+        if (template is not null)
+        {
+            if (!string.IsNullOrWhiteSpace(template.Footer.Text)) builder.AppendLine($"Footer: {template.Footer.Text}");
+            if (!string.IsNullOrWhiteSpace(template.Footer.TemplateVersionLabel)) builder.AppendLine($"Template version label: {template.Footer.TemplateVersionLabel}");
+            if (template.Footer.EffectiveDate is { } effective) builder.AppendLine($"Effective date: {effective:yyyy-MM-dd}");
+        }
         return builder.ToString();
+    }
+
+    private static void AppendSummary(StringBuilder builder, VerificationReport report, ComparisonSummary summary, ReportTemplate? template)
+    {
+        var metadata = report.Metadata;
+        builder.AppendLine($"Document: {metadata.DocumentName} | Document ID: {metadata.DocumentId?.ToString() ?? "Unavailable"}");
+        builder.AppendLine($"2D Version: {metadata.DrawingVersion} | 3D Version: {metadata.ModelVersion}");
+        builder.AppendLine($"Verification Method: {metadata.VerificationMethod} | Checker: {metadata.CheckerIdentity ?? "Unavailable"}");
+        builder.AppendLine($"Verification Session: {metadata.VerificationSessionId} | Generated UTC: {metadata.GeneratedUtc:O}");
+        var checkedDimensions = summary.MatchedDimensions + summary.MismatchedDimensions;
+        var percentageText = checkedDimensions > 0 ? (summary.MatchedDimensions * 100d / checkedDimensions).ToString("0.##", CultureInfo.InvariantCulture) + "% dimensions within tolerance" : "No dimensions checked";
+        builder.AppendLine($"Overall: {percentageText}");
+        var statistics = template?.Summary.Statistics.OrderBy(x => x.Ordinal) ?? ReportTemplateDefaults.StatisticKeys.Take(3).Select((key, i) => new ReportTemplateStatistic { Key = key, Ordinal = i });
+        builder.AppendLine($"Summary Layout: {template?.Summary.Layout ?? "Table"}");
+        foreach (var statistic in statistics)
+        {
+            var value = statistic.Key switch { "TotalDimensions" => summary.TotalDimensions.ToString(CultureInfo.InvariantCulture), "PassRate" => summary.MatchPercentage is double rate ? (rate / 100d).ToString(statistic.Format, CultureInfo.InvariantCulture) : "Unavailable", "MismatchCount" => summary.MismatchedDimensions.ToString(CultureInfo.InvariantCulture), "MissingCount" => summary.UnmatchedDimensions.ToString(CultureInfo.InvariantCulture), "GdtCount" => report.GdtResults.Count.ToString(CultureInfo.InvariantCulture), _ => "Unavailable" };
+            builder.AppendLine($"{statistic.Label}: {value}");
+        }
+    }
+
+    private static void AppendGdt(StringBuilder builder, VerificationReport report, ReportTemplate? template)
+    {
+        if (report.GdtResults.Count == 0) { builder.AppendLine("No items"); return; }
+        var table = template?.Tables.FirstOrDefault(x => x.Key == "Gdt");
+        builder.AppendLine(table is null ? "Identifier | Type | Datums | Tolerance | Measured Results | Status | Details" : $"Table: Gdt | Columns: {string.Join(" | ", table.Columns.Select(x => x.Label))}");
+        foreach (var result in report.GdtResults) builder.AppendLine($"{result.Identifier} | {result.ControlType} | {string.Join(", ", result.DatumReferences)} | {result.ToleranceValue ?? "Unavailable"} | {result.ComparisonDetails ?? "Unavailable"} | {result.Status} | {result.Reason ?? string.Join("; ", result.Diagnostics)}");
     }
 
     private static void AppendAuditTrail(StringBuilder builder, VerificationReport report)
@@ -80,10 +162,11 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
             builder.AppendLine($"Timestamp: {entry.Timestamp:O} | User: {entry.UserName} | Role: {entry.UserRole} | User ID: {entry.UserId ?? "Unavailable"} | User Email: {entry.UserEmail ?? "Unavailable"} | Action: {entry.Action} | Outcome: {entry.Outcome} | Details: {entry.Details} | Identifier: {entry.Identifier} | Integrity Reference: {entry.IntegrityReference ?? "Unavailable"}");
     }
 
-    private static void AppendDimensions(StringBuilder builder, string title, IEnumerable<DimensionMatch> rows)
+    private static void AppendDimensions(StringBuilder builder, string title, IEnumerable<DimensionMatch> rows, ReportTemplate? template = null)
     {
-        builder.AppendLine($"## {title}");
-        builder.AppendLine("Identifier | Nominal | Measured 3D | Lower Tolerance | Upper Tolerance | Deviation | Pass/Fail | Reason | Severity");
+        if (template is null) builder.AppendLine($"## {title}");
+        var table = template?.Tables.FirstOrDefault(x => x.Key == "Dimensions");
+        builder.AppendLine(table is null ? "Identifier | Nominal | Measured 3D | Lower Tolerance | Upper Tolerance | Deviation | Pass/Fail | Reason | Severity" : $"Table: Dimensions | Columns: {string.Join(" | ", table.Columns.Select(x => x.Label + (string.IsNullOrWhiteSpace(x.Unit) ? "" : $" ({x.Unit})")))}");
         // Keep the configured priority field independently visible in the PDF text stream;
         // long table rows are wrapped and must not split a required column label.
         if (string.Equals(title, "Mismatched Dimensions", StringComparison.Ordinal)) builder.AppendLine("Severity: priority indicator");
@@ -95,7 +178,7 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
 
     private static string Value(double? value) => value is double number && double.IsFinite(number) ? number.ToString("0.###", CultureInfo.InvariantCulture) : "-";
 
-    private static IReadOnlyList<string> RenderPages(string markdown, CancellationToken cancellationToken)
+    private static IReadOnlyList<string> RenderPages(string markdown, CancellationToken cancellationToken, ReportTemplate? template = null)
     {
         const int linesPerPage = 59;
         var pages = new List<StringBuilder> { new() };
@@ -120,7 +203,15 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
                 currentLineCount++;
             }
         }
-        foreach (var page in pages) page.Append("ET");
+        for (var index = 0; index < pages.Count; index++)
+        {
+            if (template?.Footer is { } footer)
+            {
+                if (!string.IsNullOrWhiteSpace(footer.Text)) pages[index].Append(" BT /F1 9 Tf 40 24 Td (").Append(Escape(footer.Text)).Append(") Tj");
+                if (!string.IsNullOrWhiteSpace(footer.PageNumberFormat)) pages[index].Append(" BT /F1 9 Tf 500 24 Td (").Append(Escape(footer.PageNumberFormat.Replace("X", (index + 1).ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal).Replace("Y", pages.Count.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal))).Append(") Tj");
+            }
+            pages[index].Append("ET");
+        }
         return pages.Select(page => page.ToString()).ToArray();
     }
 
@@ -132,7 +223,7 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
 
     private static string Escape(string value) => value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("(", "\\(", StringComparison.Ordinal).Replace(")", "\\)", StringComparison.Ordinal).Select(character => character is >= ' ' and <= '~' ? character : '?').Aggregate(new StringBuilder(), (builder, character) => builder.Append(character)).ToString();
 
-    private static byte[] BuildDocument(IReadOnlyList<string> pageContents)
+    private static byte[] BuildDocument(IReadOnlyList<string> pageContents, ReportTemplate? template = null)
     {
         if (pageContents.Count == 0) throw new InvalidOperationException("A PDF report must contain at least one page.");
         var pageObjects = Enumerable.Range(0, pageContents.Count).Select(index => 3 + index).ToArray();
@@ -144,7 +235,10 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
             $"<< /Type /Pages /Kids [{string.Join(" ", pageObjects.Select(id => $"{id} 0 R"))}] /Count {pageContents.Count} >>"
         };
         for (var index = 0; index < pageContents.Count; index++)
-            objects.Add($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 {fontObject} 0 R >> >> /Contents {contentObjects[index]} 0 R >>");
+        {
+            var landscape = template?.Style.Orientation == "Landscape";
+            objects.Add($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {(landscape ? 792 : 612)} {(landscape ? 612 : 792)}] /Resources << /Font << /F1 {fontObject} 0 R >> >> /Contents {contentObjects[index]} 0 R >>");
+        }
         foreach (var content in pageContents)
             objects.Add($"<< /Length {Encoding.ASCII.GetByteCount(content)} >>\nstream\n{content}\nendstream");
         objects.Add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");

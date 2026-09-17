@@ -22,8 +22,9 @@ public sealed class ReportService
     private readonly IAuditLogger? _audit;
     private readonly IDocumentRepository? _documents;
     private readonly IUserRepository? _users;
-    public ReportService(IVerificationSessionRepository sessions, ISessionAuthenticationService authentication, RoleAuthorization? authorization = null, IReportGenerator? generator = null, ICentralizedLogger? logger = null, IAuditLogger? audit = null, IPdfReportGenerator? pdfGenerator = null, IWorkflowRepository? workflow = null, IDocumentRepository? documents = null, IUserRepository? users = null)
-    { _sessions = sessions; _authentication = authentication; _authorization = authorization ?? new RoleAuthorization(); _generator = generator ?? new MarkdownReportGenerator(); _logger = logger; _audit = audit; _pdfGenerator = pdfGenerator; _workflow = workflow; _documents = documents; _users = users; }
+    private readonly IReportTemplateRepository? _templates;
+    public ReportService(IVerificationSessionRepository sessions, ISessionAuthenticationService authentication, RoleAuthorization? authorization = null, IReportGenerator? generator = null, ICentralizedLogger? logger = null, IAuditLogger? audit = null, IPdfReportGenerator? pdfGenerator = null, IWorkflowRepository? workflow = null, IDocumentRepository? documents = null, IUserRepository? users = null, IReportTemplateRepository? templates = null)
+    { _sessions = sessions; _authentication = authentication; _authorization = authorization ?? new RoleAuthorization(); _generator = generator ?? new MarkdownReportGenerator(); _logger = logger; _audit = audit; _pdfGenerator = pdfGenerator; _workflow = workflow; _documents = documents; _users = users; _templates = templates; }
     public async Task<string> GenerateMarkdownAsync(Guid sessionId, CancellationToken cancellationToken = default)
     {
         if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.ViewDimensionMatchResults)) throw new UnauthorizedAccessException("Only authenticated Maker, Checker, or Approver users may access verification reports.");
@@ -68,7 +69,12 @@ public sealed class ReportService
             var auditTrail = await BuildAuditTrailAsync(metadata.DocumentId, normalized, metadata.GeneratedUtc, cancellationToken).ConfigureAwait(false);
             metadata = metadata with { AuditScope = DescribeAuditScope(normalized) };
             report = report with { Metadata = metadata, Request = normalized, AuditTrail = auditTrail };
-            var content = await _pdfGenerator.GeneratePdfAsync(report, normalized, cancellationToken).ConfigureAwait(false);
+            var template = _templates is null ? null : await _templates.ResolveAsync(null, null, cancellationToken).ConfigureAwait(false);
+            if (template is not null)
+                report = report with { Metadata = report.Metadata with { TemplateId = template.Id, TemplateVersion = template.Version } };
+            var content = template is null
+                ? await _pdfGenerator.GeneratePdfAsync(report, normalized, cancellationToken).ConfigureAwait(false)
+                : await _pdfGenerator.GeneratePdfAsync(report, template, cancellationToken).ConfigureAwait(false);
             if (_audit is not null)
             {
                 var summary = report.ComparisonSummary;
