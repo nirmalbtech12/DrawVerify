@@ -119,7 +119,9 @@ public sealed class ReportService
             }
         }
         var verification = submission is null ? null : await _workflow!.GetFingerprintVerificationAsync(submission.PackageId, submission.Revision, cancellationToken).ConfigureAwait(false);
-        return new VerificationReport { DimensionMatches = matches, GdtResults = gdtResults, Fingerprint = fingerprint, FingerprintVerification = verification, MakerSignature = submission?.MakerSignature, CheckerSignature = submission?.CheckerSignature, ApproverSignature = submission?.ApproverSignature };
+        var stamp = submission?.InternalApprovalStamp;
+        if (stamp is not null && verification is not null) stamp = stamp with { VerificationStatus = verification.IsMatch ? InternalApprovalStampVerificationStatus.Valid : InternalApprovalStampVerificationStatus.Invalid };
+        return new VerificationReport { DimensionMatches = matches, GdtResults = gdtResults, Fingerprint = fingerprint, FingerprintVerification = verification, MakerSignature = submission?.MakerSignature, CheckerSignature = submission?.CheckerSignature, ApproverSignature = submission?.ApproverSignature, InternalApprovalStamp = stamp };
     }
     private static string Escape(string? value) { value ??= string.Empty; return value.IndexOfAny(new[] { ',', '"', '\r', '\n' }) >= 0 ? '"' + value.Replace("\"", "\"\"") + '"' : value; }
 }

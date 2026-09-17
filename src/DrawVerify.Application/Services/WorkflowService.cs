@@ -404,6 +404,7 @@ public sealed class WorkflowService : IWorkflowService
             var computedBase = await _fingerprintService.ComputeAsync(new DocumentFingerprintContext(packageId, revision, submission.StepDocumentVersionId, submission.DxfDocumentVersionId, metadata), new[] { new DocumentFingerprintArtifact(step.StoredRelativePath, stepStream, step.FileSizeBytes), new DocumentFingerprintArtifact(dxf.StoredRelativePath, dxfStream, dxf.FileSizeBytes) }, cancellationToken: cancellationToken).ConfigureAwait(false);
             var computed = submission.CheckerSignature is null ? computedBase : CreateSignedStateFingerprint(computedBase, submission.CheckerSignature);
             if (submission.ApproverSignature is not null) computed = CreateSignedStateFingerprint(computed, submission.ApproverSignature);
+            if (submission.InternalApprovalStamp is not null) computed = CreateStampedFingerprint(computed, submission.InternalApprovalStamp);
             var matches = CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(submission.Fingerprint.Value.ToLowerInvariant()), Encoding.ASCII.GetBytes(computed.Value));
             result = new FingerprintVerificationResult(matches ? FingerprintVerificationStatus.Match : FingerprintVerificationStatus.Mismatch, computed, matches ? "Fingerprint Verified - Document Unchanged" : "Fingerprint Mismatch - Document May Have Been Altered") { Stored = submission.Fingerprint };
             }
@@ -550,6 +551,12 @@ public sealed class WorkflowService : IWorkflowService
             SnapshotReference = persistedSnapshot.SnapshotId.ToString("D"), SnapshotJson = snapshotPayload
         };
         decision.Validate();
+        InternalApprovalStamp? stamp = null;
+        if (decisionType == ReviewDecisionType.Approve)
+        {
+            var fingerprint = package.Fingerprint ?? throw new InvalidOperationException("A document fingerprint is required before internal approval stamping.");
+            stamp = InternalApprovalStamp.Create(packageId, revision, user.UserId, user.DisplayName, decision.DecidedUtc, fingerprint.Value);
+        }
         var resultingStatus = decisionType switch
         {
             ReviewDecisionType.Approve => WorkflowStatus.FinallyApproved,
@@ -569,18 +576,37 @@ public sealed class WorkflowService : IWorkflowService
         ReviewDecision saved;
         try
         {
-            saved = await _workflow.SaveReviewDecisionAsync(package, decision, resultingStatus,
-                CreateAudit(packageId, revision, action, decisionType.ToString(), decision.DecidedUtc, user,
-                    new[] { decision.Comments ?? string.Empty }, decision.SnapshotReference, decision: decision, documentVersionId: package.StepDocumentVersionId, previousWorkflowStatus: package.Status, workflowStatus: resultingStatus), cancellationToken).ConfigureAwait(false);
+            var audit = CreateAudit(packageId, revision, action, decisionType.ToString(), decision.DecidedUtc, user,
+                new[] { decision.Comments ?? string.Empty }, decision.SnapshotReference, decision: decision, documentVersionId: package.StepDocumentVersionId, previousWorkflowStatus: package.Status, workflowStatus: resultingStatus);
+            if (stamp is not null)
+                audit = new AuditEntry { AuditId = audit.AuditId, DocumentId = audit.DocumentId, UserId = audit.UserId, ActorRole = audit.ActorRole, DocumentRevision = audit.DocumentRevision, DocumentVersion = audit.DocumentVersion, PreviousWorkflowStatus = audit.PreviousWorkflowStatus, NewWorkflowStatus = audit.NewWorkflowStatus, Action = DocumentAuditAction.InternalApprovalStampApplied, TimestampUtc = audit.TimestampUtc, DetailsJson = JsonSerializer.Serialize(new { packageId, revision, action = DocumentAuditAction.InternalApprovalStampApplied.ToString(), stampId = stamp.StampId, approverUserId = stamp.ApproverUserId, approverDisplayName = stamp.ApproverDisplayName, approverRole = stamp.ApproverRole, stampAppliedUtc = stamp.AppliedUtc, fingerprintReference = stamp.FingerprintReference, stampIntegrityHash = stamp.IntegrityHash }) };
+            saved = stamp is null
+                ? await _workflow.SaveReviewDecisionAsync(package, decision, resultingStatus, audit, cancellationToken).ConfigureAwait(false)
+                : await _workflow.SaveReviewDecisionAsync(package, decision, resultingStatus, audit, stamp, cancellationToken).ConfigureAwait(false);
         }
-        catch
+        catch (Exception exception)
         {
             try { await _snapshots.DeleteAsync(persistedSnapshot.SnapshotId, CancellationToken.None).ConfigureAwait(false); }
             catch (Exception cleanupException) { _logger?.Log(cleanupException, "Final approval snapshot cleanup", $"Unable to remove uncommitted snapshotId={persistedSnapshot.SnapshotId}, packageId={packageId}, revision={revision}."); }
+            if (stamp is not null)
+            {
+                _logger?.Log(exception, "Internal approval stamp", $"Unable to apply approval stamp for packageId={packageId}, revision={revision}.");
+                throw new InvalidOperationException("Failed to apply approval stamp. Please try again.", exception);
+            }
             throw;
         }
         await NotifyConfiguredAsync(packageId, revision, saved, decisionType == ReviewDecisionType.Approve ? WorkflowNotificationEvent.Approval : route == ReviewDecisionRoute.ToChecker ? WorkflowNotificationEvent.Return : WorkflowNotificationEvent.Rejection, cancellationToken).ConfigureAwait(false);
         return saved;
+    }
+
+    public async Task<InternalApprovalStampVerificationStatus> VerifyInternalApprovalStampAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
+    {
+        if (!_authentication.IsAuthenticated || !_authorization.IsAllowed(_authentication.CurrentUser, RolePermission.VerifyFingerprint)) throw new UnauthorizedAccessException("Internal approval stamp verification is not authorized.");
+        var stamp = await _workflow.GetInternalApprovalStampAsync(packageId, revision, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException("The internal approval stamp was not found.");
+        stamp.Validate();
+        var submission = (await _workflow.GetSubmissionsAsync(packageId, cancellationToken).ConfigureAwait(false)).FirstOrDefault(x => x.Revision == revision) ?? throw new KeyNotFoundException("The submitted version was not found.");
+        var valid = submission.InternalApprovalStamp is not null && submission.InternalApprovalStamp.CanonicalRepresentation == stamp.CanonicalRepresentation && submission.InternalApprovalStamp.IntegrityHash == stamp.IntegrityHash;
+        return valid ? InternalApprovalStampVerificationStatus.Valid : InternalApprovalStampVerificationStatus.Invalid;
     }
 
     public async Task<IReadOnlyList<ReviewDecision>> GetApprovalHistoryAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
@@ -961,6 +987,7 @@ public sealed class WorkflowService : IWorkflowService
         catch (Exception exception) { _logger?.Log(exception, "Workflow audit", $"Unable to record unauthenticated submission rejection for packageId={packageId}, revision={revision}."); throw; }
     }
     private static DocumentFingerprint CreateSignedStateFingerprint(DocumentFingerprint baseFingerprint, SignatureData checkerSignature) => baseFingerprint with { Value = SignatureData.ComputePayloadHash($"{baseFingerprint.Value}|{checkerSignature.CanonicalRepresentation}") };
+    private static DocumentFingerprint CreateStampedFingerprint(DocumentFingerprint baseFingerprint, InternalApprovalStamp stamp) => baseFingerprint with { Value = SignatureData.ComputePayloadHash($"{baseFingerprint.Value}|{stamp.CanonicalRepresentation}") };
     private static Dictionary<string, string> SignatureMetadata(SignatureData signature, string extractionEvidence, string verificationEvidence) => new() { ["makerUserId"] = signature.MakerUserId, ["makerDisplayName"] = signature.MakerDisplayName, ["makerRole"] = signature.Role, ["signatureMethod"] = signature.Method.ToString(), ["signatureTimestampUtc"] = signature.TimestampUtc.ToString("O"), ["signaturePayloadHash"] = signature.PayloadHash, ["signatureCanonical"] = signature.CanonicalRepresentation, ["signatureDocumentId"] = signature.DocumentId.ToString("D"), ["signatureRevision"] = signature.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture), ["signatureTitle"] = signature.Title ?? string.Empty, ["signatureDepartment"] = signature.Department ?? string.Empty, ["extractionEvidence"] = extractionEvidence, ["verificationEvidence"] = verificationEvidence };
     private static AuditEntry CreateAudit(Guid packageId, int revision, DocumentAuditAction action, string result, DateTime timestamp, AuthenticatedUser? user, IReadOnlyList<string>? failures = null, string? snapshotReference = null, ReviewComment? comment = null, Guid? commentId = null, WorkflowStatus? workflowStatus = null, IReadOnlyList<ReviewComment>? commentReferences = null, ReviewDecision? decision = null, Guid? documentVersionId = null, Guid? dxfDocumentVersionId = null, WorkflowStatus? previousWorkflowStatus = null, DocumentFingerprint? fingerprint = null, SignatureData? signature = null) {
         var actor = user ?? throw new UnauthorizedAccessException("An authenticated workflow actor is required for auditing."); var role = actor.Roles.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? throw new InvalidOperationException("The authenticated workflow actor has no role.");

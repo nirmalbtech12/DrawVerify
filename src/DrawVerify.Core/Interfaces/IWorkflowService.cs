@@ -27,6 +27,8 @@ public interface IWorkflowService
         => throw new NotSupportedException("Checker signatures are not supported by this workflow service.");
     Task<SignatureData> ApplyApproverSignatureAsync(Guid packageId, int revision, SignatureMethod method, string payload, string? title = null, string? department = null, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("Approver signatures are not supported by this workflow service.");
+    Task<InternalApprovalStampVerificationStatus> VerifyInternalApprovalStampAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
+        => Task.FromException<InternalApprovalStampVerificationStatus>(new NotSupportedException("Internal approval stamp verification is not configured."));
     Task<ReviewDecision> RejectToCheckerAsync(Guid packageId, int revision, string reason, string comments, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("Approver rejection routing is not supported by this workflow service.");
     Task<IReadOnlyList<ReviewDecision>> GetApprovalHistoryAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)

@@ -10,11 +10,18 @@ using DrawVerify.Core.Models;
 public sealed class PdfReportGenerator : IPdfReportGenerator
 {
     public static string ApproverSignatureProjection => nameof(VerificationReport.ApproverSignature);
+    private static string RenderInternalApprovalStamp(InternalApprovalStamp stamp) =>
+        $"Internal Approval Stamp | StampId: {stamp.StampId} | Approver: {stamp.ApproverDisplayName} ({stamp.ApproverRole}) | Applied: {stamp.AppliedUtc:O} | Revision: {stamp.Revision} | Fingerprint: {stamp.FingerprintReference} | VerificationStatus: {stamp.VerificationStatus}";
     public Task<byte[]> GeneratePdfAsync(VerificationReport report, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(report);
         cancellationToken.ThrowIfCancellationRequested();
         var markdown = report.ToMarkdown();
+        if (report.InternalApprovalStamp is { } stamp)
+        {
+            stamp.Validate();
+            markdown += Environment.NewLine + RenderInternalApprovalStamp(stamp);
+        }
         var lines = markdown.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None)
             .SelectMany(line => Wrap(line, 108))
             .ToArray();

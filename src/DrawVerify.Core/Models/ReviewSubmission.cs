@@ -28,6 +28,7 @@ public sealed record ReviewSubmission
     public SignatureData? MakerSignature { get; init; }
     public SignatureData? CheckerSignature { get; init; }
     public SignatureData? ApproverSignature { get; init; }
+    public InternalApprovalStamp? InternalApprovalStamp { get; init; }
 }
 
 public sealed record SubmissionReadiness(bool IsReady, IReadOnlyList<string> Failures)
