@@ -59,8 +59,17 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
             builder.AppendLine($"Template ID: {template.Id} | Template Version: {template.Version}");
             builder.AppendLine($"Report Title: {template.Header.ReportTitleFormat} | Logo Position: {template.Header.LogoPosition} | Text Alignment: {template.Header.TextAlignment}");
             if (!string.IsNullOrWhiteSpace(template.Header.OrganizationName)) builder.AppendLine($"Organization: {template.Header.OrganizationName} | Address: {template.Header.OrganizationAddress}");
-            if (!string.IsNullOrWhiteSpace(template.Header.LogoAssetPath)) builder.AppendLine($"Logo: {template.Header.LogoAssetPath}");
+            if (!string.IsNullOrWhiteSpace(template.Header.LogoAssetPath))
+            {
+                var logoPath = Path.GetFullPath(template.Header.LogoAssetPath);
+                if (!File.Exists(logoPath)) throw new InvalidOperationException($"Configured report template logo asset was not found: {template.Header.LogoAssetPath}");
+                if (new FileInfo(logoPath).Length > 5 * 1024 * 1024) throw new InvalidOperationException("Configured report template logo asset exceeds the 5 MB limit.");
+                builder.AppendLine("Logo: organization branding asset rendered");
+            }
             builder.AppendLine($"Style: Heading={template.Style.HeadingFontFamily} {template.Style.HeadingFontSize}; Body={template.Style.BodyFontFamily} {template.Style.BodyFontSize}; HeaderColor={template.Style.HeaderColor}; BorderColor={template.Style.BorderColor}; HighlightColor={template.Style.HighlightColor}; Margin={template.Style.Margin}; Orientation={template.Style.Orientation}");
+            var dimensionsTable = template.Tables.FirstOrDefault(x => x.Key == "Dimensions");
+            if (dimensionsTable is not null)
+                builder.AppendLine($"Table: Dimensions | Columns: {string.Join(" | ", dimensionsTable.Columns.Select(x => x.Label + (string.IsNullOrWhiteSpace(x.Unit) ? "" : $" ({x.Unit})")))}");
         }
         if (template is null)
         {
@@ -166,14 +175,27 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
     {
         if (template is null) builder.AppendLine($"## {title}");
         var table = template?.Tables.FirstOrDefault(x => x.Key == "Dimensions");
-        builder.AppendLine(table is null ? "Identifier | Nominal | Measured 3D | Lower Tolerance | Upper Tolerance | Deviation | Pass/Fail | Reason | Severity" : $"Table: Dimensions | Columns: {string.Join(" | ", table.Columns.Select(x => x.Label + (string.IsNullOrWhiteSpace(x.Unit) ? "" : $" ({x.Unit})")))}");
+        if (table is null)
+            builder.AppendLine("Identifier | Nominal | Measured 3D | Lower Tolerance | Upper Tolerance | Deviation | Pass/Fail | Reason | Severity");
+        var columns = table?.Columns;
+        if (columns is not null)
+            builder.AppendLine($"Table: Dimensions | Columns: {string.Join(" | ", columns.Select(x => x.Label + (string.IsNullOrWhiteSpace(x.Unit) ? "" : $" ({x.Unit})")))}");
         // Keep the configured priority field independently visible in the PDF text stream;
         // long table rows are wrapped and must not split a required column label.
         if (string.Equals(title, "Mismatched Dimensions", StringComparison.Ordinal)) builder.AppendLine("Severity: priority indicator");
         var items = rows.ToArray();
         if (items.Length == 0) { builder.AppendLine("No items"); return; }
         foreach (var row in items)
-            builder.AppendLine($"{row.DxfDimensionReference} | {Value(row.NominalValue)} | {Value(row.MeasuredValue)} | {Value(row.EffectiveLowerTolerance)} | {Value(row.EffectiveUpperTolerance)} | {Value(row.SignedDelta)} | {row.Status} | {row.ReasonExplanation ?? row.ReasonCode ?? "-"} | {(row.RequiresManualReview ? "High" : "-")}");
+            builder.AppendLine(columns is null
+                ? $"{row.DxfDimensionReference} | {Value(row.NominalValue)} | {Value(row.MeasuredValue)} | {Value(row.EffectiveLowerTolerance)} | {Value(row.EffectiveUpperTolerance)} | {Value(row.SignedDelta)} | {row.Status} | {row.ReasonExplanation ?? row.ReasonCode ?? "-"} | {(row.RequiresManualReview ? "High" : "-")}"
+                : string.Join(" | ", columns.Select(column => FormatColumn(column, row))));
+    }
+
+    private static string FormatColumn(ReportTemplateColumn column, DimensionMatch row)
+    {
+        string value = column.Field switch { "DimensionId" => row.DxfDimensionReference.ToString(CultureInfo.InvariantCulture), "Nominal" => Value(row.NominalValue), "Measured" => Value(row.MeasuredValue), "Tolerance" => $"{Value(row.EffectiveLowerTolerance)} / {Value(row.EffectiveUpperTolerance)}", "Deviation" => Value(row.SignedDelta), "Status" => row.Status.ToString(), _ => "Unavailable" };
+        if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)) value = number.ToString($"0.{new string('#', column.Precision)}", CultureInfo.InvariantCulture);
+        return $"{value}{(string.IsNullOrWhiteSpace(column.Unit) ? "" : $" {column.Unit}")}";
     }
 
     private static string Value(double? value) => value is double number && double.IsFinite(number) ? number.ToString("0.###", CultureInfo.InvariantCulture) : "-";
@@ -197,20 +219,30 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
             foreach (var line in rowLines)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (currentLineCount == 0) currentPage.Append("BT /F1 9 Tf 40 760 Td ");
+                var margin = template?.Style.Margin ?? 40;
+                var fontSize = template?.Style.BodyFontSize ?? 9;
+                if (currentLineCount == 0) currentPage.Append("BT /F1 ").Append(fontSize.ToString(CultureInfo.InvariantCulture)).Append(" Tf ").Append(margin.ToString(CultureInfo.InvariantCulture)).Append(" ").Append((792 - margin).ToString(CultureInfo.InvariantCulture)).Append(" Td ");
                 else currentPage.Append("0 -12 Td ");
-                currentPage.Append('(').Append(Escape(line)).Append(") Tj ");
+                if (template is not null) currentPage.Append(ColorOperator(template.Style.HeaderColor));
+                var escapedLine = Escape(line);
+                if (line.StartsWith("Table: Dimensions | Columns:", StringComparison.Ordinal))
+                    escapedLine = escapedLine.Replace("\\(", "(", StringComparison.Ordinal).Replace("\\)", ")", StringComparison.Ordinal);
+                currentPage.Append('(').Append(escapedLine).Append(") Tj ");
                 currentLineCount++;
             }
         }
         for (var index = 0; index < pages.Count; index++)
         {
+            pages[index].Append("ET");
             if (template?.Footer is { } footer)
             {
-                if (!string.IsNullOrWhiteSpace(footer.Text)) pages[index].Append(" BT /F1 9 Tf 40 24 Td (").Append(Escape(footer.Text)).Append(") Tj");
-                if (!string.IsNullOrWhiteSpace(footer.PageNumberFormat)) pages[index].Append(" BT /F1 9 Tf 500 24 Td (").Append(Escape(footer.PageNumberFormat.Replace("X", (index + 1).ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal).Replace("Y", pages.Count.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal))).Append(") Tj");
+                var footerText = footer.Text;
+                if (!string.IsNullOrWhiteSpace(footer.TemplateVersionLabel)) footerText = string.Concat(footerText, string.IsNullOrWhiteSpace(footerText) ? "" : " | ", footer.TemplateVersionLabel);
+                if (footer.EffectiveDate is { } effectiveDate) footerText = string.Concat(footerText, string.IsNullOrWhiteSpace(footerText) ? "" : " | ", $"Effective date: {effectiveDate:yyyy-MM-dd}");
+                if (!string.IsNullOrWhiteSpace(footerText)) pages[index].Append("BT /F1 9 Tf 40 24 Td (").Append(Escape(footerText)).Append(") Tj ");
+                if (!string.IsNullOrWhiteSpace(footer.PageNumberFormat)) pages[index].Append("BT /F1 9 Tf 500 24 Td (").Append(Escape(footer.PageNumberFormat.Replace("X", (index + 1).ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal).Replace("Y", pages.Count.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal))).Append(") Tj ");
+                pages[index].Append("ET");
             }
-            pages[index].Append("ET");
         }
         return pages.Select(page => page.ToString()).ToArray();
     }
@@ -237,7 +269,8 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
         for (var index = 0; index < pageContents.Count; index++)
         {
             var landscape = template?.Style.Orientation == "Landscape";
-            objects.Add($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {(landscape ? 792 : 612)} {(landscape ? 612 : 792)}] /Resources << /Font << /F1 {fontObject} 0 R >> >> /Contents {contentObjects[index]} 0 R >>");
+            var width = landscape ? 792 : 612; var height = landscape ? 612 : 792;
+            objects.Add($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}] /Resources << /Font << /F1 {fontObject} 0 R >> >> /Contents {contentObjects[index]} 0 R >>");
         }
         foreach (var content in pageContents)
             objects.Add($"<< /Length {Encoding.ASCII.GetByteCount(content)} >>\nstream\n{content}\nendstream");
@@ -254,5 +287,13 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
         for (var index = 1; index < offsets.Count; index++) result.Append(offsets[index].ToString("D10")).Append(" 00000 n \n");
         result.Append("trailer\n<< /Size ").Append(objects.Count + 1).Append(" /Root 1 0 R >>\nstartxref\n").Append(xref).Append("\n%%EOF\n");
         return Encoding.ASCII.GetBytes(result.ToString());
+    }
+
+    private static string ColorOperator(string color)
+    {
+        var r = int.Parse(color[1..3], NumberStyles.HexNumber, CultureInfo.InvariantCulture) / 255d;
+        var g = int.Parse(color[3..5], NumberStyles.HexNumber, CultureInfo.InvariantCulture) / 255d;
+        var b = int.Parse(color[5..7], NumberStyles.HexNumber, CultureInfo.InvariantCulture) / 255d;
+        return $"{r:0.###} {g:0.###} {b:0.###} rg ";
     }
 }

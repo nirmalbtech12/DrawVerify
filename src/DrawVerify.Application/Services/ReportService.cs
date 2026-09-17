@@ -69,7 +69,9 @@ public sealed class ReportService
             var auditTrail = await BuildAuditTrailAsync(metadata.DocumentId, normalized, metadata.GeneratedUtc, cancellationToken).ConfigureAwait(false);
             metadata = metadata with { AuditScope = DescribeAuditScope(normalized) };
             report = report with { Metadata = metadata, Request = normalized, AuditTrail = auditTrail };
-            var template = _templates is null ? null : await _templates.ResolveAsync(null, null, cancellationToken).ConfigureAwait(false);
+            var projectId = session.ProjectId;
+            var workflowId = session.WorkflowId;
+            var template = _templates is null ? null : await _templates.ResolveAsync(projectId, workflowId, cancellationToken).ConfigureAwait(false);
             if (template is not null)
                 report = report with { Metadata = report.Metadata with { TemplateId = template.Id, TemplateVersion = template.Version } };
             var content = template is null

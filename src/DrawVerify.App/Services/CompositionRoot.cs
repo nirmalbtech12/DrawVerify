@@ -193,7 +193,9 @@ public static class CompositionRoot
     public static ReportTemplateConfigurationViewModel CreateReportTemplateConfigurationViewModel()
     {
         var logger = new CentralizedLogger();
-        return new ReportTemplateConfigurationViewModel(new ReportTemplateService(new SqliteReportTemplateRepository(DatabasePath()), Session, Authorization, logger), Session, Authorization, logger);
+        var database = DatabasePath();
+        var repository = new SqliteReportTemplateRepository(database);
+        return new ReportTemplateConfigurationViewModel(new ReportTemplateService(repository, Session, Authorization, logger), Session, Authorization, logger, new ReportTemplatePreviewService(new DrawVerify.Infrastructure.Pdf.PdfReportGenerator(), Session, Authorization, logger), new ReportTemplateExchangeService(Session, Authorization, repository, logger));
     }
     public static MissingDimensionReviewService CreateMissingDimensionReviewService()
     {
