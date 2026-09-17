@@ -11,7 +11,7 @@ public partial class ReportTemplateConfigurationView : System.Windows.Controls.U
     private void SelectLogo_Click(object sender, RoutedEventArgs e)
     {
         if (DataContext is not ReportTemplateConfigurationViewModel model || !model.CanEdit) return;
-        var dialog = new OpenFileDialog { Filter = "Image files (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp", CheckFileExists = true, Multiselect = false };
+        var dialog = new OpenFileDialog { Title = "Select report template logo", Filter = "Image files (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp", CheckFileExists = true, Multiselect = false };
         if (dialog.ShowDialog() == true) model.SelectLogo(dialog.FileName);
     }
 }

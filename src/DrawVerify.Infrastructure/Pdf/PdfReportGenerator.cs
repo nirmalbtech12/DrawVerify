@@ -61,9 +61,7 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
             if (!string.IsNullOrWhiteSpace(template.Header.OrganizationName)) builder.AppendLine($"Organization: {template.Header.OrganizationName} | Address: {template.Header.OrganizationAddress}");
             if (!string.IsNullOrWhiteSpace(template.Header.LogoAssetPath))
             {
-                var logoPath = Path.GetFullPath(template.Header.LogoAssetPath);
-                if (!File.Exists(logoPath)) throw new InvalidOperationException($"Configured report template logo asset was not found: {template.Header.LogoAssetPath}");
-                if (new FileInfo(logoPath).Length > 5 * 1024 * 1024) throw new InvalidOperationException("Configured report template logo asset exceeds the 5 MB limit.");
+                var logoPath = ResolveManagedLogo(template.Header.LogoAssetPath);
                 builder.AppendLine("Logo: organization branding asset rendered");
             }
             builder.AppendLine($"Style: Heading={template.Style.HeadingFontFamily} {template.Style.HeadingFontSize}; Body={template.Style.BodyFontFamily} {template.Style.BodyFontSize}; HeaderColor={template.Style.HeaderColor}; BorderColor={template.Style.BorderColor}; HighlightColor={template.Style.HighlightColor}; Margin={template.Style.Margin}; Orientation={template.Style.Orientation}");
@@ -226,7 +224,12 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
                 var fontSize = IsHeading(line) ? template?.Style.HeadingFontSize ?? 14 : IsTableContent(line) ? template?.Style.TableFontSize ?? 8 : template?.Style.BodyFontSize ?? 9;
                 if (currentLineCount == 0) currentPage.Append("BT /F1 ").Append(fontSize.ToString(CultureInfo.InvariantCulture)).Append(" Tf ").Append(margin.ToString(CultureInfo.InvariantCulture)).Append(" ").Append((pageHeight - margin).ToString(CultureInfo.InvariantCulture)).Append(" Td ");
                 else currentPage.Append("0 -").Append(lineHeight.ToString(CultureInfo.InvariantCulture)).Append(" Td ");
-                if (template is not null) currentPage.Append(ColorOperator(IsHighlighted(line, template) ? template.Style.HighlightColor : IsTableContent(line) ? template.Style.BorderColor : template.Style.HeaderColor));
+                if (template is not null)
+                {
+                    var conditionalColor = ConditionalColor(line, template);
+                    currentPage.Append(ColorOperator(conditionalColor ?? (IsTableContent(line) ? template.Style.BorderColor : template.Style.HeaderColor)));
+                    if (IsTableContent(line)) currentPage.Append("q ").Append(ColorOperator(template.Style.BorderColor).Replace(" rg ", " RG ", StringComparison.Ordinal)).Append("0.5 w ").Append(margin.ToString(CultureInfo.InvariantCulture)).Append(' ').Append((pageHeight - margin - ((currentLineCount + 1) * lineHeight)).ToString(CultureInfo.InvariantCulture)).Append(" 500 12 re S Q ");
+                }
                 var escapedLine = Escape(line);
                 if (line.StartsWith("Table: Dimensions | Columns:", StringComparison.Ordinal))
                     escapedLine = escapedLine.Replace("\\(", "(", StringComparison.Ordinal).Replace("\\)", ")", StringComparison.Ordinal);
@@ -252,7 +255,33 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
 
     private static bool IsHeading(string line) => line.StartsWith('#');
     private static bool IsTableContent(string line) => line.StartsWith("Table:", StringComparison.Ordinal) || line.Contains(" | ", StringComparison.Ordinal);
-    private static bool IsHighlighted(string line, ReportTemplate template) => template.Tables.SelectMany(x => x.ConditionalRules).Any(rule => rule.Field == "Status" && rule.Operator == "Equals" && line.Contains(rule.Value, StringComparison.OrdinalIgnoreCase));
+    private static string? ConditionalColor(string line, ReportTemplate template) => template.Tables.SelectMany(x => x.ConditionalRules).FirstOrDefault(rule => MatchesRule(line, rule))?.Color;
+    private static bool MatchesRule(string line, ReportTemplateConditionalRule rule)
+    {
+        if (rule.Field == "Status" && rule.Operator == "Equals") return line.Contains(rule.Value, StringComparison.OrdinalIgnoreCase);
+        if (rule.Operator == "Contains") return line.Contains(rule.Value, StringComparison.OrdinalIgnoreCase);
+        if (rule.Field is "Nominal" or "Measured" or "Tolerance" or "Deviation" && double.TryParse(rule.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var expected))
+        {
+            var values = line.Split('|').Select(value => double.TryParse(value.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var number) ? (double?)number : null).Where(value => value.HasValue).Select(value => value!.Value);
+            return rule.Operator switch { "GreaterThan" => values.Any(value => value > expected), "LessThan" => values.Any(value => value < expected), "Equals" => values.Any(value => Math.Abs(value - expected) < 0.000001), _ => false };
+        }
+        return false;
+    }
+    private static string ResolveManagedLogo(string reference)
+    {
+        if (Path.IsPathFullyQualified(reference)) throw new InvalidOperationException("Configured report template logo must use a managed asset reference.");
+        var normalized = reference.Replace('\\', '/');
+        const string prefix = "report-template-branding/";
+        if (!normalized.StartsWith(prefix, StringComparison.Ordinal) || normalized.Contains("../", StringComparison.Ordinal) || normalized.Contains("/../", StringComparison.Ordinal)) throw new InvalidOperationException("Configured report template logo is outside the managed branding store.");
+        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "report-template-branding"));
+        var path = Path.GetFullPath(Path.Combine(root, normalized[prefix.Length..]));
+        if (!path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Configured report template logo is outside the managed branding store.");
+        var extension = Path.GetExtension(path).ToLowerInvariant();
+        if (extension is not ".png" and not ".jpg" and not ".jpeg" and not ".bmp") throw new InvalidOperationException("Configured report template logo format is unsupported.");
+        if (!File.Exists(path)) throw new InvalidOperationException($"Configured report template logo asset was not found: {reference}");
+        if (new FileInfo(path).Length > 5 * 1024 * 1024) throw new InvalidOperationException("Configured report template logo asset exceeds the 5 MB limit.");
+        return path;
+    }
 
     private static IEnumerable<string> Wrap(string value, int width)
     {

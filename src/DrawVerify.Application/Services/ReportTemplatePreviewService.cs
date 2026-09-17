@@ -21,7 +21,7 @@ public sealed class ReportTemplatePreviewService : IReportTemplatePreviewService
                     new DimensionMatch { VerificationSessionId = sessionId, DxfDimensionReference = 2, NominalValue = 20, MeasuredValue = 20.4, EffectiveLowerTolerance = 19.9, EffectiveUpperTolerance = 20.1, Status = DrawVerify.Core.Enums.DimensionMatchStatus.Mismatched, ReasonCode = "Outside tolerance", RequiresManualReview = true },
                     new DimensionMatch { VerificationSessionId = sessionId, DxfDimensionReference = 3, NominalValue = 30, EffectiveLowerTolerance = 29.8, EffectiveUpperTolerance = 30.2, Status = DrawVerify.Core.Enums.DimensionMatchStatus.Unmatched, ReasonCode = "Not found" }
                 ],
-                GdtResults = [new GdtResult { VerificationSessionId = sessionId, Identifier = "FCF-01", ControlType = DrawVerify.Core.Enums.GdtControlType.Position, DatumReferences = ["A", "B", "C"], ToleranceValue = "0.10", Status = DrawVerify.Core.Enums.VerificationStatus.Passed, ComparisonDetails = "Within tolerance" }],
+                GdtResults = [new GdtResult { VerificationSessionId = sessionId, Identifier = "FCF-01", ControlType = DrawVerify.Core.Enums.GdtControlType.Position, DatumReferences = ["A", "B", "C"], ToleranceValue = "0.10", SourceDocument = "sample-drawing.dxf", RuleVersion = GdtResult.CurrentRuleVersion, Status = DrawVerify.Core.Enums.VerificationStatus.Passed, ComparisonDetails = "Within tolerance" }],
                 AuditTrail = [new AuditTrailEntry { UserId = "sample-admin", UserName = "Sample Admin", UserRole = "Admin", Details = "Sample audit entry", Timestamp = now }]
             };
             var pdf = await _renderer.GeneratePdfAsync(report, template, cancellationToken).ConfigureAwait(false);
