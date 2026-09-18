@@ -15,4 +15,6 @@ public sealed record VerificationReportMetadata
     public DateTimeOffset GeneratedUtc { get; init; } = DateTimeOffset.UtcNow;
     public string GeneratorIdentity { get; init; } = "Unavailable";
     public string AuditScope { get; init; } = "Complete audit trail";
+    public Guid? TemplateId { get; init; }
+    public int? TemplateVersion { get; init; }
 }

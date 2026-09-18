@@ -1,0 +1,2 @@
+namespace DrawVerify.Core.Models;
+public sealed record ReportTemplateHeader { public string? LogoAssetPath { get; init; } public string OrganizationName { get; init; } = ""; public string OrganizationAddress { get; init; } = ""; public string ReportTitleFormat { get; init; } = "2D vs 3D Verification Report"; public string LogoPosition { get; init; } = "Left"; public string TextAlignment { get; init; } = "Left"; }

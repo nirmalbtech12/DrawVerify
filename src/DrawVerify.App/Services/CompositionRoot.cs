@@ -188,7 +188,14 @@ public static class CompositionRoot
     public static ReportService CreateReportService()
     {
         var database = DatabasePath();
-        return new ReportService(new SqliteVerificationSessionRepository(database), Session, Authorization, new MarkdownReportGenerator(), new CentralizedLogger(), new SqliteAuditRepository(database), new DrawVerify.Infrastructure.Pdf.PdfReportGenerator(), new SqliteWorkflowRepository(database, new CentralizedLogger()), new SqliteDocumentRepository(database, new CentralizedLogger()), new SqliteUserRepository(database, new CentralizedLogger()));
+        return new ReportService(new SqliteVerificationSessionRepository(database), Session, Authorization, new MarkdownReportGenerator(), new CentralizedLogger(), new SqliteAuditRepository(database), new DrawVerify.Infrastructure.Pdf.PdfReportGenerator(), new SqliteWorkflowRepository(database, new CentralizedLogger()), new SqliteDocumentRepository(database, new CentralizedLogger()), new SqliteUserRepository(database, new CentralizedLogger()), new SqliteReportTemplateRepository(database));
+    }
+    public static ReportTemplateConfigurationViewModel CreateReportTemplateConfigurationViewModel()
+    {
+        var logger = new CentralizedLogger();
+        var database = DatabasePath();
+        var repository = new SqliteReportTemplateRepository(database);
+        return new ReportTemplateConfigurationViewModel(new ReportTemplateService(repository, Session, Authorization, logger), Session, Authorization, logger, new ReportTemplatePreviewService(new DrawVerify.Infrastructure.Pdf.PdfReportGenerator(), Session, Authorization, logger), new ReportTemplateExchangeService(Session, Authorization, repository, logger));
     }
     public static MissingDimensionReviewService CreateMissingDimensionReviewService()
     {

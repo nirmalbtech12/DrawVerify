@@ -11,4 +11,6 @@ public sealed record VerificationSession
     public string? ErrorMessage { get; init; }
     public DateTime UpdatedUtc { get; init; } = DateTime.UtcNow;
     public double? ToleranceThresholdMm { get; init; }
+    public string? ProjectId { get; init; }
+    public string? WorkflowId { get; init; }
 }
