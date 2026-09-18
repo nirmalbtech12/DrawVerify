@@ -38,6 +38,16 @@ public sealed class ReportTemplateExchangeServiceTests
         Assert.ThrowsAny<Exception>(() => service.Import(json));
     }
 
+    [Fact(DisplayName = "TSD-AC12 TSD-AC13 exchange requires Admin authorization")]
+    public void Exchange_is_denied_without_admin_session()
+    {
+        var session = new SessionAuthenticationService();
+        var service = new ReportTemplateExchangeService(session, new RoleAuthorization(), new AuditFake());
+
+        Assert.Throws<UnauthorizedAccessException>(() => service.Export(new ReportTemplate()));
+        Assert.Throws<UnauthorizedAccessException>(() => service.Import("{}"));
+    }
+
     private sealed class AuditFake : IReportTemplateAuditRepository
     {
         public List<ReportTemplateAuditEntry> Entries { get; } = new();

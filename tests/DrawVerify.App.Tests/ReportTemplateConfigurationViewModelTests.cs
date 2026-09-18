@@ -21,6 +21,20 @@ public sealed class ReportTemplateConfigurationViewModelTests
         Assert.False(model.SaveCommand.CanExecute(null));
     }
 
+    [Fact(DisplayName = "TSD-AC01 TSD-AC12 Admin ViewModel exposes edit commands")]
+    public void Admin_view_model_is_editable_and_loads_template()
+    {
+        var service = new ServiceFake { Items = new[] { Template("Configured") } };
+        var admin = new SessionAuthenticationService();
+        admin.SignIn(new AuthenticatedUser("admin", new[] { SystemRoles.Admin }));
+        var model = new ReportTemplateConfigurationViewModel(service, admin, new RoleAuthorization());
+
+        Assert.True(model.CanEdit);
+        Assert.True(model.NewCommand.CanExecute(null));
+        Assert.True(SpinWait.SpinUntil(() => model.SelectedTemplate is not null, TimeSpan.FromSeconds(2)));
+        Assert.True(model.SaveCommand.CanExecute(null));
+    }
+
     [Fact(DisplayName = "TSD-AC01 authorized ViewModel loads templates")]
     public void Authorized_view_model_loads_repository_templates()
     {

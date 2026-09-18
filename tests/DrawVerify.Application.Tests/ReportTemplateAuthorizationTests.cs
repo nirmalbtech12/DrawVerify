@@ -23,4 +23,24 @@ public sealed class ReportTemplateAuthorizationTests
         }
         finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); if (File.Exists(path)) File.Delete(path); }
     }
+
+    [Fact(DisplayName = "TSD-AC12 Admin can read and create templates")]
+    public async Task Admin_can_manage_templates()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-auth-admin-{Guid.NewGuid():N}.db");
+        try
+        {
+            var auth = new SessionAuthenticationService();
+            auth.SignIn(new AuthenticatedUser("admin", new[] { SystemRoles.Admin }));
+            var service = new ReportTemplateService(new SqliteReportTemplateRepository(path), auth, new RoleAuthorization());
+
+            var created = await service.CreateAsync("Admin template", "ignored");
+
+            var templates = await service.ListAsync();
+            Assert.Single(templates);
+            Assert.Equal(created.Id, templates[0].Id);
+            Assert.Equal("Admin template", created.Name);
+        }
+        finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); if (File.Exists(path)) File.Delete(path); }
+    }
 }

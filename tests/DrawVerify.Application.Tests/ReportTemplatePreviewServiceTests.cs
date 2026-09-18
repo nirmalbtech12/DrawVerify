@@ -18,6 +18,18 @@ public sealed class ReportTemplatePreviewServiceTests
         Assert.Contains(renderer.Report.AuditTrail, x => x.Details == "Sample audit entry");
     }
 
+    [Fact(DisplayName = "TSD-AC09 canceled preview stops before rendering")]
+    public async Task Canceled_preview_is_observable_and_does_not_render()
+    {
+        var renderer = new CapturingRenderer();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new ReportTemplatePreviewService(renderer)
+            .PreviewAsync(new ReportTemplate(), cancellation.Token));
+        Assert.Null(renderer.Report);
+    }
+
     private sealed class CapturingRenderer : IPdfReportGenerator
     {
         public VerificationReport? Report { get; private set; }

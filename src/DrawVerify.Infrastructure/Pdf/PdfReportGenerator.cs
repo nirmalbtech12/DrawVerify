@@ -226,10 +226,8 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
                 var fontSize = IsHeading(line) ? template?.Style.HeadingFontSize ?? 14 : IsTableContent(line) ? template?.Style.TableFontSize ?? 8 : template?.Style.BodyFontSize ?? 9;
                 if (currentLineCount == 0)
                 {
-                    currentPage.Append("BT /F1 ").Append(fontSize.ToString(CultureInfo.InvariantCulture)).Append(" Tf ").Append(TextX(line, template, margin, pageWidth, fontSize).ToString(CultureInfo.InvariantCulture)).Append(" ").Append((pageHeight - margin).ToString(CultureInfo.InvariantCulture)).Append(" Td ");
                     if (logoPath is not null) currentPage.Append(LogoPlacement(template!, margin, pageWidth, pageHeight));
                 }
-                else currentPage.Append("0 -").Append(lineHeight.ToString(CultureInfo.InvariantCulture)).Append(" Td ");
                 if (template is not null)
                 {
                     var conditionalColor = ConditionalColor(line, template);
@@ -239,27 +237,29 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
                 var escapedLine = Escape(line);
                 if (line.StartsWith("Table: Dimensions | Columns:", StringComparison.Ordinal))
                     escapedLine = escapedLine.Replace("\\(", "(", StringComparison.Ordinal).Replace("\\)", ")", StringComparison.Ordinal);
-                currentPage.Append('(').Append(escapedLine).Append(") Tj ");
+                var textY = pageHeight - margin - (currentLineCount * lineHeight);
+                currentPage.Append("BT /F1 ").Append(fontSize.ToString(CultureInfo.InvariantCulture)).Append(" Tf ")
+                    .Append(TextX(line, template, margin, pageWidth, fontSize).ToString(CultureInfo.InvariantCulture)).Append(' ')
+                    .Append(textY.ToString(CultureInfo.InvariantCulture)).Append(" Td (").Append(escapedLine).Append(") Tj ET ");
                 currentLineCount++;
             }
         }
         for (var index = 0; index < pages.Count; index++)
         {
-            pages[index].Append("ET");
             if (template?.Footer is { } footer)
             {
                 var footerText = footer.Text;
                 if (!string.IsNullOrWhiteSpace(footer.TemplateVersionLabel)) footerText = string.Concat(footerText, string.IsNullOrWhiteSpace(footerText) ? "" : " | ", footer.TemplateVersionLabel);
                 if (footer.EffectiveDate is { } effectiveDate) footerText = string.Concat(footerText, string.IsNullOrWhiteSpace(footerText) ? "" : " | ", $"Effective date: {effectiveDate:yyyy-MM-dd}");
-                if (!string.IsNullOrWhiteSpace(footerText)) pages[index].Append("BT /F1 9 Tf ").Append(margin.ToString(CultureInfo.InvariantCulture)).Append(" ").Append(margin.ToString(CultureInfo.InvariantCulture)).Append(" Td (").Append(Escape(footerText)).Append(") Tj ");
-                if (!string.IsNullOrWhiteSpace(footer.PageNumberFormat)) pages[index].Append("BT /F1 9 Tf ").Append((pageWidth - margin - 100).ToString(CultureInfo.InvariantCulture)).Append(" ").Append(margin.ToString(CultureInfo.InvariantCulture)).Append(" Td (").Append(Escape(footer.PageNumberFormat.Replace("X", (index + 1).ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal).Replace("Y", pages.Count.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal))).Append(") Tj ");
-                pages[index].Append("ET");
+                if (!string.IsNullOrWhiteSpace(footerText)) pages[index].Append("BT /F1 9 Tf ").Append(margin.ToString(CultureInfo.InvariantCulture)).Append(" ").Append(margin.ToString(CultureInfo.InvariantCulture)).Append(" Td (").Append(Escape(footerText)).Append(") Tj ET ");
+                if (!string.IsNullOrWhiteSpace(footer.PageNumberFormat)) pages[index].Append("BT /F1 9 Tf ").Append((pageWidth - margin - 100).ToString(CultureInfo.InvariantCulture)).Append(" ").Append(margin.ToString(CultureInfo.InvariantCulture)).Append(" Td (").Append(Escape(footer.PageNumberFormat.Replace("X", (index + 1).ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal).Replace("Y", pages.Count.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal))).Append(") Tj ET ");
             }
         }
         return pages.Select(page => page.ToString()).ToArray();
     }
 
     private static bool IsHeading(string line) => line.StartsWith('#');
+    private static bool IsAlignedHeaderLine(string line) => IsHeading(line) || line.StartsWith("Organization:", StringComparison.Ordinal);
     private static bool IsTableContent(string line) => line.StartsWith("Table:", StringComparison.Ordinal) || line.Contains(" | ", StringComparison.Ordinal);
     private static string? ConditionalColor(string line, ReportTemplate template) => template.Tables.SelectMany(x => x.ConditionalRules).FirstOrDefault(rule => MatchesRule(line, rule))?.Color;
     private static bool MatchesRule(string line, ReportTemplateConditionalRule rule)
@@ -291,7 +291,7 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
 
     private static double TextX(string line, ReportTemplate? template, double margin, double pageWidth, double fontSize)
     {
-        if (template is null || !IsHeading(line) && !line.StartsWith("Organization:", StringComparison.Ordinal)) return margin;
+        if (template is null || !IsAlignedHeaderLine(line)) return margin;
         var estimatedWidth = line.Length * fontSize * 0.5d;
         return template.Header.TextAlignment switch { "Center" => Math.Max(margin, (pageWidth - estimatedWidth) / 2d), "Right" => Math.Max(margin, pageWidth - margin - estimatedWidth), _ => margin };
     }
@@ -349,10 +349,10 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
         var offsets = new List<int> { 0 };
         foreach (var (value, index) in objects.Select((value, index) => (value, index + 1)))
         {
-            offsets.Add(Encoding.ASCII.GetByteCount(result.ToString()));
+            offsets.Add(Encoding.Latin1.GetByteCount(result.ToString()));
             result.Append(index).Append(" 0 obj\n").Append(value).Append("\nendobj\n");
         }
-        var xref = Encoding.ASCII.GetByteCount(result.ToString());
+        var xref = Encoding.Latin1.GetByteCount(result.ToString());
         result.Append("xref\n0 ").Append(objects.Count + 1).Append("\n0000000000 65535 f \n");
         for (var index = 1; index < offsets.Count; index++) result.Append(offsets[index].ToString("D10")).Append(" 00000 n \n");
         result.Append("trailer\n<< /Size ").Append(objects.Count + 1).Append(" /Root 1 0 R >>\nstartxref\n").Append(xref).Append("\n%%EOF\n");
@@ -363,7 +363,12 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
     {
         var extension = Path.GetExtension(logoPath).ToLowerInvariant();
         if (extension is ".jpg" or ".jpeg")
-            return $"<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length {logoBytes.Length} /AssetObject {embeddedAssetObject} 0 R >>\nstream\n{Encoding.Latin1.GetString(logoBytes)}\nendstream";
+        {
+            var (imageWidth, imageHeight, components) = ReadJpegDimensions(logoBytes);
+            if (components is not (1 or 3)) throw new InvalidOperationException("Configured report template JPEG must use grayscale or RGB color data.");
+            var colorSpace = components == 1 ? "/DeviceGray" : "/DeviceRGB";
+            return $"<< /Type /XObject /Subtype /Image /Width {imageWidth} /Height {imageHeight} /ColorSpace {colorSpace} /BitsPerComponent 8 /Filter /DCTDecode /Length {logoBytes.Length} /AssetObject {embeddedAssetObject} 0 R >>\nstream\n{Encoding.Latin1.GetString(logoBytes)}\nendstream";
+        }
 
         var (width, height, pixels) = extension == ".png" ? DecodePng(logoBytes) : DecodeBmp(logoBytes);
         var pixelHex = Convert.ToHexString(pixels);
@@ -425,6 +430,35 @@ public sealed class PdfReportGenerator : IPdfReportGenerator
         var height = Math.Abs(signedHeight); var bytesPerPixel = bits / 8; var stride = ((width * bytesPerPixel + 3) / 4) * 4; var rgb = new byte[checked(width * height * 3)];
         for (var y = 0; y < height; y++) { var sourceY = signedHeight > 0 ? height - 1 - y : y; for (var x = 0; x < width; x++) { var source = offset + sourceY * stride + x * bytesPerPixel; var destination = (y * width + x) * 3; rgb[destination] = bytes[source + 2]; rgb[destination + 1] = bytes[source + 1]; rgb[destination + 2] = bytes[source]; } }
         return (width, height, rgb);
+    }
+
+    private static (int Width, int Height, int Components) ReadJpegDimensions(byte[] bytes)
+    {
+        if (bytes.Length < 4 || bytes[0] != 0xff || bytes[1] != 0xd8) throw new InvalidOperationException("Configured report template logo is not a valid JPEG asset.");
+        var offset = 2;
+        while (offset + 3 < bytes.Length)
+        {
+            while (offset < bytes.Length && bytes[offset] != 0xff) offset++;
+            while (offset < bytes.Length && bytes[offset] == 0xff) offset++;
+            if (offset >= bytes.Length) break;
+            var marker = bytes[offset++];
+            if (marker is 0xd8 or 0xd9) continue;
+            if (marker is >= 0xd0 and <= 0xd7) continue;
+            if (offset + 1 >= bytes.Length) break;
+            var length = (bytes[offset] << 8) | bytes[offset + 1];
+            if (length < 2 || offset + length > bytes.Length) break;
+            if (marker is >= 0xc0 and <= 0xc3 or >= 0xc5 and <= 0xc7 or >= 0xc9 and <= 0xcb or >= 0xcd and <= 0xcf)
+            {
+                if (length < 8) break;
+                var height = (bytes[offset + 3] << 8) | bytes[offset + 4];
+                var width = (bytes[offset + 5] << 8) | bytes[offset + 6];
+                var components = bytes[offset + 7];
+                if (width <= 0 || height <= 0) break;
+                return (width, height, components);
+            }
+            offset += length;
+        }
+        throw new InvalidOperationException("Configured report template JPEG does not contain a supported image dimension marker.");
     }
 
     private static int ReadBigEndianInt32(byte[] bytes, int offset) => (bytes[offset] << 24) | (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3];
