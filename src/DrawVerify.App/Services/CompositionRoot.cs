@@ -76,12 +76,17 @@ public static class CompositionRoot
     public static ApprovedDocumentService CreateApprovedDocumentService()
     {
         var database = DatabasePath(); var logger = new CentralizedLogger();
-        return new ApprovedDocumentService(new SqliteSharedDocumentRepository(database, logger), Session, Authorization, new SqliteAuditRepository(database), logger, new DocumentFileStore(AppContext.BaseDirectory, StepUploadConfiguration), new DxfDocumentFileStore(AppContext.BaseDirectory, DxfUploadConfiguration), ViewerDocumentConfiguration);
+        var viewerAccess = new SqliteViewerAccessRepository(database, logger);
+        return new ApprovedDocumentService(new SqliteSharedDocumentRepository(database, logger), Session, Authorization, new SqliteAuditRepository(database), logger, new DocumentFileStore(AppContext.BaseDirectory, StepUploadConfiguration), new DxfDocumentFileStore(AppContext.BaseDirectory, DxfUploadConfiguration), ViewerDocumentConfiguration, viewerAccess);
     }
     private static ViewerDocumentConfiguration LoadViewerDocumentConfiguration()
     {
         using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "appsettings.json")));
-        return new ViewerDocumentConfiguration { AllowDownload = document.RootElement.TryGetProperty("ViewerDocuments", out var section) && section.TryGetProperty("AllowDownload", out var enabled) && enabled.GetBoolean() };
+        var allowDownload = document.RootElement.TryGetProperty("ViewerDocuments", out var section) && section.TryGetProperty("AllowDownload", out var enabled) && enabled.GetBoolean();
+        var access = new ViewerAccessConfiguration();
+        if (section.ValueKind == JsonValueKind.Object && section.TryGetProperty("Access", out var accessSection))
+            access = new ViewerAccessConfiguration { AllowOnlyApprovedDocuments = !accessSection.TryGetProperty("AllowOnlyApprovedDocuments", out var approved) || approved.GetBoolean(), AllowExpiration = accessSection.TryGetProperty("AllowExpiration", out var expiration) && expiration.GetBoolean(), AllowBulkActions = accessSection.TryGetProperty("AllowBulkActions", out var bulk) && bulk.GetBoolean() };
+        return new ViewerDocumentConfiguration { AllowDownload = allowDownload, Access = access };
     }
     public static IWorkflowConfigurationService CreateWorkflowConfigurationService()
     {
@@ -176,9 +181,14 @@ public static class CompositionRoot
         return new DxfDrawingGenerationService(documents, new DocumentFileStore(AppContext.BaseDirectory, StepUploadConfiguration), dxfFiles, new OcctGeometryService(), new SqliteAuditRepository(database), Session, Authorization, logger, users, extraction, new SqliteWorkflowRepository(database, logger, WorkflowConfiguration));
     }
     public static DocumentDetailViewModel CreateDocumentDetailViewModel(DrawVerify.Core.Models.Document document) =>
-        new(document, CreateDxfDimensionExtractionService(), CreateWorkflowService(), null, Session, Authorization, CreateHistoricalDocumentService());
+        new(document, CreateDxfDimensionExtractionService(), CreateWorkflowService(), null, Session, Authorization, CreateHistoricalDocumentService(), new CentralizedLogger(), CreateViewerAccessService(), ViewerDocumentConfiguration.Access);
     public static DocumentDetailViewModel CreateDocumentDetailViewModel(DrawVerify.Core.Models.Document document, DrawVerify.Core.Models.SubmissionRequest submissionRequest) =>
-        new(document, CreateDxfDimensionExtractionService(), CreateWorkflowService(), submissionRequest, Session, Authorization, CreateHistoricalDocumentService());
+        new(document, CreateDxfDimensionExtractionService(), CreateWorkflowService(), submissionRequest, Session, Authorization, CreateHistoricalDocumentService(), new CentralizedLogger(), CreateViewerAccessService(), ViewerDocumentConfiguration.Access);
+    public static ViewerAccessService CreateViewerAccessService()
+    {
+        var database = DatabasePath(); var logger = new CentralizedLogger();
+        return new ViewerAccessService(new SqliteViewerAccessRepository(database, logger), Session, Authorization, logger, ViewerDocumentConfiguration.Access);
+    }
     private static DocumentService CreateHistoricalDocumentService()
     {
         var database = DatabasePath();

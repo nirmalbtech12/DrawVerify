@@ -37,6 +37,7 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     private PriorVersionReview? _submittedRevisionSnapshot;
     private string? _submittedSnapshotError;
     private long _snapshotLoadGeneration;
+    private readonly ViewerAccessViewModel? _viewerAccess;
 
     public DocumentDetailViewModel()
     {
@@ -56,9 +57,10 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
 
     public DocumentDetailViewModel(Document document) : this(document, null) { }
 
-    public DocumentDetailViewModel(Document document, DxfDimensionExtractionService? dimensionService, IWorkflowService? workflowService = null, SubmissionRequest? submissionRequest = null, ISessionAuthenticationService? authentication = null, RoleAuthorization? authorization = null, DocumentService? documentService = null, ICentralizedLogger? logger = null) : this()
+    public DocumentDetailViewModel(Document document, DxfDimensionExtractionService? dimensionService, IWorkflowService? workflowService = null, SubmissionRequest? submissionRequest = null, ISessionAuthenticationService? authentication = null, RoleAuthorization? authorization = null, DocumentService? documentService = null, ICentralizedLogger? logger = null, IViewerAccessService? viewerAccessService = null, ViewerAccessConfiguration? viewerAccessConfiguration = null) : this()
     {
         _dimensionService = dimensionService; _workflowService = workflowService; _submissionRequest = submissionRequest; _authentication = authentication; _authorization = authorization ?? new RoleAuthorization(); _documentService = documentService; _logger = logger;
+        if (viewerAccessService is not null && document.Version is not null) _viewerAccess = new ViewerAccessViewModel(viewerAccessService, document.DocumentId, document.Version.VersionId, viewerAccessConfiguration);
         SubmitForReviewCommand = new RelayCommand(_ => RaiseSubmissionRequested(), _ => CanSubmitForReview);
         Load(document);
     }
@@ -69,6 +71,8 @@ public sealed class DocumentDetailViewModel : INotifyPropertyChanged
     public ICommand SubmitForReviewCommand { get; private set; } = new RelayCommand(_ => { }, _ => false);
     public bool CanSubmitForReview => _workflowService is not null && _document is not null && (_authentication is null || (_authentication.IsAuthenticated && _authorization.IsAllowed(_authentication.CurrentUser, RolePermission.SubmitForReview)));
     public Document? Document => _document;
+    public ViewerAccessViewModel? ViewerAccess => _viewerAccess;
+    public bool CanManageViewerAccess => _viewerAccess?.CanManageAccess == true;
     public string OriginalFileName => _document?.OriginalFileName ?? string.Empty;
     public long FileSizeBytes => _document?.FileSizeBytes ?? 0;
     public DateTime UploadTimestampUtc => _document?.UploadTimestampUtc ?? default;

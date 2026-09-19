@@ -9,6 +9,21 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class ApprovedDocumentServiceTests
 {
+    [Fact(DisplayName = "TSD-AC04-REVOKE removes revoked grants from effective access")]
+    public void Revoked_grant_is_not_effective()
+    {
+        var grant = new ViewerAccessGrant { IsRevoked = true };
+        Assert.False(grant.IsEffective(DateTime.UtcNow));
+        Assert.Equal(DocumentAuditAction.AccessRevoked, DocumentAuditAction.AccessRevoked);
+    }
+
+    [Fact(DisplayName = "TSD-AC10-DENY requires an explicit effective grant")]
+    public void No_grant_is_default_deny()
+    {
+        var grants = Array.Empty<ViewerAccessGrant>();
+        Assert.DoesNotContain(grants, grant => grant.IsEffective(DateTime.UtcNow));
+    }
+
     [Fact(DisplayName = "TSD-ACCESS-FILTER TSD-APPROVED-STATE TSD-SCOPED-SEARCH shared access is recipient and approval scoped")]
     public async Task List_is_scoped_to_active_recipient_and_approved_documents()
     {

@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Threading;
 using DrawVerify.Application.Services;
 using DrawVerify.App.Views;
 using DrawVerify.Core.Enums;
@@ -19,11 +20,14 @@ public sealed class ApprovedDocumentViewerViewModel : INotifyPropertyChanged, ID
     private string _status = string.Empty;
     private IDisposable? _renderContent;
     private string? _temporaryPath;
+    private readonly DispatcherTimer _accessTimer;
+    private bool _hasAccess = true;
+    private readonly EventHandler _accessTickHandler;
     public SharedDocument Document => _document;
     public Stream? Content { get; private set; }
     public UIElement? ViewerContent { get; private set; }
     public bool IsReadOnly => true;
-    public bool CanDownload { get; }
+    public bool CanDownload => _hasAccess && _service.AllowDownload;
     public string Status { get => _status; private set { _status = value; PropertyChanged?.Invoke(this, new(nameof(Status))); } }
     public ICommand DownloadCommand { get; }
     public event Action? AccessRevoked;
@@ -31,7 +35,8 @@ public sealed class ApprovedDocumentViewerViewModel : INotifyPropertyChanged, ID
 
     public ApprovedDocumentViewerViewModel(ApprovedDocumentService service, SharedDocument document, bool canDownload, ICentralizedLogger? logger = null)
     {
-        _service = service; _document = document; _logger = logger ?? new CentralizedLogger(); CanDownload = canDownload;
+        _service = service; _document = document; _logger = logger ?? new CentralizedLogger(); _hasAccess = canDownload || !service.AllowDownload;
+        _accessTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) }; _accessTickHandler = (_, _) => _ = ValidateAccessAsync(); _accessTimer.Tick += _accessTickHandler; _accessTimer.Start();
         DownloadCommand = new Command(async _ => await DownloadAsync(), _ => CanDownload);
         _ = OpenAsync();
     }
@@ -47,6 +52,7 @@ public sealed class ApprovedDocumentViewerViewModel : INotifyPropertyChanged, ID
             await ReplaceContentAsync(access.Content).ConfigureAwait(true);
             await BuildReadOnlyHostAsync(access.Content).ConfigureAwait(true);
             if (!approvalWarning) Status = "Document opened in read-only mode.";
+            RaiseDownloadCanExecute();
         }
         catch (Exception exception) { _logger.Log(exception, "Approved document viewer", $"Unable to render document {_document.DocumentId}, version {_document.VersionId}, format={_document.DocumentType}."); HandleFailure(exception, "Unable to render the approved document"); }
     }
@@ -81,13 +87,27 @@ public sealed class ApprovedDocumentViewerViewModel : INotifyPropertyChanged, ID
         catch (Exception exception) { _logger.Log(exception, "Approved document viewer download", $"Unable to download document {_document.DocumentId}, version {_document.VersionId}, format={_document.DocumentType}."); HandleFailure(exception, "Unable to download the approved document"); }
     }
 
+    private async Task ValidateAccessAsync()
+    {
+        if (!_hasAccess) return;
+        try { if (!await _service.ValidateAccessAsync(_document.DocumentId, _document.VersionId).ConfigureAwait(true)) RevokeActiveSession(); }
+        catch (Exception exception) { _logger.Log(exception, "Approved viewer access check", $"Document={_document.DocumentId}, version={_document.VersionId}."); RevokeActiveSession(); }
+    }
+    private void RevokeActiveSession()
+    {
+        _hasAccess = false; _accessTimer.Stop(); Status = ApprovedDocumentService.RevokedMessage; _renderContent?.Dispose(); _renderContent = null;
+        if (Content is not null) { Content.Dispose(); Content = null; PropertyChanged?.Invoke(this, new(nameof(Content))); }
+        TryDeleteTemporaryFile(); RaiseDownloadCanExecute(); AccessRevoked?.Invoke();
+    }
+    private void RaiseDownloadCanExecute() => ((Command)DownloadCommand).Raise();
+
     private void HandleFailure(Exception exception, string prefix)
     {
         Status = $"{prefix}: {exception.Message}";
         if (exception is UnauthorizedAccessException && string.Equals(exception.Message, ApprovedDocumentService.RevokedMessage, StringComparison.Ordinal)) AccessRevoked?.Invoke();
     }
 
-    public void Dispose() { _renderContent?.Dispose(); _renderContent = null; Content?.Dispose(); Content = null; TryDeleteTemporaryFile(); GC.SuppressFinalize(this); }
+    public void Dispose() { _accessTimer.Stop(); _accessTimer.Tick -= _accessTickHandler; _renderContent?.Dispose(); _renderContent = null; Content?.Dispose(); Content = null; TryDeleteTemporaryFile(); GC.SuppressFinalize(this); }
     private void TryDeleteTemporaryFile() { if (_temporaryPath is null) return; try { if (File.Exists(_temporaryPath)) File.Delete(_temporaryPath); } catch { } _temporaryPath = null; }
-    private sealed class Command(Func<object?, Task> execute, Predicate<object?> canExecute) : ICommand { public event EventHandler? CanExecuteChanged; public bool CanExecute(object? parameter) => canExecute(parameter); public async void Execute(object? parameter) => await execute(parameter); }
+    private sealed class Command(Func<object?, Task> execute, Predicate<object?> canExecute) : ICommand { public event EventHandler? CanExecuteChanged; public bool CanExecute(object? parameter) => canExecute(parameter); public async void Execute(object? parameter) => await execute(parameter); public void Raise() => CanExecuteChanged?.Invoke(this, EventArgs.Empty); }
 }
