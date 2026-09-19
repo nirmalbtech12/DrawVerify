@@ -6,6 +6,7 @@ using DrawVerify.Application.DxfDimensionExtraction;
 using DrawVerify.Core.Configuration;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Authorization;
+using DrawVerify.Core.Models;
 using DrawVerify.Infrastructure.FileStorage;
 using DrawVerify.Infrastructure.Persistence;
 using DrawVerify.Infrastructure.Logging;
@@ -32,6 +33,7 @@ public static class CompositionRoot
     private static readonly DxfDimensionExtractionConfiguration DxfDimensionExtractionConfiguration = LoadDxfDimensionExtractionConfiguration();
     private static readonly DimensionMatchingConfiguration DimensionMatchingConfiguration = LoadDimensionMatchingConfiguration();
     private static readonly WorkflowConfiguration WorkflowConfiguration = LoadWorkflowConfiguration();
+    private static readonly ViewerDocumentConfiguration ViewerDocumentConfiguration = LoadViewerDocumentConfiguration();
     private static readonly SessionAuthenticationService Session = new();
     private static readonly RoleAuthorization Authorization = new();
     public static void Initialize()
@@ -70,6 +72,16 @@ public static class CompositionRoot
         if (!File.Exists(policyPath)) policyPath = Path.Combine(Directory.GetCurrentDirectory(), "config", "fingerprint-policy.default.json");
         var fingerprintService = new DocumentFingerprintService(FingerprintPolicy.FromFile(policyPath));
         return new WorkflowService(new SqliteWorkflowRepository(database, logger, WorkflowConfiguration), Session, WorkflowConfiguration, Authorization, logger, new SqliteDocumentRepository(database, logger), new SqliteVerificationSessionRepository(database), notifications: new InAppNotificationService(database), snapshots: new ApprovalSnapshotFileStore(Path.Combine(AppContext.BaseDirectory, "approval-snapshots")), stepFiles: new DocumentFileStore(AppContext.BaseDirectory, StepUploadConfiguration), dxfFiles: new DxfDocumentFileStore(AppContext.BaseDirectory, DxfUploadConfiguration), fingerprintService: fingerprintService);
+    }
+    public static ApprovedDocumentService CreateApprovedDocumentService()
+    {
+        var database = DatabasePath(); var logger = new CentralizedLogger();
+        return new ApprovedDocumentService(new SqliteSharedDocumentRepository(database, logger), Session, Authorization, new SqliteAuditRepository(database), logger, new DocumentFileStore(AppContext.BaseDirectory, StepUploadConfiguration), new DxfDocumentFileStore(AppContext.BaseDirectory, DxfUploadConfiguration), ViewerDocumentConfiguration);
+    }
+    private static ViewerDocumentConfiguration LoadViewerDocumentConfiguration()
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "appsettings.json")));
+        return new ViewerDocumentConfiguration { AllowDownload = document.RootElement.TryGetProperty("ViewerDocuments", out var section) && section.TryGetProperty("AllowDownload", out var enabled) && enabled.GetBoolean() };
     }
     public static IWorkflowConfigurationService CreateWorkflowConfigurationService()
     {
