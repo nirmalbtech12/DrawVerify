@@ -22,6 +22,7 @@ public sealed record SharedDocument
     public string StoredRelativePath { get; init; } = string.Empty;
     public SignatureData? ApproverSignature { get; init; }
     public InternalApprovalStamp? ApprovalStamp { get; init; }
+    public string? ApprovalInformationError { get; init; }
 }
 
 public sealed record SharedDocumentAccess(SharedDocument Document, Stream Content);

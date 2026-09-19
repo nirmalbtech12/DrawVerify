@@ -31,7 +31,7 @@ public sealed class ApprovedDocumentViewerViewModelTests
     public void Viewer_download_failure_is_visible()
     {
         var source = Read("src/DrawVerify.App/ViewModels/ApprovedDocumentViewerViewModel.cs");
-        Assert.Contains("Status = exception.Message", source);
+        Assert.Contains("Unable to download the approved document:", source);
         Assert.Contains("_service.DownloadAsync(_document.DocumentId, _document.VersionId)", source);
     }
 
