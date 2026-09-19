@@ -67,9 +67,10 @@ public partial class MainWindow : Window
         if (target == ScreenRegistry.Workflow) { var model = new WorkflowViewModel(CompositionRoot.CreateWorkflowService(), CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization, new CentralizedLogger()); model.NavigationRequested += _ => Navigate(ScreenRegistry.Workflow); model.VerificationNavigationRequested += finding => { _pendingReviewPackage = model.ReviewPackage; _pendingVerificationHighlight = finding.HighlightTarget ?? finding.Identifier; Navigate(ScreenRegistry.Verification); }; model.ReturnRequested += request => { _pendingSubmission = request; GoBack(); }; var pending = _pendingSubmission; _pendingSubmission = null; if (pending is not null) model.BeginSubmission(pending); var view = new WorkflowView { DataContext = model }; view.BackRequested += () => { if (model.IsConfirmationVisible) _ = model.CancelAndReturnAsync(); else HandleTaskBack(model); }; _ = model.LoadQueueAsync(); _ = model.LoadMakerReviewPackagesAsync(); return view; }
         if (target == ScreenRegistry.SharedDocuments)
         {
-            var model = new SharedDocumentsViewModel(CompositionRoot.CreateApprovedDocumentService());
+            var model = CompositionRoot.CreateApprovedDocumentListViewModel();
             model.OpenRequested += document => ShowApprovedDocumentViewer(document, model);
-            return new SharedDocumentsView { DataContext = model };
+            _ = LoadApprovedDocumentListAsync(model);
+            return new DocumentListView { DataContext = model };
         }
         if (target == ScreenRegistry.UserAdministration) return CreateAdministrationView();
         if (target == ScreenRegistry.WorkflowConfiguration) return new WorkflowConfigurationView { DataContext = new WorkflowConfigurationViewModel(CompositionRoot.CreateWorkflowConfigurationService(), CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization, new CentralizedLogger()) };
@@ -79,17 +80,31 @@ public partial class MainWindow : Window
         if (target == ScreenRegistry.Help) return new Border { Child = new TextBlock { Text = "Help\n\nUse the menu to navigate to the screens allowed for your role.", TextWrapping = TextWrapping.Wrap, FontSize = 16 } };
         throw new InvalidOperationException($"No screen is registered for navigation target '{target}'.");
     }
+    private static async Task LoadApprovedDocumentListAsync(DocumentListViewModel model)
+    {
+        try
+        {
+            var service = CompositionRoot.CreateApprovedDocumentListDataService();
+            var documents = await service.ListAsync(new SharedDocumentQuery());
+            await model.LoadAsync(documents.Select(document => new DocumentListItem { DocumentId = document.DocumentId, VersionId = document.VersionId, DocumentName = document.DocumentName, SourceDocument = document }));
+        }
+        catch (Exception exception)
+        {
+            new CentralizedLogger().Log(exception, "Load approved document list", "The approved-document list could not be loaded.");
+            model.SetLoadFailure(exception);
+        }
+    }
     private UserControl CreateAdministrationView()
     {
         var view = new UserAdministrationView { DataContext = new UserAdministrationViewModel(CompositionRoot.CreateUserAdministrationService()) }; var model = (UserAdministrationViewModel)view.DataContext;
         model.AuthorizationStateChanged += RefreshAuthenticatedShell; model.CancelRequested += () => { if (!model.IsCreationDirty || DiscardConfirmation() == MessageBoxResult.Yes) { model.DiscardCreation(); Navigate(ScreenRegistry.Dashboard); } }; model.BackRequested += () => { if (!model.IsCreationDirty || DiscardConfirmation() == MessageBoxResult.Yes) { model.DiscardCreation(); Navigate(ScreenRegistry.Dashboard); } }; model.RoleCancelRequested += () => Navigate(ScreenRegistry.Dashboard); model.RoleBackRequested += () => Navigate(ScreenRegistry.Dashboard); model.RoleConfirmation = message => MessageBox.Show(message, "Confirm role changes", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes; return view;
     }
     private void RefreshAuthenticatedShell() => ShowAuthenticatedContent();
-    private void ShowApprovedDocumentViewer(SharedDocument document, SharedDocumentsViewModel source)
+    private void ShowApprovedDocumentViewer(SharedDocument document, DocumentListViewModel source)
     {
         var service = CompositionRoot.CreateApprovedDocumentService();
         var model = new ApprovedDocumentViewerViewModel(service, document, service.AllowDownload);
-        model.AccessRevoked += () => { source.ClearSelectionAndReload(); _shell?.SetScreen(new SharedDocumentsView { DataContext = source }, ScreenRegistry.SharedDocuments); };
+        model.AccessRevoked += () => { _ = LoadApprovedDocumentListAsync(source); _shell?.SetScreen(new DocumentListView { DataContext = source }, ScreenRegistry.SharedDocuments); };
         var view = new ApprovedDocumentViewerView { DataContext = model };
         view.Unloaded += (_, _) => model.Dispose();
         _shell?.SetScreen(view, "ApprovedDocumentViewer");

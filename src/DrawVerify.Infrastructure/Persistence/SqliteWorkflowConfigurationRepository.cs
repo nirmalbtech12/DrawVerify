@@ -15,14 +15,21 @@ public sealed class SqliteWorkflowConfigurationRepository : IWorkflowConfigurati
         try
         {
             var c = new SqliteConnection($"Data Source={_database}"); c.Open();
-            using var cmd = c.CreateCommand();
-            cmd.CommandText = "PRAGMA foreign_keys=ON; CREATE TABLE IF NOT EXISTS WorkflowConfigurationVersions (Version INTEGER PRIMARY KEY, Payload TEXT NOT NULL, IsCurrent INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS WorkflowConfigurationAudit (Id INTEGER PRIMARY KEY AUTOINCREMENT, ActorId TEXT NOT NULL, TimestampUtc TEXT NOT NULL, PreviousVersion INTEGER NULL, NewVersion INTEGER NOT NULL, PreviousValue TEXT NOT NULL, NewValue TEXT NOT NULL); CREATE TABLE IF NOT EXISTS WorkflowInstances (WorkflowId TEXT PRIMARY KEY, ConfigurationVersion INTEGER NULL, StartedUtc TEXT NULL);";
-            cmd.ExecuteNonQuery();
+            ExecuteSchemaCommand(c, "PRAGMA foreign_keys=ON");
+            ExecuteSchemaCommand(c, "CREATE TABLE IF NOT EXISTS WorkflowConfigurationVersions (Version INTEGER PRIMARY KEY, Payload TEXT NOT NULL, IsCurrent INTEGER NOT NULL)");
+            ExecuteSchemaCommand(c, "CREATE TABLE IF NOT EXISTS WorkflowConfigurationAudit (Id INTEGER PRIMARY KEY AUTOINCREMENT, ActorId TEXT NOT NULL, TimestampUtc TEXT NOT NULL, PreviousVersion INTEGER NULL, NewVersion INTEGER NOT NULL, PreviousValue TEXT NOT NULL, NewValue TEXT NOT NULL)");
+            ExecuteSchemaCommand(c, "CREATE TABLE IF NOT EXISTS WorkflowInstances (WorkflowId TEXT PRIMARY KEY, ConfigurationVersion INTEGER NULL, StartedUtc TEXT NULL)");
             EnsureWorkflowInstancesColumns(c);
             EnsureColumn(c, "WorkflowState", "ConfigurationVersion", "INTEGER NULL"); EnsureColumn(c, "ReviewSubmission", "ConfigurationVersion", "INTEGER NULL");
             return c;
         }
         catch (Exception exception) { _logger?.Log(exception, "Workflow configuration database migration", $"Unable to initialize SQLite schema for '{_database}'."); throw; }
+    }
+    private static void ExecuteSchemaCommand(SqliteConnection connection, string sql)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.ExecuteNonQuery();
     }
     private static void EnsureWorkflowInstancesColumns(SqliteConnection connection)
     {

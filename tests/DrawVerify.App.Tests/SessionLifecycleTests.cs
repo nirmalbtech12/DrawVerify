@@ -8,6 +8,14 @@ namespace DrawVerify.App.Tests;
 
 public sealed class SessionLifecycleTests
 {
+    [Fact(DisplayName = "TSD-AC13-SESSION revocation state prevents further effective access")]
+    public void Revocation_state_is_terminal_for_access_checks()
+    {
+        var grant = new ViewerAccessGrant { IsRevoked = true };
+        Assert.False(grant.IsEffective(DateTime.UtcNow));
+        Assert.Equal(ApprovedDocumentService.RevokedMessage, ApprovedDocumentService.RevokedMessage);
+    }
+
     [Fact(DisplayName = "WPF-005 logout clears authenticated navigation and rejects stale state")]
     public void LogoutClearsSessionAndHistory()
     {

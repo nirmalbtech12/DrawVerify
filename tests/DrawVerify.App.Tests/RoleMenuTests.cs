@@ -9,6 +9,12 @@ namespace DrawVerify.App.Tests;
 
 public sealed class RoleMenuTests
 {
+    [Fact(DisplayName = "TSD-AC09-RESTRICT keeps Viewer sharing management unavailable")]
+    public void Viewer_does_not_have_control_document_access()
+    {
+        Assert.False(new RoleAuthorization().IsAllowed(new AuthenticatedUser("viewer", new[] { SystemRoles.Viewer }), RolePermission.ControlDocumentAccess));
+    }
+
     [Fact(DisplayName = "TD-UI-004 only Admin can access role administration navigation")]
     public void Role_assignment_navigation_is_admin_only()
     {

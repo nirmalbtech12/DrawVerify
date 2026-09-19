@@ -18,18 +18,31 @@ public sealed class ApprovedDocumentService : IApprovedDocumentService
     private readonly IStepUploadFileStore _stepFiles;
     private readonly IDxfUploadFileStore _dxfFiles;
     private readonly ViewerDocumentConfiguration _configuration;
+    private readonly IViewerAccessRepository? _viewerAccess;
 
-    public ApprovedDocumentService(ISharedDocumentRepository documents, ISessionAuthenticationService session, RoleAuthorization authorization, IAuditLogger audit, ICentralizedLogger logger, IStepUploadFileStore stepFiles, IDxfUploadFileStore dxfFiles, ViewerDocumentConfiguration? configuration = null)
-        => (_documents, _session, _authorization, _audit, _logger, _stepFiles, _dxfFiles, _configuration) = (documents, session, authorization, audit, logger, stepFiles, dxfFiles, configuration ?? new());
+    public ApprovedDocumentService(ISharedDocumentRepository documents, ISessionAuthenticationService session, RoleAuthorization authorization, IAuditLogger audit, ICentralizedLogger logger, IStepUploadFileStore stepFiles, IDxfUploadFileStore dxfFiles, ViewerDocumentConfiguration? configuration = null, IViewerAccessRepository? viewerAccess = null)
+        => (_documents, _session, _authorization, _audit, _logger, _stepFiles, _dxfFiles, _configuration, _viewerAccess) = (documents, session, authorization, audit, logger, stepFiles, dxfFiles, configuration ?? new(), viewerAccess);
 
     public bool AllowDownload => _configuration.AllowDownload;
+    public async Task<bool> ValidateAccessAsync(Guid documentId, Guid versionId, CancellationToken token = default)
+    {
+        var user = RequireViewer();
+        if (_viewerAccess is null) return true;
+        try { return await _viewerAccess.HasAccessAsync(user.UserId, documentId, versionId, token).ConfigureAwait(false); }
+        catch (Exception exception) { _logger.Log(exception, "Validate active viewer access", $"Document={documentId}, version={versionId}, user={user.UserId}."); throw; }
+    }
 
     public async Task<IReadOnlyList<SharedDocument>> ListAsync(SharedDocumentQuery query, CancellationToken token = default)
     {
         var user = RequireViewer();
         try
         {
-            return await _documents.ListAsync(user.UserId, query, token).ConfigureAwait(false);
+            var rows = await _documents.ListAsync(user.UserId, query, token).ConfigureAwait(false);
+            if (_viewerAccess is null) return rows;
+            var filtered = new List<SharedDocument>();
+            foreach (var row in rows)
+                if (await _viewerAccess.HasAccessAsync(user.UserId, row.DocumentId, row.VersionId, token).ConfigureAwait(false)) filtered.Add(row);
+            return filtered;
         }
         catch (Exception exception)
         {
@@ -47,6 +60,7 @@ public sealed class ApprovedDocumentService : IApprovedDocumentService
         {
             document = await _documents.GetAccessStateAsync(user.UserId, documentId, versionId, token).ConfigureAwait(false);
             if (document is null) throw new UnauthorizedAccessException(UnsharedMessage);
+            if (_viewerAccess is not null && !await _viewerAccess.HasAccessAsync(user.UserId, document.DocumentId, document.VersionId, token).ConfigureAwait(false)) throw new UnauthorizedAccessException(RevokedMessage);
             if (document.IsRevoked) throw new UnauthorizedAccessException(RevokedMessage);
             LogApprovalMetadata(document);
             EnsureSupportedFormat(document);
@@ -87,6 +101,7 @@ public sealed class ApprovedDocumentService : IApprovedDocumentService
         {
             document = await _documents.GetAccessStateAsync(user.UserId, documentId, versionId, token).ConfigureAwait(false);
             if (document is null) throw new UnauthorizedAccessException(UnsharedMessage);
+            if (_viewerAccess is not null && !await _viewerAccess.HasAccessAsync(user.UserId, document.DocumentId, document.VersionId, token).ConfigureAwait(false)) throw new UnauthorizedAccessException(RevokedMessage);
             if (document.IsRevoked) throw new UnauthorizedAccessException(RevokedMessage);
             EnsureSupportedFormat(document);
             var content = await OpenContentAsync(document, token).ConfigureAwait(false);

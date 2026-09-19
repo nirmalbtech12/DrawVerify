@@ -54,4 +54,7 @@ public enum DocumentAuditAction
     ,CheckerSignatureApplied = 66
     ,ApproverSignatureApplied = 67
     ,InternalApprovalStampApplied = 68
+    ,AccessGranted = 69
+    ,AccessRevoked = 70
+    ,AccessModified = 71
 }

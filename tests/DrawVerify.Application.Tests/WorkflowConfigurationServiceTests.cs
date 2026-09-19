@@ -9,6 +9,14 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class WorkflowConfigurationServiceTests
 {
+    [Fact(DisplayName = "TSD-AC06-POLICY defaults to approval-only sharing")]
+    public void Viewer_access_policy_defaults_to_approved_only()
+    {
+        var configuration = new ViewerAccessConfiguration();
+        Assert.True(configuration.AllowOnlyApprovedDocuments);
+        Assert.Equal("Only approved documents can be shared with Viewers.", ViewerAccessService.ApprovedOnlyMessage);
+    }
+
     [Fact(DisplayName = "TD-APP-001 Admin reads and saves a new configuration version")]
     public async Task Admin_can_read_and_save()
     {

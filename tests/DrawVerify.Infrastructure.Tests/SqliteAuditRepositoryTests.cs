@@ -8,6 +8,13 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteAuditRepositoryTests
 {
+    [Fact(DisplayName = "TSD-AC12-AUDIT preserves sharing action enum values")]
+    public void Sharing_audit_actions_are_distinct()
+    {
+        Assert.NotEqual(DocumentAuditAction.AccessGranted, DocumentAuditAction.AccessModified);
+        Assert.NotEqual(DocumentAuditAction.AccessModified, DocumentAuditAction.AccessRevoked);
+    }
+
     [Fact(DisplayName = "TD-04 persists Match, Mismatch, and Error verification events with chain integrity")]
     public async Task Verification_outcomes_are_queryable_and_integrity_checked()
     {

@@ -6,6 +6,15 @@ namespace DrawVerify.Core.Tests;
 
 public sealed class RoleAuthorizationTests
 {
+    [Fact(DisplayName = "TSD-AC14-ROLES integrates canonical Viewer and Approver permissions")]
+    public void Viewer_and_approver_permissions_are_consistent()
+    {
+        var authorization = new RoleAuthorization();
+        Assert.True(authorization.IsAllowed(new AuthenticatedUser("approver", new[] { SystemRoles.Approver }), RolePermission.ControlDocumentAccess));
+        Assert.True(authorization.IsAllowed(new AuthenticatedUser("viewer", new[] { SystemRoles.Viewer }), RolePermission.ReadApprovedDocuments));
+        Assert.False(authorization.IsAllowed(new AuthenticatedUser("viewer", new[] { SystemRoles.Viewer }), RolePermission.ControlDocumentAccess));
+    }
+
     [Fact(DisplayName = "TD-CORE-001 catalog exposes exactly the assignable workflow roles")]
     public void Workflow_catalog_is_exactly_maker_checker_approver()
     {
