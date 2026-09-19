@@ -1,5 +1,5 @@
 <UserControl x:Class="DrawVerify.App.Views.DocumentListView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <StackPanel Margin="8"><TextBlock Text="Documents" FontSize="24"/><TextBlock Text="No items found" Margin="0,16,0,4" FontSize="18"/><TextBlock Text="Uploaded documents will appear here." Foreground="{DynamicResource BrandMuted}"/></StackPanel>
+    <StackPanel Margin="8"><TextBlock Text="Documents" FontSize="24"/><TextBlock Text="{Binding SharingStatusMessage}" Foreground="DarkOrange" TextWrapping="Wrap" Margin="0,4,0,4"/><DataGrid ItemsSource="{Binding Documents}" AutoGenerateColumns="False" IsReadOnly="True"><DataGrid.Columns><DataGridTextColumn Header="Document" Binding="{Binding DocumentName}"/><DataGridTextColumn Header="Viewer sharing" Binding="{Binding ViewerSharingStatus}"/></DataGrid.Columns></DataGrid><TextBlock Text="No items found" Margin="0,16,0,4" FontSize="18"/><TextBlock Text="Uploaded documents will appear here." Foreground="{DynamicResource BrandMuted}"/></StackPanel>
 </UserControl>

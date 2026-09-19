@@ -17,6 +17,7 @@ public sealed class ViewerAccessViewModel : INotifyPropertyChanged
     private string _error = string.Empty;
     private ViewerAccessTarget? _selectedTarget;
     private DateTime? _expirationUtc;
+    private string _bulkSummary = string.Empty;
     public ObservableCollection<ViewerAccessTarget> Targets { get; } = new();
     public ObservableCollection<ViewerAccessGrant> Grants { get; } = new();
     public string Search { get => _search; set { _search = value; Changed(); } }
@@ -27,16 +28,22 @@ public sealed class ViewerAccessViewModel : INotifyPropertyChanged
     public bool CanManageAccess => _service.CanManageAccess;
     public bool CanSetExpiration { get; }
     public bool CanUseBulkActions { get; }
+    public ObservableCollection<ViewerAccessBulkItem> SelectedDocuments { get; } = new();
+    public string BulkSummary { get => _bulkSummary; private set { _bulkSummary = value; Changed(); } }
+    public bool IsBulkConfirmationVisible { get; private set; }
     public bool IsAvailable => CanManageAccess && string.IsNullOrEmpty(ErrorMessage);
     public ICommand SearchCommand { get; }
     public ICommand GrantCommand { get; }
     public ICommand RevokeCommand { get; }
+    public ICommand PreviewBulkCommand { get; }
+    public ICommand ConfirmBulkCommand { get; }
+    public ICommand CancelBulkCommand { get; }
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public ViewerAccessViewModel(IViewerAccessService service, Guid documentId, Guid versionId, ViewerAccessConfiguration? configuration = null)
     {
         _service = service; _documentId = documentId; _versionId = versionId; CanSetExpiration = configuration?.AllowExpiration == true; CanUseBulkActions = configuration?.AllowBulkActions == true;
-        SearchCommand = new Command(async _ => await SearchAsync()); GrantCommand = new Command(async _ => await GrantAsync(), _ => SelectedTarget is not null && CanManageAccess); RevokeCommand = new Command(async _ => await RevokeAsync(), _ => SelectedTarget is not null && CanManageAccess);
+        SearchCommand = new Command(async _ => await SearchAsync()); GrantCommand = new Command(async _ => await GrantAsync(), _ => SelectedTarget is not null && CanManageAccess); RevokeCommand = new Command(async _ => await RevokeAsync(), _ => SelectedTarget is not null && CanManageAccess); PreviewBulkCommand = new Command(async _ => await PreviewBulkAsync(), _ => CanUseBulkActions && SelectedDocuments.Count > 0 && SelectedTarget is not null); ConfirmBulkCommand = new Command(async _ => await ConfirmBulkAsync(), _ => IsBulkConfirmationVisible); CancelBulkCommand = new Command(async _ => { IsBulkConfirmationVisible = false; BulkSummary = string.Empty; Changed(nameof(IsBulkConfirmationVisible)); await Task.CompletedTask; });
         _ = LoadAsync();
     }
     public async Task LoadAsync()
@@ -57,6 +64,18 @@ public sealed class ViewerAccessViewModel : INotifyPropertyChanged
     private async Task RevokeAsync()
     {
         if (SelectedTarget is null) return; await MutateAsync(() => _service.RevokeAsync(_documentId, _versionId, new[] { SelectedTarget }));
+    }
+    private async Task PreviewBulkAsync()
+    {
+        if (SelectedTarget is null) return;
+        try { var preview = await _service.PreviewBulkAsync(new ViewerAccessBulkRequest(SelectedDocuments, new[] { SelectedTarget }, false, ExpirationUtc)); BulkSummary = preview.Summary; IsBulkConfirmationVisible = true; Changed(nameof(IsBulkConfirmationVisible)); }
+        catch (Exception exception) { ErrorMessage = exception.Message; Status = "Unable to preview bulk access changes."; }
+    }
+    private async Task ConfirmBulkAsync()
+    {
+        if (SelectedTarget is null) return;
+        await MutateAsync(() => _service.ConfirmBulkAsync(new ViewerAccessBulkRequest(SelectedDocuments, new[] { SelectedTarget }, false, ExpirationUtc)));
+        IsBulkConfirmationVisible = false; Changed(nameof(IsBulkConfirmationVisible));
     }
     private async Task MutateAsync(Func<Task<ViewerAccessMutationResult>> operation)
     {

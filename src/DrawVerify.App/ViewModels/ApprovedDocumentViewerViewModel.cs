@@ -23,6 +23,7 @@ public sealed class ApprovedDocumentViewerViewModel : INotifyPropertyChanged, ID
     private readonly DispatcherTimer _accessTimer;
     private bool _hasAccess = true;
     private readonly EventHandler _accessTickHandler;
+    private bool _disposed;
     public SharedDocument Document => _document;
     public Stream? Content { get; private set; }
     public UIElement? ViewerContent { get; private set; }
@@ -89,17 +90,26 @@ public sealed class ApprovedDocumentViewerViewModel : INotifyPropertyChanged, ID
 
     private async Task ValidateAccessAsync()
     {
-        if (!_hasAccess) return;
+        if (!_hasAccess || _disposed) return;
         try { if (!await _service.ValidateAccessAsync(_document.DocumentId, _document.VersionId).ConfigureAwait(true)) RevokeActiveSession(); }
         catch (Exception exception) { _logger.Log(exception, "Approved viewer access check", $"Document={_document.DocumentId}, version={_document.VersionId}."); RevokeActiveSession(); }
     }
     private void RevokeActiveSession()
     {
-        _hasAccess = false; _accessTimer.Stop(); Status = ApprovedDocumentService.RevokedMessage; _renderContent?.Dispose(); _renderContent = null;
-        if (Content is not null) { Content.Dispose(); Content = null; PropertyChanged?.Invoke(this, new(nameof(Content))); }
+        _hasAccess = false; StopAccessTimer(); Status = ApprovedDocumentService.RevokedMessage; DisposeRenderContent("revocation");
+        if (Content is not null) { try { Content.Dispose(); } catch (Exception exception) { LogCleanupFailure(exception, "stream disposal during revocation"); } Content = null; PropertyChanged?.Invoke(this, new(nameof(Content))); }
         TryDeleteTemporaryFile(); RaiseDownloadCanExecute(); AccessRevoked?.Invoke();
     }
     private void RaiseDownloadCanExecute() => ((Command)DownloadCommand).Raise();
+    private void StopAccessTimer() { _accessTimer.Stop(); _accessTimer.Tick -= _accessTickHandler; }
+    private void DisposeRenderContent(string operation)
+    {
+        if (_renderContent is null) return;
+        try { _renderContent.Dispose(); }
+        catch (Exception exception) { LogCleanupFailure(exception, $"render resource disposal during {operation}"); }
+        finally { _renderContent = null; }
+    }
+    private void LogCleanupFailure(Exception exception, string operation) => _logger.Log(exception, "Approved viewer cleanup", $"Unable to complete {operation} for document {_document.DocumentId}, version {_document.VersionId}.");
 
     private void HandleFailure(Exception exception, string prefix)
     {
@@ -107,7 +117,20 @@ public sealed class ApprovedDocumentViewerViewModel : INotifyPropertyChanged, ID
         if (exception is UnauthorizedAccessException && string.Equals(exception.Message, ApprovedDocumentService.RevokedMessage, StringComparison.Ordinal)) AccessRevoked?.Invoke();
     }
 
-    public void Dispose() { _accessTimer.Stop(); _accessTimer.Tick -= _accessTickHandler; _renderContent?.Dispose(); _renderContent = null; Content?.Dispose(); Content = null; TryDeleteTemporaryFile(); GC.SuppressFinalize(this); }
-    private void TryDeleteTemporaryFile() { if (_temporaryPath is null) return; try { if (File.Exists(_temporaryPath)) File.Delete(_temporaryPath); } catch { } _temporaryPath = null; }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true; _hasAccess = false; StopAccessTimer(); DisposeRenderContent("viewer disposal");
+        if (Content is not null) { try { Content.Dispose(); } catch (Exception exception) { LogCleanupFailure(exception, "stream disposal during viewer disposal"); } Content = null; }
+        TryDeleteTemporaryFile(); RaiseDownloadCanExecute(); GC.SuppressFinalize(this);
+    }
+    private void TryDeleteTemporaryFile()
+    {
+        if (_temporaryPath is null) return;
+        var path = _temporaryPath;
+        try { if (File.Exists(path)) File.Delete(path); }
+        catch (Exception exception) { LogCleanupFailure(exception, $"temporary file deletion for '{path}'"); }
+        finally { _temporaryPath = null; }
+    }
     private sealed class Command(Func<object?, Task> execute, Predicate<object?> canExecute) : ICommand { public event EventHandler? CanExecuteChanged; public bool CanExecute(object? parameter) => canExecute(parameter); public async void Execute(object? parameter) => await execute(parameter); public void Raise() => CanExecuteChanged?.Invoke(this, EventArgs.Empty); }
 }

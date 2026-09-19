@@ -187,7 +187,7 @@ public static class CompositionRoot
     public static ViewerAccessService CreateViewerAccessService()
     {
         var database = DatabasePath(); var logger = new CentralizedLogger();
-        return new ViewerAccessService(new SqliteViewerAccessRepository(database, logger), Session, Authorization, logger, ViewerDocumentConfiguration.Access);
+        return new ViewerAccessService(new SqliteViewerAccessRepository(database, logger, ViewerDocumentConfiguration.Access), Session, Authorization, logger, ViewerDocumentConfiguration.Access);
     }
     private static DocumentService CreateHistoricalDocumentService()
     {

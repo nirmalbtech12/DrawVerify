@@ -56,6 +56,30 @@ public sealed class ViewerAccessService : IViewerAccessService
         catch (Exception exception) { _logger.Log(exception, "Check viewer access", $"Document={documentId}, version={versionId}, user={userId}."); throw; }
     }
 
+    public async Task<int> GetActiveShareCountAsync(Guid documentId, Guid versionId, CancellationToken cancellationToken = default)
+    {
+        RequireManager();
+        try { return (await _repository.ListGrantsAsync(documentId, versionId, cancellationToken).ConfigureAwait(false)).Count(x => x.IsEffective(DateTime.UtcNow)); }
+        catch (Exception exception) { _logger.Log(exception, "Aggregate viewer sharing status", $"Document={documentId}, version={versionId}."); throw; }
+    }
+
+    public Task<ViewerAccessBulkPreview> PreviewBulkAsync(ViewerAccessBulkRequest request, CancellationToken cancellationToken = default)
+    {
+        RequireManager();
+        if (!_configuration.AllowBulkActions) throw new InvalidOperationException("Bulk Viewer access actions are disabled.");
+        if (request.Documents.Count == 0 || request.Targets.Count == 0) throw new ArgumentException("Select at least one document and one access target.");
+        ValidateExpiration(request.ExpiresUtc);
+        return Task.FromResult(new ViewerAccessBulkPreview(request.Documents.Count, request.Targets.Count, $"{(request.Revoke ? "Revoke" : "Grant")} access for {request.Targets.Count} target(s) across {request.Documents.Count} document version(s).", Array.Empty<string>()));
+    }
+
+    public async Task<ViewerAccessMutationResult> ConfirmBulkAsync(ViewerAccessBulkRequest request, CancellationToken cancellationToken = default)
+    {
+        await PreviewBulkAsync(request, cancellationToken).ConfigureAwait(false);
+        var actor = RequireManager();
+        try { return await _repository.MutateBulkAsync(request, actor, cancellationToken).ConfigureAwait(false); }
+        catch (Exception exception) { _logger.Log(exception, "Bulk viewer access mutation", $"Documents={request.Documents.Count}, targets={request.Targets.Count}, actor={actor.UserId}, revoke={request.Revoke}."); throw; }
+    }
+
     private AuthenticatedUser RequireManager()
     {
         var user = RequireAuthenticated();

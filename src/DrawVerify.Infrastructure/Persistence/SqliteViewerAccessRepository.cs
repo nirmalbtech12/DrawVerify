@@ -11,9 +11,10 @@ public sealed class SqliteViewerAccessRepository : IViewerAccessRepository
 {
     private readonly string _connectionString;
     private readonly ICentralizedLogger? _logger;
-    public SqliteViewerAccessRepository(string databasePath, ICentralizedLogger? logger = null)
+    private readonly ViewerAccessConfiguration _configuration;
+    public SqliteViewerAccessRepository(string databasePath, ICentralizedLogger? logger = null, ViewerAccessConfiguration? configuration = null)
     {
-        _connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath }.ToString(); _logger = logger;
+        _connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath }.ToString(); _logger = logger; _configuration = configuration ?? new();
         try { using var connection = new SqliteConnection(_connectionString); connection.Open(); EnsureSchema(connection); }
         catch (Exception exception) { logger?.Log(exception, "Viewer access schema", "Unable to initialize viewer access persistence."); throw; }
     }
@@ -21,7 +22,7 @@ public sealed class SqliteViewerAccessRepository : IViewerAccessRepository
     private static void EnsureSchema(SqliteConnection connection)
     {
         using var command = connection.CreateCommand();
-        command.CommandText = "CREATE TABLE IF NOT EXISTS ViewerAccessGrant (DocumentId TEXT NOT NULL, VersionId TEXT NOT NULL, TargetKind TEXT NOT NULL, TargetId TEXT NOT NULL, TargetName TEXT NOT NULL, TargetDescription TEXT NOT NULL DEFAULT '', GrantedUtc TEXT NOT NULL, GrantedByUserId TEXT NOT NULL, GrantedByName TEXT NOT NULL, ExpiresUtc TEXT NULL, IsRevoked INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(DocumentId,VersionId,TargetKind,TargetId)); CREATE INDEX IF NOT EXISTS IX_ViewerAccessGrant_Target ON ViewerAccessGrant(TargetKind,TargetId,IsRevoked); CREATE TABLE IF NOT EXISTS ViewerAccessGroup (GroupId TEXT PRIMARY KEY, DisplayName TEXT NOT NULL, Description TEXT NOT NULL DEFAULT ''); CREATE TABLE IF NOT EXISTS ViewerAccessGroupMember (GroupId TEXT NOT NULL, UserId TEXT NOT NULL, PRIMARY KEY(GroupId,UserId));";
+        command.CommandText = "CREATE TABLE IF NOT EXISTS ViewerAccessGrant (DocumentId TEXT NOT NULL, VersionId TEXT NOT NULL, TargetKind TEXT NOT NULL, TargetId TEXT NOT NULL, TargetName TEXT NOT NULL, TargetDescription TEXT NOT NULL DEFAULT '', GrantedUtc TEXT NOT NULL, GrantedByUserId TEXT NOT NULL, GrantedByName TEXT NOT NULL, ExpiresUtc TEXT NULL, IsRevoked INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(DocumentId,VersionId,TargetKind,TargetId)); CREATE INDEX IF NOT EXISTS IX_ViewerAccessGrant_Target ON ViewerAccessGrant(TargetKind,TargetId,IsRevoked); CREATE TABLE IF NOT EXISTS ViewerAccessGroup (GroupId TEXT PRIMARY KEY, DisplayName TEXT NOT NULL, Description TEXT NOT NULL DEFAULT ''); CREATE TABLE IF NOT EXISTS ViewerAccessGroupMember (GroupId TEXT NOT NULL, UserId TEXT NOT NULL, PRIMARY KEY(GroupId,UserId)); CREATE TABLE IF NOT EXISTS SharedDocumentShare (DocumentId TEXT NOT NULL, VersionId TEXT NOT NULL, RecipientUserId TEXT NOT NULL, SharedByUserId TEXT NOT NULL, SharedByName TEXT NOT NULL, SharedUtc TEXT NOT NULL, Note TEXT NULL, IsRevoked INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(DocumentId,VersionId,RecipientUserId));";
         command.ExecuteNonQuery();
     }
 
@@ -56,7 +57,25 @@ public sealed class SqliteViewerAccessRepository : IViewerAccessRepository
         await using var connection = await OpenAsync(token); var result = new List<ViewerAccessGrant>();
         await using var command = connection.CreateCommand(); command.CommandText = "SELECT TargetKind,TargetId,TargetName,TargetDescription,GrantedUtc,GrantedByUserId,GrantedByName,ExpiresUtc,IsRevoked FROM ViewerAccessGrant WHERE DocumentId=$document AND VersionId=$version ORDER BY GrantedUtc DESC"; command.Parameters.AddWithValue("$document", documentId.ToString()); command.Parameters.AddWithValue("$version", versionId.ToString());
         await using var reader = await command.ExecuteReaderAsync(token);
-        while (await reader.ReadAsync(token)) result.Add(ReadGrant(documentId, versionId, reader));
+        while (await reader.ReadAsync(token))
+        {
+            var grant = ReadGrant(documentId, versionId, reader);
+            if (grant.Target.Kind == ViewerAccessTargetKind.Group)
+                grant = grant with { Members = await ReadGroupMembersAsync(connection, grant.Target.Id, token) };
+            result.Add(grant);
+        }
+        await using (var legacy = connection.CreateCommand())
+        {
+            legacy.CommandText = "SELECT RecipientUserId,SharedByUserId,SharedByName,SharedUtc,Note,IsRevoked FROM SharedDocumentShare WHERE DocumentId=$document AND VersionId=$version";
+            legacy.Parameters.AddWithValue("$document", documentId.ToString()); legacy.Parameters.AddWithValue("$version", versionId.ToString());
+            await using var legacyReader = await legacy.ExecuteReaderAsync(token);
+            while (await legacyReader.ReadAsync(token))
+            {
+                var userId = legacyReader.GetString(0);
+                if (result.Any(x => x.Target.Kind == ViewerAccessTargetKind.User && x.Target.Id == userId)) continue;
+                result.Add(new ViewerAccessGrant { DocumentId = documentId, VersionId = versionId, Target = new(ViewerAccessTargetKind.User, userId, userId, "Legacy individual share"), GrantedUtc = DateTime.Parse(legacyReader.GetString(3), null, System.Globalization.DateTimeStyles.RoundtripKind), GrantedByUserId = legacyReader.GetString(1), GrantedByName = legacyReader.GetString(2), IsRevoked = legacyReader.GetInt32(5) != 0 });
+            }
+        }
         return result;
     }
 
@@ -75,31 +94,79 @@ public sealed class SqliteViewerAccessRepository : IViewerAccessRepository
     public Task<ViewerAccessMutationResult> RevokeAsync(Guid documentId, Guid versionId, IReadOnlyList<ViewerAccessTarget> targets, AuthenticatedUser actor, CancellationToken token = default)
         => MutateAsync(documentId, versionId, targets, actor, true, null, token);
 
+    public async Task<ViewerAccessMutationResult> MutateBulkAsync(ViewerAccessBulkRequest request, AuthenticatedUser actor, CancellationToken token = default)
+    {
+        if (request.Documents.Count == 0) throw new ArgumentException("At least one document version is required.", nameof(request));
+        if (request.Targets.Count == 0) throw new ArgumentException("At least one access target is required.", nameof(request));
+        await using var connection = await OpenAsync(token);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(token);
+        try
+        {
+            foreach (var document in request.Documents)
+                await ValidateBulkDocumentAsync(connection, transaction, document.DocumentId, document.VersionId, request.Targets, token).ConfigureAwait(false);
+            var affected = 0;
+            foreach (var document in request.Documents)
+                affected += await MutateWithinTransactionAsync(connection, transaction, document.DocumentId, document.VersionId, request.Targets, actor, request.Revoke, request.ExpiresUtc, token).ConfigureAwait(false);
+            await transaction.CommitAsync(token);
+            return new(affected, Array.Empty<string>());
+        }
+        catch (Exception exception)
+        {
+            try { await transaction.RollbackAsync(CancellationToken.None); } catch { }
+            _logger?.Log(exception, "Bulk viewer access mutation", $"Documents={request.Documents.Count}, targets={request.Targets.Count}, actor={actor.UserId}, revoke={request.Revoke}.");
+            throw;
+        }
+    }
+
     private async Task<ViewerAccessMutationResult> MutateAsync(Guid documentId, Guid versionId, IReadOnlyList<ViewerAccessTarget> targets, AuthenticatedUser actor, bool revoke, DateTime? expiresUtc, CancellationToken token)
     {
         if (targets.Count == 0) throw new ArgumentException("At least one access target is required.", nameof(targets));
         await using var connection = await OpenAsync(token); await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(token);
         try
         {
-            EnsureApproved(connection, transaction, documentId, versionId);
-            var changed = 0;
-            foreach (var target in targets)
-            {
-                if (target.Kind == ViewerAccessTargetKind.User && !await IsViewerUserAsync(connection, transaction, target.Id, token)) throw new KeyNotFoundException($"Viewer user '{target.DisplayName}' was not found or is not Viewer-capable.");
-                if (target.Kind == ViewerAccessTargetKind.Role && !SystemRoles.Catalog.Any(x => x.Id.Equals(target.Id, StringComparison.OrdinalIgnoreCase) && IsViewerCapable(x.Id))) throw new InvalidOperationException($"Role '{target.Id}' is not Viewer-capable.");
-                if (target.Kind == ViewerAccessTargetKind.Group && !await ExistsAsync(connection, transaction, "SELECT 1 FROM ViewerAccessGroup WHERE GroupId=$id", target.Id, token)) throw new KeyNotFoundException($"Viewer group '{target.DisplayName}' was not found.");
-                await using var command = connection.CreateCommand(); command.Transaction = transaction;
-                command.CommandText = revoke ? "UPDATE ViewerAccessGrant SET IsRevoked=1 WHERE DocumentId=$document AND VersionId=$version AND TargetKind=$kind AND TargetId=$target" : "INSERT INTO ViewerAccessGrant(DocumentId,VersionId,TargetKind,TargetId,TargetName,TargetDescription,GrantedUtc,GrantedByUserId,GrantedByName,ExpiresUtc,IsRevoked) VALUES($document,$version,$kind,$target,$name,$description,$utc,$actor,$actorName,$expires,0) ON CONFLICT(DocumentId,VersionId,TargetKind,TargetId) DO UPDATE SET TargetName=$name,TargetDescription=$description,GrantedUtc=$utc,GrantedByUserId=$actor,GrantedByName=$actorName,ExpiresUtc=$expires,IsRevoked=0";
-                Add(command, "$document", documentId.ToString()); Add(command, "$version", versionId.ToString()); Add(command, "$kind", target.Kind.ToString()); Add(command, "$target", target.Id); Add(command, "$name", target.DisplayName); Add(command, "$description", target.Description); Add(command, "$utc", DateTime.UtcNow.ToString("O")); Add(command, "$actor", actor.UserId); Add(command, "$actorName", actor.DisplayName); Add(command, "$expires", (object?)expiresUtc?.ToUniversalTime().ToString("O") ?? DBNull.Value);
-                if (await command.ExecuteNonQueryAsync(token) > 0)
-                {
-                    changed++;
-                    await WriteAuditAsync(connection, transaction, documentId, versionId, target, actor, revoke ? DocumentAuditAction.AccessRevoked : DocumentAuditAction.AccessGranted, expiresUtc, token);
-                }
-            }
+            var changed = await MutateWithinTransactionAsync(connection, transaction, documentId, versionId, targets, actor, revoke, expiresUtc, token).ConfigureAwait(false);
             await transaction.CommitAsync(token); return new(changed, Array.Empty<string>());
         }
         catch (Exception exception) { try { await transaction.RollbackAsync(token); } catch { } _logger?.Log(exception, "Viewer access mutation", $"Document={documentId}, version={versionId}, actor={actor.UserId}, revoke={revoke}."); throw; }
+    }
+
+    private async Task<int> MutateWithinTransactionAsync(SqliteConnection connection, SqliteTransaction transaction, Guid documentId, Guid versionId, IReadOnlyList<ViewerAccessTarget> targets, AuthenticatedUser actor, bool revoke, DateTime? expiresUtc, CancellationToken token)
+    {
+        if (_configuration.AllowOnlyApprovedDocuments) EnsureApproved(connection, transaction, documentId, versionId);
+        var changed = 0;
+        foreach (var target in targets)
+        {
+            if (target.Kind == ViewerAccessTargetKind.User && !await IsViewerUserAsync(connection, transaction, target.Id, token)) throw new KeyNotFoundException($"Viewer user '{target.DisplayName}' was not found or is not Viewer-capable.");
+            if (target.Kind == ViewerAccessTargetKind.Role && !SystemRoles.Catalog.Any(x => x.Id.Equals(target.Id, StringComparison.OrdinalIgnoreCase) && IsViewerCapable(x.Id))) throw new InvalidOperationException($"Role '{target.Id}' is not Viewer-capable.");
+            if (target.Kind == ViewerAccessTargetKind.Group && !await ExistsAsync(connection, transaction, "SELECT 1 FROM ViewerAccessGroup WHERE GroupId=$id", target.Id, token)) throw new KeyNotFoundException($"Viewer group '{target.DisplayName}' was not found.");
+            var existing = await ExistingGrantAsync(connection, transaction, documentId, versionId, target, token);
+            await using var command = connection.CreateCommand(); command.Transaction = transaction;
+            command.CommandText = revoke
+                ? target.Kind == ViewerAccessTargetKind.User
+                    ? "UPDATE ViewerAccessGrant SET IsRevoked=1 WHERE DocumentId=$document AND VersionId=$version AND TargetKind=$kind AND TargetId=$target; UPDATE SharedDocumentShare SET IsRevoked=1 WHERE DocumentId=$document AND VersionId=$version AND RecipientUserId=$target AND IsRevoked=0"
+                    : "UPDATE ViewerAccessGrant SET IsRevoked=1 WHERE DocumentId=$document AND VersionId=$version AND TargetKind=$kind AND TargetId=$target"
+                : "INSERT INTO ViewerAccessGrant(DocumentId,VersionId,TargetKind,TargetId,TargetName,TargetDescription,GrantedUtc,GrantedByUserId,GrantedByName,ExpiresUtc,IsRevoked) VALUES($document,$version,$kind,$target,$name,$description,$utc,$actor,$actorName,$expires,0) ON CONFLICT(DocumentId,VersionId,TargetKind,TargetId) DO UPDATE SET TargetName=$name,TargetDescription=$description,GrantedUtc=$utc,GrantedByUserId=$actor,GrantedByName=$actorName,ExpiresUtc=$expires,IsRevoked=0";
+            Add(command, "$document", documentId.ToString()); Add(command, "$version", versionId.ToString()); Add(command, "$kind", target.Kind.ToString()); Add(command, "$target", target.Id); Add(command, "$name", target.DisplayName); Add(command, "$description", target.Description); Add(command, "$utc", DateTime.UtcNow.ToString("O")); Add(command, "$actor", actor.UserId); Add(command, "$actorName", actor.DisplayName); Add(command, "$expires", (object?)expiresUtc?.ToUniversalTime().ToString("O") ?? DBNull.Value);
+            if (await command.ExecuteNonQueryAsync(token) > 0)
+            {
+                changed++;
+                var action = revoke ? DocumentAuditAction.AccessRevoked : existing is null || existing.IsRevoked ? DocumentAuditAction.AccessGranted : DocumentAuditAction.AccessModified;
+                await WriteAuditAsync(connection, transaction, documentId, versionId, target, actor, action, expiresUtc, token);
+            }
+            else if (revoke) throw new InvalidOperationException($"Viewer access for '{target.DisplayName}' was not found.");
+        }
+        return changed;
+    }
+
+    private async Task ValidateBulkDocumentAsync(SqliteConnection connection, SqliteTransaction transaction, Guid documentId, Guid versionId, IReadOnlyList<ViewerAccessTarget> targets, CancellationToken token)
+    {
+        if (_configuration.AllowOnlyApprovedDocuments) EnsureApproved(connection, transaction, documentId, versionId);
+        foreach (var target in targets)
+        {
+            if (target.Kind == ViewerAccessTargetKind.User && !await IsViewerUserAsync(connection, transaction, target.Id, token)) throw new KeyNotFoundException($"Viewer user '{target.DisplayName}' was not found or is not Viewer-capable.");
+            if (target.Kind == ViewerAccessTargetKind.Role && !SystemRoles.Catalog.Any(x => x.Id.Equals(target.Id, StringComparison.OrdinalIgnoreCase) && IsViewerCapable(x.Id))) throw new InvalidOperationException($"Role '{target.Id}' is not Viewer-capable.");
+            if (target.Kind == ViewerAccessTargetKind.Group && !await ExistsAsync(connection, transaction, "SELECT 1 FROM ViewerAccessGroup WHERE GroupId=$id", target.Id, token)) throw new KeyNotFoundException($"Viewer group '{target.DisplayName}' was not found.");
+        }
     }
 
     private static void EnsureApproved(SqliteConnection c, SqliteTransaction tx, Guid documentId, Guid versionId)
@@ -107,6 +174,10 @@ public sealed class SqliteViewerAccessRepository : IViewerAccessRepository
         using var command = c.CreateCommand(); command.Transaction = tx; command.CommandText = "SELECT 1 FROM Document d JOIN DocumentVersion v ON v.DocumentId=d.DocumentId JOIN WorkflowState w ON w.PackageId=d.DocumentId WHERE d.DocumentId=$document AND v.VersionId=$version AND d.Status=1 AND w.Status IN (11,12)"; Add(command, "$document", documentId.ToString()); Add(command, "$version", versionId.ToString()); if (command.ExecuteScalar() is null) throw new InvalidOperationException("Only approved documents can be shared with Viewers.");
     }
     private static async Task<bool> IsViewerUserAsync(SqliteConnection c, SqliteTransaction tx, string id, CancellationToken token) { await using var command = c.CreateCommand(); command.Transaction = tx; command.CommandText = "SELECT 1 FROM UserAccountRole r JOIN UserAccount u ON u.UserId=r.UserId WHERE u.UserId=$id AND u.IsActive=1 AND r.RoleName='Viewer' LIMIT 1"; Add(command, "$id", id); return await command.ExecuteScalarAsync(token) is not null; }
+    private static async Task<ViewerAccessGrant?> ExistingGrantAsync(SqliteConnection c, SqliteTransaction tx, Guid documentId, Guid versionId, ViewerAccessTarget target, CancellationToken token)
+    { await using var command = c.CreateCommand(); command.Transaction = tx; command.CommandText = "SELECT TargetKind,TargetId,TargetName,TargetDescription,GrantedUtc,GrantedByUserId,GrantedByName,ExpiresUtc,IsRevoked FROM ViewerAccessGrant WHERE DocumentId=$document AND VersionId=$version AND TargetKind=$kind AND TargetId=$target"; Add(command, "$document", documentId.ToString()); Add(command, "$version", versionId.ToString()); Add(command, "$kind", target.Kind.ToString()); Add(command, "$target", target.Id); await using var reader = await command.ExecuteReaderAsync(token); if (await reader.ReadAsync(token)) return ReadGrant(documentId, versionId, reader); await reader.DisposeAsync(); if (target.Kind != ViewerAccessTargetKind.User) return null; await using var legacy = c.CreateCommand(); legacy.Transaction = tx; legacy.CommandText = "SELECT RecipientUserId,SharedByUserId,SharedByName,SharedUtc,IsRevoked FROM SharedDocumentShare WHERE DocumentId=$document AND VersionId=$version AND RecipientUserId=$target"; Add(legacy, "$document", documentId.ToString()); Add(legacy, "$version", versionId.ToString()); Add(legacy, "$target", target.Id); await using var legacyReader = await legacy.ExecuteReaderAsync(token); return await legacyReader.ReadAsync(token) ? new ViewerAccessGrant { DocumentId = documentId, VersionId = versionId, Target = target, GrantedUtc = DateTime.Parse(legacyReader.GetString(3), null, System.Globalization.DateTimeStyles.RoundtripKind), GrantedByUserId = legacyReader.GetString(1), GrantedByName = legacyReader.GetString(2), IsRevoked = legacyReader.GetInt32(4) != 0 } : null; }
+    private static async Task<IReadOnlyList<ViewerAccessTarget>> ReadGroupMembersAsync(SqliteConnection c, string groupId, CancellationToken token)
+    { await using var command = c.CreateCommand(); command.CommandText = "SELECT u.UserId,u.DisplayName FROM ViewerAccessGroupMember m JOIN UserAccount u ON u.UserId=m.UserId WHERE m.GroupId=$group ORDER BY u.DisplayName"; Add(command, "$group", groupId); await using var reader = await command.ExecuteReaderAsync(token); var result = new List<ViewerAccessTarget>(); while (await reader.ReadAsync(token)) result.Add(new(ViewerAccessTargetKind.User, reader.GetString(0), reader.GetString(1), "Group member")); return result; }
     private static async Task<bool> ExistsAsync(SqliteConnection c, SqliteTransaction tx, string sql, string id, CancellationToken token) { await using var command = c.CreateCommand(); command.Transaction = tx; command.CommandText = sql; Add(command, "$id", id); return await command.ExecuteScalarAsync(token) is not null; }
     private static async Task<List<string>> RolesAsync(SqliteConnection c, string id, CancellationToken token) { await using var command = c.CreateCommand(); command.CommandText = "SELECT RoleName FROM UserAccountRole WHERE UserId=$id"; Add(command, "$id", id); await using var reader = await command.ExecuteReaderAsync(token); var roles = new List<string>(); while (await reader.ReadAsync(token)) roles.Add(reader.GetString(0)); return roles; }
     private static bool IsViewerCapable(string role) => role.Equals(SystemRoles.Viewer, StringComparison.OrdinalIgnoreCase);
