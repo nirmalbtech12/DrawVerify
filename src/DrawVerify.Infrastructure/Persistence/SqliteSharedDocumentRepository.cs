@@ -40,6 +40,14 @@ public sealed class SqliteSharedDocumentRepository : ISharedDocumentRepository
         var values = await ReadAsync(command, token).ConfigureAwait(false); return values.FirstOrDefault();
     }
 
+    public async Task<SharedDocument?> GetAccessStateAsync(string recipientUserId, Guid documentId, Guid? versionId = null, CancellationToken token = default)
+    {
+        await using var connection = new SqliteConnection(_connectionString); await connection.OpenAsync(token);
+        await using var command = connection.CreateCommand(); command.CommandText = QuerySql("AND d.DocumentId=$document AND ($version IS NULL OR v.VersionId=$version)", includeRevoked: true);
+        command.Parameters.AddWithValue("$recipient", recipientUserId); command.Parameters.AddWithValue("$document", documentId.ToString()); command.Parameters.AddWithValue("$version", (object?)versionId?.ToString() ?? DBNull.Value); command.Parameters.AddWithValue("$search", DBNull.Value); command.Parameters.AddWithValue("$like", DBNull.Value);
+        return (await ReadAsync(command, token).ConfigureAwait(false)).FirstOrDefault();
+    }
+
     public async Task CreateShareAsync(Guid documentId, Guid versionId, string recipientUserId, string sharedByUserId, string sharedByName, DateTime sharedUtc, string? note = null, CancellationToken cancellationToken = default)
     {
         await using var connection = new SqliteConnection(_connectionString); await connection.OpenAsync(cancellationToken); await using var command = connection.CreateCommand();
@@ -52,7 +60,7 @@ public sealed class SqliteSharedDocumentRepository : ISharedDocumentRepository
         await using var connection = new SqliteConnection(_connectionString); await connection.OpenAsync(cancellationToken); await using var command = connection.CreateCommand(); command.CommandText = "UPDATE SharedDocumentShare SET IsRevoked=1 WHERE DocumentId=$document AND VersionId=$version AND RecipientUserId=$recipient"; command.Parameters.AddWithValue("$document", documentId.ToString()); command.Parameters.AddWithValue("$version", versionId.ToString()); command.Parameters.AddWithValue("$recipient", recipientUserId); await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private static string QuerySql(string extra) => $"SELECT d.DocumentId,v.VersionId,d.OriginalFileName,v.VersionNumber,ws.Status,rd.DecidedUtc,COALESCE(rd.ApproverDisplayName,s.SharedByName),COALESCE(rd.ApproverUserId,s.SharedByUserId),s.SharedByName,s.SharedByUserId,s.SharedUtc,s.Note,d.DocumentType,v.StoredRelativePath,rs.ApproverSignatureJson,rs.ApproverSignatureFinalized,rs.InternalApprovalStampJson,rs.InternalApprovalStampFinalized FROM SharedDocumentShare s JOIN Document d ON d.DocumentId=s.DocumentId JOIN DocumentVersion v ON v.VersionId=s.VersionId JOIN WorkflowState ws ON ws.PackageId=d.DocumentId LEFT JOIN ReviewDecision rd ON rd.PackageId=d.DocumentId AND rd.Revision=v.VersionNumber AND rd.IsFinalApproval=1 LEFT JOIN ReviewSubmission rs ON rs.PackageId=d.DocumentId AND rs.Revision=v.VersionNumber WHERE s.RecipientUserId=$recipient AND s.IsRevoked=0 AND d.Status=1 AND ws.Status IN (11,12) {extra} ORDER BY s.SharedUtc DESC";
+    private static string QuerySql(string extra, bool includeRevoked = false) => $"SELECT d.DocumentId,v.VersionId,d.OriginalFileName,v.VersionNumber,ws.Status,rd.DecidedUtc,COALESCE(rd.ApproverDisplayName,s.SharedByName),COALESCE(rd.ApproverUserId,s.SharedByUserId),s.SharedByName,s.SharedByUserId,s.SharedUtc,s.Note,d.DocumentType,v.StoredRelativePath,rs.ApproverSignatureJson,rs.ApproverSignatureFinalized,rs.InternalApprovalStampJson,rs.InternalApprovalStampFinalized,s.IsRevoked FROM SharedDocumentShare s JOIN Document d ON d.DocumentId=s.DocumentId JOIN DocumentVersion v ON v.VersionId=s.VersionId JOIN WorkflowState ws ON ws.PackageId=d.DocumentId LEFT JOIN ReviewDecision rd ON rd.PackageId=d.DocumentId AND rd.Revision=v.VersionNumber AND rd.IsFinalApproval=1 LEFT JOIN ReviewSubmission rs ON rs.PackageId=d.DocumentId AND rs.Revision=v.VersionNumber WHERE s.RecipientUserId=$recipient AND {(includeRevoked ? "1=1" : "s.IsRevoked=0")} AND d.Status=1 AND ws.Status IN (11,12) {extra} ORDER BY s.SharedUtc DESC";
 
     private static async Task<IReadOnlyList<SharedDocument>> ReadAsync(SqliteCommand command, CancellationToken token)
     {
@@ -61,6 +69,11 @@ public sealed class SqliteSharedDocumentRepository : ISharedDocumentRepository
         {
             var documentId = Guid.Parse(reader.GetString(0));
             var revision = reader.GetInt32(3);
+            if (reader.GetInt32(18) != 0)
+            {
+                result.Add(new SharedDocument { DocumentId = documentId, VersionId = Guid.Parse(reader.GetString(1)), IsRevoked = true });
+                continue;
+            }
             SignatureData? signature = null;
             InternalApprovalStamp? stamp = null;
             string? approvalError = null;

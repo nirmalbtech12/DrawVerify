@@ -41,8 +41,9 @@ public sealed class ApprovedDocumentService : IApprovedDocumentService
     public async Task<SharedDocumentAccess> OpenAsync(Guid documentId, Guid? versionId = null, CancellationToken token = default)
     {
         var user = RequireViewer();
-        var document = await _documents.GetAsync(user.UserId, documentId, versionId, token).ConfigureAwait(false)
-            ?? throw new UnauthorizedAccessException(UnsharedMessage);
+        var document = await _documents.GetAccessStateAsync(user.UserId, documentId, versionId, token).ConfigureAwait(false);
+        if (document is null) throw new UnauthorizedAccessException(UnsharedMessage);
+        if (document.IsRevoked) throw new UnauthorizedAccessException(RevokedMessage);
         if (!string.IsNullOrWhiteSpace(document.ApprovalInformationError))
             _logger.Log(new InvalidDataException(document.ApprovalInformationError), "Approved document approval metadata", $"Invalid approval metadata for document {document.DocumentId}, version {document.VersionId}.");
         else if (document.ApproverSignature is null || document.ApprovalStamp is null)
@@ -71,17 +72,32 @@ public sealed class ApprovedDocumentService : IApprovedDocumentService
     public async Task<Stream> DownloadAsync(Guid documentId, Guid? versionId = null, CancellationToken token = default)
     {
         if (!_configuration.AllowDownload) throw new UnauthorizedAccessException("Downloading approved documents is disabled for Viewers.");
-        var access = await OpenWithoutAuditAsync(documentId, versionId, token).ConfigureAwait(false);
-        try { await WriteAuditAsync(access.Document, RequireViewer(), DocumentAuditAction.DocumentDownloaded, token).ConfigureAwait(false); return access.Content; }
-        catch { await access.Content.DisposeAsync().ConfigureAwait(false); throw; }
+        SharedDocumentAccess? access = null;
+        try { access = await OpenWithoutAuditAsync(documentId, versionId, token).ConfigureAwait(false); await WriteAuditAsync(access.Document, RequireViewer(), DocumentAuditAction.DocumentDownloaded, token).ConfigureAwait(false); return access.Content; }
+        catch (Exception exception)
+        {
+            _logger.Log(exception, "Approved document download", $"Unable to download document {documentId}, version {versionId?.ToString() ?? "latest"}, action={DocumentAuditAction.DocumentDownloaded}.");
+            if (access?.Content is not null) await access.Content.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
     }
 
     private async Task<SharedDocumentAccess> OpenWithoutAuditAsync(Guid documentId, Guid? versionId, CancellationToken token)
     {
         var user = RequireViewer();
-        var document = await _documents.GetAsync(user.UserId, documentId, versionId, token).ConfigureAwait(false) ?? throw new UnauthorizedAccessException(UnsharedMessage);
-        var content = document.DocumentType == DrawVerify.Core.Enums.DocumentType.DxfDrawing ? await _dxfFiles.OpenReadAsync(document.StoredRelativePath, token) : await _stepFiles.OpenReadAsync(document.StoredRelativePath, token);
-        return new SharedDocumentAccess(document, content);
+        var document = await _documents.GetAccessStateAsync(user.UserId, documentId, versionId, token).ConfigureAwait(false);
+        if (document is null) throw new UnauthorizedAccessException(UnsharedMessage);
+        if (document.IsRevoked) throw new UnauthorizedAccessException(RevokedMessage);
+        try
+        {
+            var content = document.DocumentType == DrawVerify.Core.Enums.DocumentType.DxfDrawing ? await _dxfFiles.OpenReadAsync(document.StoredRelativePath, token) : await _stepFiles.OpenReadAsync(document.StoredRelativePath, token);
+            return new SharedDocumentAccess(document, content);
+        }
+        catch (Exception exception)
+        {
+            _logger.Log(exception, "Approved document download file resolution", $"Unable to resolve document {document.DocumentId}, version {document.VersionId}, action={DocumentAuditAction.DocumentDownloaded}.");
+            throw;
+        }
     }
 
     private async Task WriteAuditAsync(SharedDocument document, AuthenticatedUser user, DocumentAuditAction action, CancellationToken token)

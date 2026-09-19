@@ -68,7 +68,7 @@ public partial class MainWindow : Window
         if (target == ScreenRegistry.SharedDocuments)
         {
             var model = new SharedDocumentsViewModel(CompositionRoot.CreateApprovedDocumentService());
-            model.OpenRequested += ShowApprovedDocumentViewer;
+            model.OpenRequested += document => ShowApprovedDocumentViewer(document, model);
             return new SharedDocumentsView { DataContext = model };
         }
         if (target == ScreenRegistry.UserAdministration) return CreateAdministrationView();
@@ -85,10 +85,11 @@ public partial class MainWindow : Window
         model.AuthorizationStateChanged += RefreshAuthenticatedShell; model.CancelRequested += () => { if (!model.IsCreationDirty || DiscardConfirmation() == MessageBoxResult.Yes) { model.DiscardCreation(); Navigate(ScreenRegistry.Dashboard); } }; model.BackRequested += () => { if (!model.IsCreationDirty || DiscardConfirmation() == MessageBoxResult.Yes) { model.DiscardCreation(); Navigate(ScreenRegistry.Dashboard); } }; model.RoleCancelRequested += () => Navigate(ScreenRegistry.Dashboard); model.RoleBackRequested += () => Navigate(ScreenRegistry.Dashboard); model.RoleConfirmation = message => MessageBox.Show(message, "Confirm role changes", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes; return view;
     }
     private void RefreshAuthenticatedShell() => ShowAuthenticatedContent();
-    private void ShowApprovedDocumentViewer(SharedDocument document)
+    private void ShowApprovedDocumentViewer(SharedDocument document, SharedDocumentsViewModel source)
     {
         var service = CompositionRoot.CreateApprovedDocumentService();
         var model = new ApprovedDocumentViewerViewModel(service, document, service.AllowDownload);
+        model.AccessRevoked += () => { source.ClearSelectionAndReload(); _shell?.SetScreen(new SharedDocumentsView { DataContext = source }, ScreenRegistry.SharedDocuments); };
         var view = new ApprovedDocumentViewerView { DataContext = model };
         view.Unloaded += (_, _) => model.Dispose();
         _shell?.SetScreen(view, "ApprovedDocumentViewer");

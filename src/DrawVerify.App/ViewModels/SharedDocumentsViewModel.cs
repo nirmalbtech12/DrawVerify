@@ -26,5 +26,6 @@ public sealed class SharedDocumentsViewModel : INotifyPropertyChanged
         try { var rows = await _service.ListAsync(new SharedDocumentQuery(Search)); Documents.Clear(); foreach (var row in rows) Documents.Add(row); Status = rows.Count == 0 ? "No approved documents have been shared with you." : string.Empty; }
         catch (Exception exception) { Status = exception.Message; }
     }
+    public void ClearSelectionAndReload() { SelectedDocument = null; _ = LoadAsync(); }
     private sealed class Command(Func<object?, Task> execute) : ICommand { public event EventHandler? CanExecuteChanged; public bool CanExecute(object? parameter) => true; public async void Execute(object? parameter) => await execute(parameter); }
 }

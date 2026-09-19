@@ -23,6 +23,7 @@ public sealed class ApprovedDocumentViewerViewModel : INotifyPropertyChanged, ID
     public bool CanDownload { get; }
     public string Status { get => _status; private set { _status = value; PropertyChanged?.Invoke(this, new(nameof(Status))); } }
     public ICommand DownloadCommand { get; }
+    public event Action? AccessRevoked;
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public ApprovedDocumentViewerViewModel(ApprovedDocumentService service, SharedDocument document, bool canDownload)
@@ -44,7 +45,7 @@ public sealed class ApprovedDocumentViewerViewModel : INotifyPropertyChanged, ID
             await BuildReadOnlyHostAsync(access.Content).ConfigureAwait(true);
             if (!approvalWarning) Status = "Document opened in read-only mode.";
         }
-        catch (Exception exception) { Status = $"Unable to render the approved document: {exception.Message}"; }
+        catch (Exception exception) { HandleFailure(exception, "Unable to render the approved document"); }
     }
 
     private async Task BuildReadOnlyHostAsync(Stream content)
@@ -72,7 +73,13 @@ public sealed class ApprovedDocumentViewerViewModel : INotifyPropertyChanged, ID
     private async Task DownloadAsync()
     {
         try { var replacement = await _service.DownloadAsync(_document.DocumentId, _document.VersionId).ConfigureAwait(true); await ReplaceContentAsync(replacement).ConfigureAwait(true); Status = "Download ready."; }
-        catch (Exception exception) { Status = $"Unable to download the approved document: {exception.Message}"; }
+        catch (Exception exception) { HandleFailure(exception, "Unable to download the approved document"); }
+    }
+
+    private void HandleFailure(Exception exception, string prefix)
+    {
+        Status = $"{prefix}: {exception.Message}";
+        if (exception is UnauthorizedAccessException && string.Equals(exception.Message, ApprovedDocumentService.RevokedMessage, StringComparison.Ordinal)) AccessRevoked?.Invoke();
     }
 
     public void Dispose() { _renderContent?.Dispose(); _renderContent = null; Content?.Dispose(); Content = null; TryDeleteTemporaryFile(); GC.SuppressFinalize(this); }

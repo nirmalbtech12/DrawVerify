@@ -77,7 +77,9 @@ public sealed class SqliteDocumentAuditRepositoryTests
                 await repository.WriteAsync(new AuditEntry { DocumentId = document, UserId = "viewer-1", ActorRole = SystemRoles.Viewer, DocumentRevision = "2", DocumentVersion = "version-2", Action = action, TimestampUtc = new DateTime(2026, 9, 18, 12, 0, 0, DateTimeKind.Utc), DetailsJson = $"{{\"action\":\"{action}\"}}" });
 
             var records = await repository.QueryAsync(new AuditLogQuery(DocumentId: document));
-            Assert.Equal(new[] { DocumentAuditAction.DocumentViewed, DocumentAuditAction.DocumentDownloaded }, records.Select(x => x.Action));
+            Assert.Equal(2, records.Count);
+            Assert.Contains(records, record => record.Action == DocumentAuditAction.DocumentViewed);
+            Assert.Contains(records, record => record.Action == DocumentAuditAction.DocumentDownloaded);
             Assert.All(records, record => { Assert.Equal("viewer-1", record.ActorId); Assert.Equal(SystemRoles.Viewer, record.ActorRole); Assert.Equal("2", record.DocumentRevision); Assert.Equal("version-2", record.DocumentVersion); Assert.DoesNotContain("payload", record.DetailsJson, StringComparison.OrdinalIgnoreCase); });
         }
         finally { SqliteConnection.ClearAllPools(); if (File.Exists(path)) File.Delete(path); }

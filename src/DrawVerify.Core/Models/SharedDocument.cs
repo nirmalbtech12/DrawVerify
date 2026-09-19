@@ -20,6 +20,7 @@ public sealed record SharedDocument
     public string? SharingNote { get; init; }
     public DrawVerify.Core.Enums.DocumentType DocumentType { get; init; }
     public string StoredRelativePath { get; init; } = string.Empty;
+    public bool IsRevoked { get; init; }
     public SignatureData? ApproverSignature { get; init; }
     public InternalApprovalStamp? ApprovalStamp { get; init; }
     public string? ApprovalInformationError { get; init; }
