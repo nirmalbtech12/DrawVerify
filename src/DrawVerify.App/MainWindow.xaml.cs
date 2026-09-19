@@ -65,6 +65,12 @@ public partial class MainWindow : Window
         if (target == ScreenRegistry.DxfUpload) { var view = new DxfUploadView { DataContext = CompositionRoot.CreateDxfUploadViewModel() }; view.AttachFilePicker((DxfUploadViewModel)view.DataContext); view.BackRequested += () => HandleTaskBack((TaskScreenViewModel)view.DataContext); return view; }
         if (target == ScreenRegistry.Verification) { var model = new VerificationViewModel(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization, CompositionRoot.CreateDimensionMatchingService(), new CentralizedLogger(), CompositionRoot.ConfiguredDimensionMatching); var package = _pendingReviewPackage; var highlight = _pendingVerificationHighlight; _pendingReviewPackage = null; _pendingVerificationHighlight = null; if (package is not null) _ = model.LoadReviewContextAsync(package, highlight); else model.SetHighlight(highlight); var view = new VerificationView { DataContext = model }; view.BackRequested += () => HandleTaskBack((TaskScreenViewModel)view.DataContext); return view; }
         if (target == ScreenRegistry.Workflow) { var model = new WorkflowViewModel(CompositionRoot.CreateWorkflowService(), CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization, new CentralizedLogger()); model.NavigationRequested += _ => Navigate(ScreenRegistry.Workflow); model.VerificationNavigationRequested += finding => { _pendingReviewPackage = model.ReviewPackage; _pendingVerificationHighlight = finding.HighlightTarget ?? finding.Identifier; Navigate(ScreenRegistry.Verification); }; model.ReturnRequested += request => { _pendingSubmission = request; GoBack(); }; var pending = _pendingSubmission; _pendingSubmission = null; if (pending is not null) model.BeginSubmission(pending); var view = new WorkflowView { DataContext = model }; view.BackRequested += () => { if (model.IsConfirmationVisible) _ = model.CancelAndReturnAsync(); else HandleTaskBack(model); }; _ = model.LoadQueueAsync(); _ = model.LoadMakerReviewPackagesAsync(); return view; }
+        if (target == ScreenRegistry.SharedDocuments)
+        {
+            var model = new SharedDocumentsViewModel(CompositionRoot.CreateApprovedDocumentService());
+            model.OpenRequested += document => ShowApprovedDocumentViewer(document, model);
+            return new SharedDocumentsView { DataContext = model };
+        }
         if (target == ScreenRegistry.UserAdministration) return CreateAdministrationView();
         if (target == ScreenRegistry.WorkflowConfiguration) return new WorkflowConfigurationView { DataContext = new WorkflowConfigurationViewModel(CompositionRoot.CreateWorkflowConfigurationService(), CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization, new CentralizedLogger()) };
         if (target == ScreenRegistry.ReportTemplateConfiguration) return new ReportTemplateConfigurationView { DataContext = CompositionRoot.CreateReportTemplateConfigurationViewModel() };
@@ -79,6 +85,15 @@ public partial class MainWindow : Window
         model.AuthorizationStateChanged += RefreshAuthenticatedShell; model.CancelRequested += () => { if (!model.IsCreationDirty || DiscardConfirmation() == MessageBoxResult.Yes) { model.DiscardCreation(); Navigate(ScreenRegistry.Dashboard); } }; model.BackRequested += () => { if (!model.IsCreationDirty || DiscardConfirmation() == MessageBoxResult.Yes) { model.DiscardCreation(); Navigate(ScreenRegistry.Dashboard); } }; model.RoleCancelRequested += () => Navigate(ScreenRegistry.Dashboard); model.RoleBackRequested += () => Navigate(ScreenRegistry.Dashboard); model.RoleConfirmation = message => MessageBox.Show(message, "Confirm role changes", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes; return view;
     }
     private void RefreshAuthenticatedShell() => ShowAuthenticatedContent();
+    private void ShowApprovedDocumentViewer(SharedDocument document, SharedDocumentsViewModel source)
+    {
+        var service = CompositionRoot.CreateApprovedDocumentService();
+        var model = new ApprovedDocumentViewerViewModel(service, document, service.AllowDownload);
+        model.AccessRevoked += () => { source.ClearSelectionAndReload(); _shell?.SetScreen(new SharedDocumentsView { DataContext = source }, ScreenRegistry.SharedDocuments); };
+        var view = new ApprovedDocumentViewerView { DataContext = model };
+        view.Unloaded += (_, _) => model.Dispose();
+        _shell?.SetScreen(view, "ApprovedDocumentViewer");
+    }
     private void HandleTaskBack(TaskScreenViewModel model)
     {
         if (model.IsDirty && DiscardConfirmation() != MessageBoxResult.Yes) return;

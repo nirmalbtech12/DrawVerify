@@ -7,6 +7,17 @@ namespace DrawVerify.App.Tests;
 
 public sealed class SignatureStampControlTests
 {
+    [Fact(DisplayName = "TSD-CROSS-CLIENT signature and stamp control exposes the same finalized read-only metadata contract")]
+    public void Finalized_signature_contract_is_consistent_for_viewers()
+    {
+        var code = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Controls", "SignatureStampControl.xaml.cs")));
+        var xaml = File.ReadAllText(FindRepositoryFile(Path.Combine("src", "DrawVerify.App", "Controls", "SignatureStampControl.xaml")));
+        Assert.Contains("IsFinalized", code);
+        Assert.Contains("CanEdit", code);
+        Assert.Contains("IsSignatureVisible", code);
+        Assert.Contains("MetadataText", code);
+        Assert.Contains("SignatureLabel", xaml);
+    }
     [Fact(DisplayName = "REV-KAN66-001 Approver control is dedicated, bound, and persisted by the final-approval view")]
     public void Approver_control_has_dedicated_bindings_and_finalization_route()
     {
