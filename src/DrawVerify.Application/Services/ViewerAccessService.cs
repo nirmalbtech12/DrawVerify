@@ -63,18 +63,30 @@ public sealed class ViewerAccessService : IViewerAccessService
         catch (Exception exception) { _logger.Log(exception, "Aggregate viewer sharing status", $"Document={documentId}, version={versionId}."); throw; }
     }
 
-    public Task<ViewerAccessBulkPreview> PreviewBulkAsync(ViewerAccessBulkRequest request, CancellationToken cancellationToken = default)
+    public async Task<ViewerAccessBulkPreview> PreviewBulkAsync(ViewerAccessBulkRequest request, CancellationToken cancellationToken = default)
     {
         RequireManager();
         if (!_configuration.AllowBulkActions) throw new InvalidOperationException("Bulk Viewer access actions are disabled.");
-        if (request.Documents.Count == 0 || request.Targets.Count == 0) throw new ArgumentException("Select at least one document and one access target.");
+        if (request is null || request.Documents.Count == 0 || request.Targets.Count == 0) throw new ArgumentException("Select at least one document and one access target.");
         ValidateExpiration(request.ExpiresUtc);
-        return Task.FromResult(new ViewerAccessBulkPreview(request.Documents.Count, request.Targets.Count, $"{(request.Revoke ? "Revoke" : "Grant")} access for {request.Targets.Count} target(s) across {request.Documents.Count} document version(s).", Array.Empty<string>()));
+        var errors = new List<string>();
+        foreach (var document in request.Documents.Distinct())
+        {
+            try { await _repository.ListGrantsAsync(document.DocumentId, document.VersionId, cancellationToken).ConfigureAwait(false); }
+            catch (Exception exception) { _logger.Log(exception, "Validate bulk viewer access document", $"Document={document.DocumentId}, version={document.VersionId}."); errors.Add($"Document {document.DocumentId} version {document.VersionId}: {exception.Message}"); }
+        }
+        var availableTargets = await _repository.SearchTargetsAsync(string.Empty, cancellationToken).ConfigureAwait(false);
+        foreach (var target in request.Targets.Where(target => !availableTargets.Any(candidate => candidate.Kind == target.Kind && candidate.Id.Equals(target.Id, StringComparison.OrdinalIgnoreCase))))
+            errors.Add($"Viewer access target '{target.DisplayName}' was not found or is not Viewer-capable.");
+        var operation = request.Revoke ? "Revoke" : "Grant";
+        var summary = $"{operation} access for {request.Targets.Count} target(s) across {request.Documents.Count} document version(s).";
+        return new ViewerAccessBulkPreview(request.Documents.Count, request.Targets.Count, summary, errors);
     }
 
     public async Task<ViewerAccessMutationResult> ConfirmBulkAsync(ViewerAccessBulkRequest request, CancellationToken cancellationToken = default)
     {
-        await PreviewBulkAsync(request, cancellationToken).ConfigureAwait(false);
+        var preview = await PreviewBulkAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!preview.Succeeded) throw new InvalidOperationException(string.Join("; ", preview.Errors));
         var actor = RequireManager();
         try { return await _repository.MutateBulkAsync(request, actor, cancellationToken).ConfigureAwait(false); }
         catch (Exception exception) { _logger.Log(exception, "Bulk viewer access mutation", $"Documents={request.Documents.Count}, targets={request.Targets.Count}, actor={actor.UserId}, revoke={request.Revoke}."); throw; }

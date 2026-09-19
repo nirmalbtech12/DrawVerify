@@ -83,9 +83,10 @@ public sealed class SqliteViewerAccessRepository : IViewerAccessRepository
     {
         await using var connection = await OpenAsync(token);
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT 1 FROM ViewerAccessGrant g WHERE g.DocumentId=$document AND g.VersionId=$version AND g.IsRevoked=0 AND (g.ExpiresUtc IS NULL OR g.ExpiresUtc>$now) AND (EXISTS (SELECT 1 FROM UserAccountRole viewerRole WHERE viewerRole.UserId=$user AND viewerRole.RoleName='Viewer') OR g.TargetKind='Role') AND ((g.TargetKind='User' AND g.TargetId=$user) OR (g.TargetKind='Role' AND EXISTS (SELECT 1 FROM UserAccountRole r WHERE r.UserId=$user AND r.RoleName=g.TargetId)) OR (g.TargetKind='Group' AND EXISTS (SELECT 1 FROM ViewerAccessGroupMember m WHERE m.GroupId=g.TargetId AND m.UserId=$user))) LIMIT 1 UNION SELECT 1 FROM SharedDocumentShare s WHERE s.DocumentId=$document AND s.VersionId=$version AND s.RecipientUserId=$user AND s.IsRevoked=0 LIMIT 1";
+        command.CommandText = "SELECT EXISTS (SELECT 1 WHERE EXISTS (SELECT 1 FROM ViewerAccessGrant g WHERE g.DocumentId=$document AND g.VersionId=$version AND g.IsRevoked=0 AND (g.ExpiresUtc IS NULL OR g.ExpiresUtc>$now) AND (EXISTS (SELECT 1 FROM UserAccountRole viewerRole WHERE viewerRole.UserId=$user AND viewerRole.RoleName='Viewer') OR g.TargetKind='Role') AND ((g.TargetKind='User' AND g.TargetId=$user) OR (g.TargetKind='Role' AND EXISTS (SELECT 1 FROM UserAccountRole r WHERE r.UserId=$user AND r.RoleName=g.TargetId)) OR (g.TargetKind='Group' AND EXISTS (SELECT 1 FROM ViewerAccessGroupMember m WHERE m.GroupId=g.TargetId AND m.UserId=$user)))) OR EXISTS (SELECT 1 FROM SharedDocumentShare s WHERE s.DocumentId=$document AND s.VersionId=$version AND s.RecipientUserId=$user AND s.IsRevoked=0))";
         command.Parameters.AddWithValue("$document", documentId.ToString()); command.Parameters.AddWithValue("$version", versionId.ToString()); command.Parameters.AddWithValue("$user", userId); command.Parameters.AddWithValue("$now", DateTime.UtcNow.ToString("O"));
-        return await command.ExecuteScalarAsync(token) is not null;
+        var result = await command.ExecuteScalarAsync(token);
+        return result is not null && Convert.ToInt64(result, System.Globalization.CultureInfo.InvariantCulture) != 0;
     }
 
     public Task<ViewerAccessMutationResult> GrantAsync(Guid documentId, Guid versionId, ViewerAccessChange change, AuthenticatedUser actor, CancellationToken token = default)
