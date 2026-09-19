@@ -41,30 +41,27 @@ public sealed class ApprovedDocumentService : IApprovedDocumentService
     public async Task<SharedDocumentAccess> OpenAsync(Guid documentId, Guid? versionId = null, CancellationToken token = default)
     {
         var user = RequireViewer();
-        var document = await _documents.GetAccessStateAsync(user.UserId, documentId, versionId, token).ConfigureAwait(false);
-        if (document is null) throw new UnauthorizedAccessException(UnsharedMessage);
-        if (document.IsRevoked) throw new UnauthorizedAccessException(RevokedMessage);
-        if (!string.IsNullOrWhiteSpace(document.ApprovalInformationError))
-            _logger.Log(new InvalidDataException(document.ApprovalInformationError), "Approved document approval metadata", $"Invalid approval metadata for document {document.DocumentId}, version {document.VersionId}.");
-        else if (document.ApproverSignature is null || document.ApprovalStamp is null)
-            _logger.Log(new InvalidDataException("Final approval metadata is incomplete."), "Approved document approval metadata", $"Approval metadata is incomplete for document {document.DocumentId}, version {document.VersionId}.");
+        SharedDocument? document = null;
         Stream? content = null;
         try
         {
-            content = document.DocumentType == DrawVerify.Core.Enums.DocumentType.DxfDrawing
-                ? await _dxfFiles.OpenReadAsync(document.StoredRelativePath, token).ConfigureAwait(false)
-                : await _stepFiles.OpenReadAsync(document.StoredRelativePath, token).ConfigureAwait(false);
+            document = await _documents.GetAccessStateAsync(user.UserId, documentId, versionId, token).ConfigureAwait(false);
+            if (document is null) throw new UnauthorizedAccessException(UnsharedMessage);
+            if (document.IsRevoked) throw new UnauthorizedAccessException(RevokedMessage);
+            LogApprovalMetadata(document);
+            EnsureSupportedFormat(document);
+            content = await OpenContentAsync(document, token).ConfigureAwait(false);
             await WriteAuditAsync(document, user, DocumentAuditAction.DocumentViewed, token).ConfigureAwait(false);
-            return new SharedDocumentAccess(document, content);
+            return new SharedDocumentAccess(document, content!);
         }
         catch (Exception exception)
         {
             if (content is not null)
             {
                 try { await content.DisposeAsync().ConfigureAwait(false); }
-                catch (Exception disposeException) { _logger.Log(disposeException, "Approved document view cleanup", $"Unable to dispose the failed view stream for document {document.DocumentId}, version {document.VersionId}."); }
+                catch (Exception disposeException) { _logger.Log(disposeException, "Approved document view cleanup", $"Unable to dispose the failed view stream for document {document?.DocumentId.ToString() ?? documentId.ToString()}, version {document?.VersionId.ToString() ?? versionId?.ToString() ?? "latest"}."); }
             }
-            _logger.Log(exception, "Approved document view", $"Unable to open document {document.DocumentId}, version {document.VersionId}.");
+            _logger.Log(exception, "Approved document view", $"Unable to open document {documentId}, version {versionId?.ToString() ?? "latest"}, format={document?.DocumentType.ToString() ?? "unknown"}.");
             throw;
         }
     }
@@ -85,19 +82,43 @@ public sealed class ApprovedDocumentService : IApprovedDocumentService
     private async Task<SharedDocumentAccess> OpenWithoutAuditAsync(Guid documentId, Guid? versionId, CancellationToken token)
     {
         var user = RequireViewer();
-        var document = await _documents.GetAccessStateAsync(user.UserId, documentId, versionId, token).ConfigureAwait(false);
-        if (document is null) throw new UnauthorizedAccessException(UnsharedMessage);
-        if (document.IsRevoked) throw new UnauthorizedAccessException(RevokedMessage);
+        SharedDocument? document = null;
         try
         {
-            var content = document.DocumentType == DrawVerify.Core.Enums.DocumentType.DxfDrawing ? await _dxfFiles.OpenReadAsync(document.StoredRelativePath, token) : await _stepFiles.OpenReadAsync(document.StoredRelativePath, token);
+            document = await _documents.GetAccessStateAsync(user.UserId, documentId, versionId, token).ConfigureAwait(false);
+            if (document is null) throw new UnauthorizedAccessException(UnsharedMessage);
+            if (document.IsRevoked) throw new UnauthorizedAccessException(RevokedMessage);
+            EnsureSupportedFormat(document);
+            var content = await OpenContentAsync(document, token).ConfigureAwait(false);
             return new SharedDocumentAccess(document, content);
         }
         catch (Exception exception)
         {
-            _logger.Log(exception, "Approved document download file resolution", $"Unable to resolve document {document.DocumentId}, version {document.VersionId}, action={DocumentAuditAction.DocumentDownloaded}.");
+            _logger.Log(exception, "Approved document download resolution", $"Unable to resolve document {documentId}, version {versionId?.ToString() ?? "latest"}, format={document?.DocumentType.ToString() ?? "unknown"}, action={DocumentAuditAction.DocumentDownloaded}.");
             throw;
         }
+    }
+
+    private async Task<Stream> OpenContentAsync(SharedDocument document, CancellationToken token)
+        => document.DocumentType switch
+        {
+            DrawVerify.Core.Enums.DocumentType.StepModel => await _stepFiles.OpenReadAsync(document.StoredRelativePath, token).ConfigureAwait(false),
+            DrawVerify.Core.Enums.DocumentType.DxfDrawing => await _dxfFiles.OpenReadAsync(document.StoredRelativePath, token).ConfigureAwait(false),
+            _ => throw new NotSupportedException($"Document format '{document.DocumentType}' is not supported by the approved viewer.")
+        };
+
+    private static void EnsureSupportedFormat(SharedDocument document)
+    {
+        if (document.DocumentType is not (DrawVerify.Core.Enums.DocumentType.StepModel or DrawVerify.Core.Enums.DocumentType.DxfDrawing))
+            throw new NotSupportedException($"Document format '{document.DocumentType}' is not supported by the approved viewer.");
+    }
+
+    private void LogApprovalMetadata(SharedDocument document)
+    {
+        if (!string.IsNullOrWhiteSpace(document.ApprovalInformationError))
+            _logger.Log(new InvalidDataException(document.ApprovalInformationError), "Approved document approval metadata", $"Invalid approval metadata for document {document.DocumentId}, version {document.VersionId}, format={document.DocumentType}.");
+        else if (document.ApproverSignature is null || document.ApprovalStamp is null)
+            _logger.Log(new InvalidDataException("Final approval metadata is incomplete."), "Approved document approval metadata", $"Approval metadata is incomplete for document {document.DocumentId}, version {document.VersionId}, format={document.DocumentType}.");
     }
 
     private async Task WriteAuditAsync(SharedDocument document, AuthenticatedUser user, DocumentAuditAction action, CancellationToken token)

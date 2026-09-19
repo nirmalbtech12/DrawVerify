@@ -5,7 +5,9 @@ using System.Windows.Input;
 using DrawVerify.Application.Services;
 using DrawVerify.App.Views;
 using DrawVerify.Core.Enums;
+using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
+using DrawVerify.Infrastructure.Logging;
 
 namespace DrawVerify.App.ViewModels;
 
@@ -13,6 +15,7 @@ public sealed class ApprovedDocumentViewerViewModel : INotifyPropertyChanged, ID
 {
     private readonly ApprovedDocumentService _service;
     private readonly SharedDocument _document;
+    private readonly ICentralizedLogger _logger;
     private string _status = string.Empty;
     private IDisposable? _renderContent;
     private string? _temporaryPath;
@@ -26,9 +29,9 @@ public sealed class ApprovedDocumentViewerViewModel : INotifyPropertyChanged, ID
     public event Action? AccessRevoked;
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public ApprovedDocumentViewerViewModel(ApprovedDocumentService service, SharedDocument document, bool canDownload)
+    public ApprovedDocumentViewerViewModel(ApprovedDocumentService service, SharedDocument document, bool canDownload, ICentralizedLogger? logger = null)
     {
-        _service = service; _document = document; CanDownload = canDownload;
+        _service = service; _document = document; _logger = logger ?? new CentralizedLogger(); CanDownload = canDownload;
         DownloadCommand = new Command(async _ => await DownloadAsync(), _ => CanDownload);
         _ = OpenAsync();
     }
@@ -45,7 +48,7 @@ public sealed class ApprovedDocumentViewerViewModel : INotifyPropertyChanged, ID
             await BuildReadOnlyHostAsync(access.Content).ConfigureAwait(true);
             if (!approvalWarning) Status = "Document opened in read-only mode.";
         }
-        catch (Exception exception) { HandleFailure(exception, "Unable to render the approved document"); }
+        catch (Exception exception) { _logger.Log(exception, "Approved document viewer", $"Unable to render document {_document.DocumentId}, version {_document.VersionId}, format={_document.DocumentType}."); HandleFailure(exception, "Unable to render the approved document"); }
     }
 
     private async Task BuildReadOnlyHostAsync(Stream content)
@@ -56,6 +59,8 @@ public sealed class ApprovedDocumentViewerViewModel : INotifyPropertyChanged, ID
             var preview = new DxfPreviewViewModel(); preview.SetInternalApprovalStamp(_document.ApprovalStamp);
             ViewerContent = new DxfPreviewView { DataContext = preview, IsEnabled = false }; PropertyChanged?.Invoke(this, new(nameof(ViewerContent))); return;
         }
+        if (_document.DocumentType != DrawVerify.Core.Enums.DocumentType.StepModel)
+            throw new NotSupportedException($"Document format '{_document.DocumentType}' is not supported by the approved viewer.");
         _temporaryPath = Path.Combine(Path.GetTempPath(), $"drawverify-viewer-{Guid.NewGuid():N}.step");
         await using (var file = File.Create(_temporaryPath)) await content.CopyToAsync(file).ConfigureAwait(true);
         var step = new StepPreviewViewModel();
@@ -73,7 +78,7 @@ public sealed class ApprovedDocumentViewerViewModel : INotifyPropertyChanged, ID
     private async Task DownloadAsync()
     {
         try { var replacement = await _service.DownloadAsync(_document.DocumentId, _document.VersionId).ConfigureAwait(true); await ReplaceContentAsync(replacement).ConfigureAwait(true); Status = "Download ready."; }
-        catch (Exception exception) { HandleFailure(exception, "Unable to download the approved document"); }
+        catch (Exception exception) { _logger.Log(exception, "Approved document viewer download", $"Unable to download document {_document.DocumentId}, version {_document.VersionId}, format={_document.DocumentType}."); HandleFailure(exception, "Unable to download the approved document"); }
     }
 
     private void HandleFailure(Exception exception, string prefix)
