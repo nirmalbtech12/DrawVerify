@@ -22,12 +22,12 @@ public sealed class RoleMenuTests
         });
     }
     [Theory(DisplayName = "WPF-003 role menu matrix contains only permitted top-level entries")]
-    [InlineData(SystemRoles.Maker, true, false)]
-    [InlineData(SystemRoles.Checker, false, false)]
-    [InlineData(SystemRoles.Approver, false, false)]
-    [InlineData(SystemRoles.Admin, false, true)]
-    [InlineData(SystemRoles.Viewer, false, false)]
-    public void MenuVisibilityMatchesRole(string role, bool uploadVisible, bool adminVisible)
+    [InlineData(SystemRoles.Maker, true, false, false)]
+    [InlineData(SystemRoles.Checker, false, false, false)]
+    [InlineData(SystemRoles.Approver, false, false, false)]
+    [InlineData(SystemRoles.Admin, false, true, false)]
+    [InlineData(SystemRoles.Viewer, false, false, true)]
+    public void MenuVisibilityMatchesRole(string role, bool uploadVisible, bool adminVisible, bool sharedDocumentsVisible)
     {
         Sta.Run(() =>
         {
@@ -35,6 +35,7 @@ public sealed class RoleMenuTests
             var menus = new RoleMenuBuilder(session, new RoleAuthorization()).Build(_ => { }, () => Task.CompletedTask, _ => { }).ToArray();
             var expected = new[] { "_File", "_Verification", "_Workflow", "_Help" }
                 .Concat(uploadVisible ? ["_Upload & Verify"] : [])
+                .Concat(sharedDocumentsVisible ? ["_Shared Documents"] : [])
                 .Concat(adminVisible ? ["_Admin"] : [])
                 .OrderBy(x => x);
             Assert.Equal(expected, menus.Select(x => x.Header?.ToString()).OrderBy(x => x));
