@@ -80,6 +80,16 @@ public partial class MainWindow : Window
             _ = LoadApprovedDocumentListAsync(model);
             return new DocumentListView { DataContext = model };
         }
+        if (target == ScreenRegistry.SharedLinkManagement)
+        {
+            var sharedLinkDocument = _pendingSharedLinkDocument;
+            if (sharedLinkDocument is not null) return CreateSharedLinkManagementView(sharedLinkDocument);
+            var model = CompositionRoot.CreateApprovedDocumentListViewModel();
+            model.OpenRequested += document => ShowApprovedDocumentViewer(document, model);
+            model.SharingRequested += document => ShowSharedLinkManagement(document, model);
+            _ = LoadApprovedDocumentListAsync(model);
+            return new DocumentListView { DataContext = model };
+        }
         if (target == ScreenRegistry.UserAdministration) return CreateAdministrationView();
         if (target == ScreenRegistry.WorkflowConfiguration) return new WorkflowConfigurationView { DataContext = new WorkflowConfigurationViewModel(CompositionRoot.CreateWorkflowConfigurationService(), CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization, new CentralizedLogger()) };
         if (target == ScreenRegistry.ReportTemplateConfiguration) return new ReportTemplateConfigurationView { DataContext = CompositionRoot.CreateReportTemplateConfigurationViewModel() };

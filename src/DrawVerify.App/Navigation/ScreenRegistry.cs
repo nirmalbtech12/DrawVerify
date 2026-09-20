@@ -17,7 +17,7 @@ public static class ScreenRegistry
     public const string Report = "Report";
     public const string Help = "Help";
     public const string SharedDocuments = "SharedDocuments";
-    public const string SharedLinkManagement = SharedDocuments;
+    public const string SharedLinkManagement = "SharedLinkManagement";
 
     public static IReadOnlyList<MenuDefinition> Menus { get; } = new[]
     {
@@ -31,5 +31,5 @@ public static class ScreenRegistry
         new MenuDefinition("_Help", Help)
     };
 
-    public static string Title(string target) => target switch { UploadVerify => "Upload & Verify", StepUpload => "Upload Model", DxfUpload => "Upload Drawing", Verification => "Verification", Workflow => "Workflow", SharedDocuments => "Shared Documents", UserAdministration => "Administration", WorkflowConfiguration => "Workflow Configuration", ReportTemplateConfiguration => "Report Template Configuration", AuditLog => "Audit Log", Report => "Report", Help => "Help", _ => "Dashboard" };
+    public static string Title(string target) => target switch { UploadVerify => "Upload & Verify", StepUpload => "Upload Model", DxfUpload => "Upload Drawing", Verification => "Verification", Workflow => "Workflow", SharedDocuments => "Shared Documents", SharedLinkManagement => "Shared Link Management", UserAdministration => "Administration", WorkflowConfiguration => "Workflow Configuration", ReportTemplateConfiguration => "Report Template Configuration", AuditLog => "Audit Log", Report => "Report", Help => "Help", _ => "Dashboard" };
 }
