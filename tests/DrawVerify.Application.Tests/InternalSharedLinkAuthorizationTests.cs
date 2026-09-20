@@ -14,11 +14,11 @@ public sealed class InternalSharedLinkAuthorizationTests
     {
         var policy = new InternalSharedLinkPolicy { InternalDomain = "drawverify.internal", AllowedRoles = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Viewer" } };
         var document = new Document { DocumentId = Guid.NewGuid(), Status = DocumentStatus.Active };
-        var version = new DocumentVersion { DocumentId = document.DocumentId, VersionId = Guid.NewGuid() };
+        var version = new DocumentVersion { DocumentId = document.DocumentId, VersionId = Guid.NewGuid(), VersionNumber = 1 };
         var link = new InternalSharedLink { DocumentId = document.DocumentId, VersionId = version.VersionId, Token = "hash", IsActive = true, TrackingEnabled = false };
         var documents = new DocumentsFake(document, version);
         var session = new SessionFake(new AuthenticatedUser("viewer@drawverify.internal", new[] { "Viewer" }));
-        var service = new InternalSharedLinkService(documents, new LinksFake(link), session, identity: new Provider(policy), policy: policy, baseUrl: "https://drawverify.internal/share");
+        var service = new InternalSharedLinkService(documents, new LinksFake(link), session, identity: new Provider(policy), policy: policy, baseUrl: "https://drawverify.internal/share", workflow: new WorkflowFake());
         var internalUser = new AuthenticatedUser("viewer@drawverify.internal", new[] { "Viewer" });
         var externalUser = new AuthenticatedUser("viewer@external.example", new[] { "Viewer" });
         var allowed = await service.AuthorizeAsync(new InternalSharedLinkAccessRequest("any"));
@@ -68,5 +68,16 @@ public sealed class InternalSharedLinkAuthorizationTests
         public bool IsAuthenticated => CurrentUser is not null;
         public void SignIn(AuthenticatedUser value) => CurrentUser = value;
         public void SignOut() => CurrentUser = null;
+    }
+
+    private sealed class WorkflowFake : IWorkflowRepository
+    {
+        public Task<WorkflowState?> GetStateAsync(Guid packageId, CancellationToken cancellationToken = default) => Task.FromResult<WorkflowState?>(new WorkflowState { PackageId = packageId, Status = WorkflowStatus.FinallyApproved, Revision = 1 });
+        public Task<ReviewSubmission?> GetSubmissionAsync(Guid submissionId, CancellationToken cancellationToken = default) => Task.FromResult<ReviewSubmission?>(null);
+        public Task<IReadOnlyList<ReviewSubmission>> GetSubmissionsAsync(Guid packageId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ReviewSubmission>>(Array.Empty<ReviewSubmission>());
+        public Task<IReadOnlyList<WorkflowQueueItem>> GetCheckerQueueAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<WorkflowQueueItem>>(Array.Empty<WorkflowQueueItem>());
+        public Task<ReviewSubmission> SubmitAtomicallyAsync(WorkflowState expectedState, ReviewSubmission submission, AuditEntry auditEntry, CancellationToken cancellationToken = default) => Task.FromResult(submission);
+        public Task RecordAuditAsync(AuditEntry auditEntry, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task MarkSupersededAsync(Guid submissionId, AuditEntry auditEntry, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }
