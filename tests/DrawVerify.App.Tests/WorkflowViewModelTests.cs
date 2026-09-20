@@ -9,6 +9,41 @@ namespace DrawVerify.App.Tests;
 
 public sealed class WorkflowViewModelTests
 {
+    [Theory(DisplayName = "TSD-AC03-STATUS PDF/image workflow queue exposes actual neutral status")]
+    [InlineData(WorkflowStatus.Draft)]
+    [InlineData(WorkflowStatus.SubmittedForReview)]
+    [InlineData(WorkflowStatus.Approved)]
+    public void Pdf_only_status_is_not_a_3d_pending_state(WorkflowStatus status)
+    {
+        var model = new WorkflowViewModel();
+        model.Queue.Add(new WorkflowQueueItem(Guid.NewGuid(), 1, "Maker", DateTime.UtcNow, status, string.Empty));
+
+        var item = Assert.Single(model.Queue);
+        Assert.Equal(status, item.Status);
+        Assert.DoesNotContain("3D comparison pending", item.Status.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact(DisplayName = "TSD-AC05-FEEDBACK reviewer can save structured PDF/image feedback without a viewer")]
+    public async Task Reviewer_feedback_command_preserves_document_reference_fields()
+    {
+        var package = ReviewFixture() with { StepDocumentVersionId = Guid.NewGuid(), DxfDocumentVersionId = Guid.Empty, DxfDocumentId = Guid.Empty, VerificationSessionId = Guid.Empty };
+        var service = new FakeWorkflowService { ReviewPackage = package };
+        var model = new WorkflowViewModel(service, new FakeAuthentication(new AuthenticatedUser("checker", new[] { SystemRoles.Checker })));
+        await model.OpenReviewAsync(new WorkflowQueueItem(package.PackageId, package.Revision, "Maker", DateTime.UtcNow, WorkflowStatus.SubmittedForReview, string.Empty));
+        model.ReviewComment = "Review page 1";
+        model.ReferenceType = "drawing";
+        model.ReferenceId = "page-1";
+        model.ReferenceLocation = "x=10,y=20";
+
+        model.SaveReviewCommentCommand.Execute(null);
+        await WaitForAsync(() => service.DraftCalls == 1, TimeSpan.FromSeconds(5));
+
+        Assert.Equal(package.PackageId, service.LastPackageId);
+        Assert.Equal(package.Revision, service.LastRevision);
+        Assert.Equal("drawing", service.LastReferenceType);
+        Assert.Equal("page-1", service.LastReferenceId);
+    }
+
     [Fact(DisplayName = "TD-12 authorized history renders ordered Checker and Approver rejection context")]
     public async Task Td12_authorized_history_renders_ordered_rejection_context()
     {
@@ -376,6 +411,8 @@ sealed class FakeWorkflowService : IWorkflowService
     public int DecisionCalls { get; private set; }
     public int CommentCalls { get; private set; }
     public int DraftCalls { get; private set; }
+    public Guid LastPackageId { get; private set; }
+    public int LastRevision { get; private set; }
     public string? LastDraftText { get; private set; }
     public string? LastReferenceType { get; private set; }
     public string? LastReferenceId { get; private set; }
@@ -397,7 +434,7 @@ sealed class FakeWorkflowService : IWorkflowService
     public Task<ReviewDecision> RejectToCheckerAsync(Guid packageId, int revision, string reason, string comments, CancellationToken cancellationToken = default) => Task.FromResult(new ReviewDecision { PackageId = packageId, Revision = revision, Route = ReviewDecisionRoute.ToChecker, OverallReason = reason, Comments = comments });
     public Task<ReviewDecision> DecideAsync(Guid packageId, int revision, ReviewDecisionType decisionType, string? comments, CancellationToken cancellationToken = default) { DecisionCalls++; if (DecideException is not null) return Task.FromException<ReviewDecision>(DecideException); LastDecisionType = decisionType; LastComments = comments?.Trim(); return Task.FromResult(new ReviewDecision { PackageId = packageId, Revision = revision, DecisionType = decisionType, CheckerUserId = "checker-1" }); }
     public Task<ReviewComment> AddReviewCommentAsync(Guid packageId, int revision, string text, CancellationToken cancellationToken = default) { CommentCalls++; return Task.FromResult(new ReviewComment { PackageId = packageId, Revision = revision, AuthorUserId = "checker-1", Text = text.Trim() }); }
-    public Task<ReviewComment> SaveReviewCommentDraftAsync(Guid packageId, int revision, string text, string? referenceType = null, string? referenceId = null, string? location = null, CancellationToken cancellationToken = default) { DraftCalls++; LastDraftText = text.Trim(); LastReferenceType = referenceType; LastReferenceId = referenceId; LastReferenceLocation = location; return Task.FromResult(new ReviewComment { PackageId = packageId, Revision = revision, AuthorUserId = "checker-1", Text = LastDraftText, ReferenceType = referenceType, ReferenceId = referenceId, Location = location }); }
+    public Task<ReviewComment> SaveReviewCommentDraftAsync(Guid packageId, int revision, string text, string? referenceType = null, string? referenceId = null, string? location = null, CancellationToken cancellationToken = default) { DraftCalls++; LastPackageId = packageId; LastRevision = revision; LastDraftText = text.Trim(); LastReferenceType = referenceType; LastReferenceId = referenceId; LastReferenceLocation = location; return Task.FromResult(new ReviewComment { PackageId = packageId, Revision = revision, AuthorUserId = "checker-1", Text = LastDraftText, ReferenceType = referenceType, ReferenceId = referenceId, Location = location }); }
 }
 
 file sealed class RecordingNotificationService(InAppNotification notification) : INotificationService

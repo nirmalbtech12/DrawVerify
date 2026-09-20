@@ -22,7 +22,7 @@ public sealed record ReviewComment
         if (Revision < 1) throw new ArgumentOutOfRangeException(nameof(Revision));
         if (string.IsNullOrWhiteSpace(AuthorUserId)) throw new ArgumentException("Comment author is required.", nameof(AuthorUserId));
         if (string.IsNullOrWhiteSpace(Text)) throw new ArgumentException("Review comment cannot be blank.", nameof(Text));
-        if (!string.IsNullOrWhiteSpace(ReferenceType) && !new[] { "drawing", "model", "dimension", "gdt" }.Contains(ReferenceType.Trim(), StringComparer.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(ReferenceType) && !new[] { "drawing", "model", "dimension", "gdt", "pdf", "image", "page" }.Contains(ReferenceType.Trim(), StringComparer.OrdinalIgnoreCase))
             throw new ArgumentException("The issue reference type is not supported.", nameof(ReferenceType));
         if (!string.IsNullOrWhiteSpace(ReferenceType) && string.IsNullOrWhiteSpace(ReferenceId) && string.IsNullOrWhiteSpace(Location))
             throw new ArgumentException("An issue reference requires an identifier or location.", nameof(ReferenceId));

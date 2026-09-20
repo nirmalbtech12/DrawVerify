@@ -1,10 +1,12 @@
 using System.Text.Json;
 using DrawVerify.Application.StepUpload;
+using DrawVerify.Application.DrawingUpload;
 using DrawVerify.Core.Configuration;
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
 using DrawVerify.Core.Authorization;
+using CoreDocumentType = DrawVerify.Core.Enums.DocumentType;
 
 namespace DrawVerify.Application.Services;
 
@@ -97,6 +99,56 @@ public sealed class DocumentService
     }
 
     public Task<StepUploadResult> UploadStepAsync(StepUploadRequest request, bool confirmDuplicate = false) => UploadStepCoreAsync(request, confirmDuplicate);
+
+    public bool CanUploadDrawing => CanUploadStep;
+
+    public async Task<DrawingUploadResult> UploadDrawingAsync(DrawingUploadRequest request, bool confirmDuplicate = false)
+    {
+        await RefreshAuthorizationAsync(request.CancellationToken).ConfigureAwait(false);
+        if (!CanUploadDrawing) return DrawingUploadResult.Rejected("The Maker role is required to upload files.");
+        var name = Path.GetFileName(request.OriginalFileName);
+        var size = request.FileSizeBytes ?? (request.Content.CanSeek ? request.Content.Length : throw new InvalidOperationException("A non-seekable upload stream must provide its byte size."));
+        if (!DrawingFileValidator.HasValidExtension(name)) return DrawingUploadResult.Rejected(DrawingFileValidator.UnsupportedMessage);
+        if (!DrawingFileValidator.IsWithinSizeLimit(size, _configuration.MaxFileSizeMb)) return DrawingUploadResult.Rejected($"File exceeds the maximum allowed size of {_configuration.MaxFileSizeMb} MB.");
+        var validation = await DrawingFileValidator.ValidateAsync(request.Content, name, size, _configuration.ValidationTimeoutSeconds, request.CancellationToken).ConfigureAwait(false);
+        if (!validation.IsValid)
+        {
+            _logger?.Log(new InvalidDataException(validation.Message), "PDF/image upload validation", $"fileName={name}; fileSizeBytes={size}");
+            return DrawingUploadResult.Rejected(validation.Message);
+        }
+        var duplicate = await _documents.FindByOriginalNameAndSizeAsync(name, size, request.CancellationToken).ConfigureAwait(false);
+        if (duplicate is not null && !confirmDuplicate) return new() { Kind = DrawingUploadResultKind.Duplicate, Message = DuplicateMessage, Document = duplicate, OriginalFileName = name, FileSizeBytes = size };
+        StepUploadStagingFile? staging = null;
+        string? stagingPath = null;
+        string? finalPath = null;
+        try
+        {
+            staging = await _files.CreateStagingFileAsync(name, request.CancellationToken).ConfigureAwait(false);
+            stagingPath = staging.RelativePath;
+            await CopyAsync(request.Content, staging.Stream, size, request.Progress, request.CancellationToken).ConfigureAwait(false);
+            await staging.DisposeAsync().ConfigureAwait(false);
+            finalPath = await _files.MoveToFinalAsync(staging, request.CancellationToken).ConfigureAwait(false);
+            staging = null;
+            var type = DrawingType(name);
+            if (duplicate is not null)
+            {
+                var version = NewVersion(duplicate.DocumentId, duplicate.CurrentVersion + 1, finalPath, size, type);
+                await _transactionalDocuments.AddVersionWithAuditAsync(duplicate.DocumentId, version, CreateDrawingAudit(duplicate.DocumentId, DocumentAuditAction.Overwritten, request, "new version", version), request.CancellationToken).ConfigureAwait(false);
+                return new() { Kind = DrawingUploadResultKind.Success, Message = $"Uploaded {name} ({size} bytes).", Document = duplicate, OriginalFileName = name, FileSizeBytes = size };
+            }
+            var document = NewDocument(name, size, finalPath, type);
+            await _transactionalDocuments.CreateWithVersionAndAuditAsync(document, document.Version!, CreateDrawingAudit(document.DocumentId, DocumentAuditAction.Uploaded, request, "uploaded", document.Version), request.CancellationToken).ConfigureAwait(false);
+            return new() { Kind = DrawingUploadResultKind.Success, Message = $"Uploaded {name} ({size} bytes).", Document = document, OriginalFileName = name, FileSizeBytes = size };
+        }
+        catch (Exception exception)
+        {
+            await TryDisposeAsync(staging, exception, "drawing upload failure compensation").ConfigureAwait(false);
+            await TryDeleteAsync(stagingPath, exception, "drawing upload failure compensation").ConfigureAwait(false);
+            await TryDeleteAsync(finalPath, exception, "drawing upload failure compensation").ConfigureAwait(false);
+            _logger?.Log(exception, "PDF/image upload", $"fileName={name}; documentId={duplicate?.DocumentId.ToString() ?? "none"}");
+            throw;
+        }
+    }
 
     public async Task<StepUploadResult> CancelDuplicateAsync(StepUploadRequest request, Guid documentId)
     {
@@ -221,8 +273,16 @@ public sealed class DocumentService
     private static string PreparationKey(string name, long size) => $"{name}\u001f{size}";
     private static async Task CopyAsync(Stream source, Stream destination, long size, IProgress<long>? progress, CancellationToken token)
     { source.Position = 0; var buffer = new byte[81920]; long copied = 0; int read; while ((read = await source.ReadAsync(buffer, token).ConfigureAwait(false)) > 0) { await destination.WriteAsync(buffer.AsMemory(0, read), token).ConfigureAwait(false); copied += read; progress?.Report(copied); } if (copied != size) throw new IOException("The upload stream changed while it was being copied."); await destination.FlushAsync(token).ConfigureAwait(false); }
-    private static Document NewDocument(string name, long size, string path) { var id = Guid.NewGuid(); var version = NewVersion(id, 1, path, size); return new Document { DocumentId = id, OriginalFileName = name, FileSizeBytes = size, UploadTimestampUtc = DateTime.UtcNow, Version = version, Versions = new[] { version } }; }
-    private static DocumentVersion NewVersion(Guid id, int number, string path, long size) => new() { DocumentId = id, VersionNumber = number, StoredRelativePath = path, FileSizeBytes = size, CreatedUtc = DateTime.UtcNow };
+    private static Document NewDocument(string name, long size, string path) => NewDocument(name, size, path, CoreDocumentType.StepModel);
+    private static Document NewDocument(string name, long size, string path, CoreDocumentType type) { var id = Guid.NewGuid(); var version = NewVersion(id, 1, path, size, type); return new Document { DocumentId = id, OriginalFileName = name, FileSizeBytes = size, UploadTimestampUtc = DateTime.UtcNow, DocumentType = type, Version = version, Versions = new[] { version } }; }
+    private static DocumentVersion NewVersion(Guid id, int number, string path, long size) => NewVersion(id, number, path, size, CoreDocumentType.StepModel);
+    private static DocumentVersion NewVersion(Guid id, int number, string path, long size, CoreDocumentType type) => new() { DocumentId = id, VersionNumber = number, StoredRelativePath = path, FileSizeBytes = size, CreatedUtc = DateTime.UtcNow };
+    private static CoreDocumentType DrawingType(string name) => Path.GetExtension(name).Equals(".pdf", StringComparison.OrdinalIgnoreCase) ? CoreDocumentType.PdfDrawing : CoreDocumentType.ImageDrawing;
+    private AuditEntry CreateDrawingAudit(Guid? id, DocumentAuditAction action, DrawingUploadRequest request, string detail, DocumentVersion? version = null)
+    {
+        var user = _session.CurrentUser ?? throw new UnauthorizedAccessException("An authenticated actor is required for document auditing.");
+        return new AuditEntry { DocumentId = id, Action = action, UserId = user.UserId, DocumentRevision = version?.VersionNumber.ToString(), DocumentVersion = version?.VersionId.ToString("D"), DetailsJson = JsonSerializer.Serialize(new { fileName = Path.GetFileName(request.OriginalFileName), detail }) };
+    }
     private AuditEntry CreateAudit(Guid? id, DocumentAuditAction action, StepUploadRequest request, string detail, DocumentVersion? version = null)
     {
         var user = _session.CurrentUser ?? throw new UnauthorizedAccessException("An authenticated actor is required for document auditing.");

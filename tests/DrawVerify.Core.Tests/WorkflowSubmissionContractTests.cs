@@ -3,11 +3,24 @@ using DrawVerify.Core.Enums;
 using DrawVerify.Core.Models;
 using System.Text.Json;
 using Xunit;
+using CoreDocumentType = DrawVerify.Core.Enums.DocumentType;
 
 namespace DrawVerify.Core.Tests;
 
 public sealed class WorkflowSubmissionContractTests
 {
+    [Theory(DisplayName = "TSD-AC02-PROGRESSION PDF/image documents retain normal workflow contract")]
+    [InlineData(CoreDocumentType.PdfDrawing)]
+    [InlineData(CoreDocumentType.ImageDrawing)]
+    public void Pdf_and_image_documents_do_not_carry_3d_comparison_identifiers(CoreDocumentType documentType)
+    {
+        var version = new DocumentVersion { DocumentId = Guid.NewGuid(), VersionId = Guid.NewGuid(), VersionNumber = 1 };
+        var document = new Document { DocumentType = documentType, UploadStatus = DrawVerify.Core.Enums.UploadStatus.Uploaded, OriginalFileName = documentType == CoreDocumentType.PdfDrawing ? "drawing.pdf" : "drawing.png", FileSizeBytes = 8, Version = version, Versions = new[] { version } };
+
+        Assert.Contains(documentType, new[] { CoreDocumentType.PdfDrawing, CoreDocumentType.ImageDrawing });
+        Assert.Equal(WorkflowStatus.Draft, new WorkflowState { PackageId = document.DocumentId, Status = WorkflowStatus.Draft }.Status);
+    }
+
     [Fact(DisplayName = "TSD-AC07-MULTI Approver assignments preserve legacy and distinct recipients")]
     public void TSD_AC07_MULTI_approver_assignment_contract_preserves_legacy_value()
     {

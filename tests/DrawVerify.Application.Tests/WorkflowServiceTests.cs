@@ -272,6 +272,61 @@ public sealed class WorkflowServiceTests
         Assert.Equal(new[] { "C-1" }, call.AssignedCheckerUserIds);
     }
 
+    [Fact(DisplayName = "TSD-AC01-WORKFLOW PDF/image-only readiness and submission do not require 3D artifacts")]
+    public async Task Pdf_only_submission_reaches_review_without_three_dimensional_prerequisites()
+    {
+        var f = Fixture.Create();
+        var version = Guid.NewGuid();
+        f.Document = f.Document! with
+        {
+            DocumentType = DrawVerify.Core.Enums.DocumentType.PdfDrawing,
+            OriginalFileName = "drawing.pdf",
+            FileSizeBytes = 12,
+            UploadStatus = DrawVerify.Core.Enums.UploadStatus.Uploaded,
+            Version = new DocumentVersion { DocumentId = Package, VersionId = version, VersionNumber = 1 }
+        };
+        f.Request = f.Request with { StepDocumentVersionId = version, DxfDocumentId = Guid.Empty, DxfDocumentVersionId = Guid.Empty, VerificationSessionId = Guid.Empty, ExtractionEvidenceJson = "{}", VerificationEvidenceJson = "{}" };
+
+        var readiness = await f.Service.ValidateReadinessAsync(f.Request);
+        var result = await f.Service.SubmitForReviewAsync(f.Request);
+
+        Assert.True(readiness.IsReady, string.Join("; ", readiness.Failures));
+        Assert.True(result.Succeeded, result.Message);
+        Assert.Equal(WorkflowStatus.SubmittedForReview, result.State!.Status);
+        Assert.Empty(result.Submission!.DxfDocumentId == Guid.Empty ? Array.Empty<Guid>() : new[] { result.Submission.DxfDocumentId });
+    }
+
+    [Fact(DisplayName = "TSD-AC02-PROGRESSION keeps invalid workflow transitions explicit")]
+    public async Task Invalid_pdf_only_transition_does_not_report_success()
+    {
+        var f = Fixture.Create();
+        f.WorkflowState = new WorkflowState { PackageId = Package, Status = WorkflowStatus.Approved, Revision = 1 };
+        f.Document = f.Document! with { DocumentType = DrawVerify.Core.Enums.DocumentType.PdfDrawing, OriginalFileName = "drawing.pdf", FileSizeBytes = 12 };
+
+        var result = await f.Service.SubmitForReviewAsync(f.Request);
+
+        Assert.False(result.Succeeded);
+        Assert.NotEmpty(result.Failures!);
+        Assert.Empty(f.Workflow.Submissions);
+    }
+
+    [Fact(DisplayName = "TSD-AC05-FEEDBACK structured PDF/image comments remain version-scoped")]
+    public async Task Pdf_only_reviewer_feedback_is_persisted_without_viewer_requirements()
+    {
+        var f = Fixture.Create();
+        var package = ReviewPackageFixture() with { Status = WorkflowStatus.SubmittedForReview, StepDocumentVersionId = Guid.NewGuid(), DxfDocumentVersionId = Guid.Empty, DxfDocumentId = Guid.Empty, VerificationSessionId = Guid.Empty };
+        f.Workflow.ReviewPackage = package;
+        f.WorkflowState = new WorkflowState { PackageId = Package, Status = WorkflowStatus.SubmittedForReview, Revision = package.Revision };
+        f.Auth.User = new AuthenticatedUser("checker", new[] { SystemRoles.Checker }) { UserId = "checker-1", DisplayName = "Checker" };
+
+        var comment = await f.Service.SaveReviewCommentDraftAsync(Package, package.Revision, "Review the title block", "drawing", "page-1", "x=10,y=20");
+
+        Assert.Equal(Package, comment.PackageId);
+        Assert.Equal(package.Revision, comment.Revision);
+        Assert.Equal("page-1", comment.ReferenceId);
+        Assert.Single(f.Workflow.Comments);
+    }
+
     [Fact(DisplayName = "TSD-AC02-CHANNELS configured supported channel is delivered")]
     public async Task TSD_AC02_CHANNELS_uses_configured_supported_channel()
     {

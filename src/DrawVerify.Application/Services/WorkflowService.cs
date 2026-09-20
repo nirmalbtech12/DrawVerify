@@ -173,6 +173,7 @@ public sealed class WorkflowService : IWorkflowService
         var step = await _documents.GetAsync(packageId, cancellationToken).ConfigureAwait(false);
         if (step?.Version is null) failures.Add("STEP file is not available.");
         if (step is null) failures.Add("The drawing package was not found.");
+        if (step is not null && IsPdfOrImage(step.DocumentType)) return new(failures.Count == 0, failures);
         if (step is not null && step.GeometryStatus is CoreGeometryStatus.NotExtracted or CoreGeometryStatus.PendingValidation) failures.Add("Extraction is not completed.");
         if (step is not null && step.GeometryStatus == CoreGeometryStatus.Error) failures.Add("Processing failed during extraction.");
         if (_sessions is null && failures.Count == 0)
@@ -204,11 +205,11 @@ public sealed class WorkflowService : IWorkflowService
             catch (Exception exception) when (exception is ArgumentException or UnauthorizedAccessException or InvalidOperationException) { failures.Add(exception.Message); }
         }
         await ValidatePersistedPackageAsync(request, failures, cancellationToken).ConfigureAwait(false);
-        ValidateRequestPayload(request, failures);
+        var submittedDocument = _documents is null ? null : await _documents.GetAsync(request.PackageId, cancellationToken).ConfigureAwait(false);
+        if (submittedDocument is null || !IsPdfOrImage(submittedDocument.DocumentType)) ValidateRequestPayload(request, failures);
         if (_documents is not null)
         {
-            var document = await _documents.GetAsync(request.PackageId, cancellationToken).ConfigureAwait(false);
-            if (document?.Version is not null && request.StepDocumentVersionId != Guid.Empty && document.Version.VersionId != request.StepDocumentVersionId) failures.Add("The submitted STEP version is stale; refresh the package before submitting.");
+            if (submittedDocument?.Version is not null && request.StepDocumentVersionId != Guid.Empty && submittedDocument.Version.VersionId != request.StepDocumentVersionId) failures.Add("The submitted document version is stale; refresh the package before submitting.");
         }
         if (_sessions is not null && request.VerificationSessionId != Guid.Empty)
         {
@@ -243,6 +244,15 @@ public sealed class WorkflowService : IWorkflowService
         var step = await _documents.GetAsync(request.PackageId, cancellationToken).ConfigureAwait(false);
         if (step is null)
             return;
+
+        if (IsPdfOrImage(step.DocumentType))
+        {
+            if (step.UploadStatus != CoreUploadStatus.Uploaded) failures.Add("The PDF/image drawing is not available for review because its persisted upload did not complete.");
+            if (step.Version is null) failures.Add("The PDF/image drawing version is not available in the persisted package.");
+            else if (request.StepDocumentVersionId != Guid.Empty && request.StepDocumentVersionId != step.Version.VersionId) failures.Add("The submitted PDF/image version is stale or does not belong to the persisted package.");
+            if (string.IsNullOrWhiteSpace(step.OriginalFileName) || step.FileSizeBytes <= 0) failures.Add("Required PDF/image drawing metadata is missing.");
+            return;
+        }
 
         if (step.DocumentType != CoreDocumentType.StepModel)
             failures.Add("The package record is not a STEP model.");
@@ -292,6 +302,7 @@ public sealed class WorkflowService : IWorkflowService
 
     private static void ValidateRequestPayload(SubmissionRequest request, ICollection<string> failures)
     {
+        if (request.StepDocumentVersionId == Guid.Empty && request.DxfDocumentId == Guid.Empty && request.VerificationSessionId == Guid.Empty) return;
         if (request.StepDocumentVersionId == Guid.Empty) failures.Add("STEP file version is not available.");
         if (request.DxfDocumentVersionId == Guid.Empty) failures.Add("DXF file version is not available.");
         if (string.IsNullOrWhiteSpace(request.ExtractionEvidenceJson) || request.ExtractionEvidenceJson == "{}") failures.Add("Extraction evidence is not available.");
@@ -325,7 +336,8 @@ public sealed class WorkflowService : IWorkflowService
         var signature = request.MakerSignature! with { DocumentId = request.PackageId, Revision = state.Revision, MakerUserId = user!.UserId, MakerDisplayName = user.DisplayName, Role = SystemRoles.Maker, TimestampUtc = request.MakerSignature.TimestampUtc.ToUniversalTime(), IsFinalized = true };
         signature.Validate();
         DocumentFingerprint? fingerprint = null;
-        if (_fingerprintService is not null)
+        var submittedDocument = _documents is null ? null : await _documents.GetAsync(request.PackageId, cancellationToken).ConfigureAwait(false);
+        if (_fingerprintService is not null && (submittedDocument is null || !IsPdfOrImage(submittedDocument.DocumentType)))
         {
             try
             {
@@ -1033,6 +1045,7 @@ public sealed class WorkflowService : IWorkflowService
     private static DocumentFingerprint CreateSignedStateFingerprint(DocumentFingerprint baseFingerprint, SignatureData checkerSignature) => baseFingerprint with { Value = SignatureData.ComputePayloadHash($"{baseFingerprint.Value}|{checkerSignature.CanonicalRepresentation}") };
     private static DocumentFingerprint CreateStampedFingerprint(DocumentFingerprint baseFingerprint, InternalApprovalStamp stamp) => baseFingerprint with { Value = SignatureData.ComputePayloadHash($"{baseFingerprint.Value}|{stamp.CanonicalRepresentation}") };
     private static Dictionary<string, string> SignatureMetadata(SignatureData signature, string extractionEvidence, string verificationEvidence) => new() { ["makerUserId"] = signature.MakerUserId, ["makerDisplayName"] = signature.MakerDisplayName, ["makerRole"] = signature.Role, ["signatureMethod"] = signature.Method.ToString(), ["signatureTimestampUtc"] = signature.TimestampUtc.ToString("O"), ["signaturePayloadHash"] = signature.PayloadHash, ["signatureCanonical"] = signature.CanonicalRepresentation, ["signatureDocumentId"] = signature.DocumentId.ToString("D"), ["signatureRevision"] = signature.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture), ["signatureTitle"] = signature.Title ?? string.Empty, ["signatureDepartment"] = signature.Department ?? string.Empty, ["extractionEvidence"] = extractionEvidence, ["verificationEvidence"] = verificationEvidence };
+    private static bool IsPdfOrImage(CoreDocumentType type) => type is CoreDocumentType.PdfDrawing or CoreDocumentType.ImageDrawing;
     private static AuditEntry CreateAudit(Guid packageId, int revision, DocumentAuditAction action, string result, DateTime timestamp, AuthenticatedUser? user, IReadOnlyList<string>? failures = null, string? snapshotReference = null, ReviewComment? comment = null, Guid? commentId = null, WorkflowStatus? workflowStatus = null, IReadOnlyList<ReviewComment>? commentReferences = null, ReviewDecision? decision = null, Guid? documentVersionId = null, Guid? dxfDocumentVersionId = null, WorkflowStatus? previousWorkflowStatus = null, DocumentFingerprint? fingerprint = null, SignatureData? signature = null) {
         var actor = user ?? throw new UnauthorizedAccessException("An authenticated workflow actor is required for auditing."); var role = actor.Roles.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? throw new InvalidOperationException("The authenticated workflow actor has no role.");
         if (workflowStatus is null && action is DocumentAuditAction.SubmissionSucceeded or DocumentAuditAction.Approved or DocumentAuditAction.Rejected or DocumentAuditAction.ReturnedForRework or DocumentAuditAction.FinalApproved) throw new InvalidOperationException("Workflow transition context is required for decision auditing.");

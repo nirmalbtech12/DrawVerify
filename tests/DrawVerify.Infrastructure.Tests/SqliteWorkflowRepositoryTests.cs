@@ -933,6 +933,30 @@ public sealed class SqliteWorkflowRepositoryTests
         Assert.Equal("Fix DIM-4", comment.Text); Assert.Equal(4, comment.Revision); Assert.Equal("DIM-4", comment.ReferenceId); Assert.NotEqual(comment, snapshot);
     }
 
+    [Fact(DisplayName = "TSD-AC05-FEEDBACK SQLite persists and reloads version-scoped reviewer feedback")]
+    public async Task Reviewer_comments_reload_for_the_requested_revision_only()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-feedback-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteWorkflowRepository(path);
+            var package = Guid.NewGuid();
+            var comment = new ReviewComment { PackageId = package, Revision = 2, AuthorUserId = "checker-1", AuthorDisplayName = "Checker", Text = "Review page 1", ReferenceType = "drawing", ReferenceId = "page-1", Location = "x=10,y=20", IsDraft = false };
+            await repository.SaveReviewCommentAsync(comment, Audit(DocumentAuditAction.ReviewCommentDraftSaved, package, "saved"));
+
+            var current = await repository.GetReviewCommentsAsync(package, 2);
+            var otherRevision = await repository.GetReviewCommentsAsync(package, 1);
+
+            var saved = Assert.Single(current);
+            Assert.Equal(package, saved.PackageId);
+            Assert.Equal(2, saved.Revision);
+            Assert.Equal("page-1", saved.ReferenceId);
+            Assert.Equal("x=10,y=20", saved.Location);
+            Assert.Empty(otherRevision);
+        }
+        finally { Delete(path); }
+    }
+
     private static ReviewSubmission Snapshot(Guid package) => new() { SubmissionId = Guid.NewGuid(), PackageId = package, DxfDocumentId = Guid.Parse("00000000-0000-0000-0000-000000000010"), StepDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000011"), DxfDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000012"), VerificationSessionId = Guid.Parse("00000000-0000-0000-0000-000000000013"), ExtractionEvidenceJson = "{\"extracted\":true}", VerificationEvidenceJson = "{\"verified\":true}", MakerUserId = "maker-001", MakerDisplayName = "Maker One", SubmittedUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), Note = "Please review hole tolerances", Revision = 1, Fingerprint = new DocumentFingerprint { Value = new string('a', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 } };
     private static ReviewSubmission NotificationSubmission() => new()
     {

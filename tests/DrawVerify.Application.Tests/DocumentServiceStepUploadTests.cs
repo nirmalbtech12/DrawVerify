@@ -16,6 +16,18 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class DocumentServiceStepUploadTests
 {
+    [Fact(DisplayName = "TSD-AC04-VERSION-HISTORY PDF/image versions use the existing version sequence")]
+    public void Pdf_image_version_contract_keeps_prior_version_identity()
+    {
+        var first = new DocumentVersion { DocumentId = Guid.NewGuid(), VersionId = Guid.NewGuid(), VersionNumber = 1, StoredRelativePath = "drawing-v1.pdf" };
+        var second = new DocumentVersion { DocumentId = first.DocumentId, VersionId = Guid.NewGuid(), VersionNumber = 2, StoredRelativePath = "drawing-v2.pdf" };
+        var document = new Document { DocumentId = first.DocumentId, DocumentType = StepDocumentType.PdfDrawing, Version = second, Versions = new[] { first, second } };
+
+        Assert.Equal(1, document.Versions.Single(x => x.VersionId == first.VersionId).VersionNumber);
+        Assert.Equal("drawing-v1.pdf", document.Versions.Single(x => x.VersionId == first.VersionId).StoredRelativePath);
+        Assert.Equal(2, document.Version!.VersionNumber);
+    }
+
     private const string Valid = "ISO-10303-21;HEADER;FILE_SCHEMA(('AUTOMOTIVE_DESIGN_CC2'));ENDSEC;DATA;ENDSEC;END-ISO-10303-21;";
     private static byte[] B(string s) => Encoding.ASCII.GetBytes(s);
 
