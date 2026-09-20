@@ -12,6 +12,242 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteWorkflowRepositoryTests
 {
+    [Fact(DisplayName = "TSD-AC02-CHANNEL configured InApp approval delivery succeeds")]
+    public async Task TSD_AC02_CHANNEL_configured_inapp_approval_delivery_succeeds()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"notify-approval-channel-{Guid.NewGuid():N}.db");
+        try
+        {
+            _ = new SqliteWorkflowRepository(path);
+            await InsertApprovalSubmissionAsync(path, ApprovalSubmission());
+            await new InAppNotificationService(path).NotifyApproverAsync(ApprovalSubmission().PackageId, 3, ApprovalDecision());
+            var notification = Assert.Single(await new InAppNotificationService(path).GetForUserAsync("A-1"));
+            Assert.Equal("InApp", notification.Channel);
+            Assert.Equal("ApproverNotificationSent", notification.EventType);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-AC03-CONTENT approval notification round-trips mandatory fields")]
+    public async Task TSD_AC03_CONTENT_approval_notification_contains_checker_and_approval_details()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"notify-approval-content-{Guid.NewGuid():N}.db");
+        try
+        {
+            _ = new SqliteWorkflowRepository(path);
+            var submission = ApprovalSubmission();
+            var decision = ApprovalDecision();
+            await InsertApprovalSubmissionAsync(path, submission);
+            await new InAppNotificationService(path).NotifyApproverAsync(submission.PackageId, submission.Revision, decision);
+            var notification = Assert.Single(await new InAppNotificationService(path).GetForUserAsync("A-1"));
+            Assert.Contains(submission.PackageId.ToString(), notification.Message, StringComparison.Ordinal);
+            Assert.Contains($"revision {submission.Revision}", notification.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(decision.CheckerDisplayName, notification.Message, StringComparison.Ordinal);
+            Assert.Contains("ready for final approval", notification.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(DateTimeKind.Utc, notification.CreatedUtc.Kind);
+            Assert.Equal(decision.DecidedUtc, notification.CreatedUtc);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-AC04-ROUTE approval notification target contains package and revision")]
+    public async Task TSD_AC04_ROUTE_approval_notification_has_direct_workflow_target()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"notify-approval-route-{Guid.NewGuid():N}.db");
+        try
+        {
+            _ = new SqliteWorkflowRepository(path);
+            var submission = ApprovalSubmission();
+            await InsertApprovalSubmissionAsync(path, submission);
+            await new InAppNotificationService(path).NotifyApproverAsync(submission.PackageId, submission.Revision, ApprovalDecision());
+            var notification = Assert.Single(await new InAppNotificationService(path).GetForUserAsync("A-1"));
+            Assert.Equal($"/workflow/{submission.PackageId:D}/{submission.Revision}", notification.Target);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-AC05-CENTER approval notification is initially unread for its Approver")]
+    public async Task TSD_AC05_CENTER_approval_notification_is_unread_and_user_scoped()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"notify-approval-center-{Guid.NewGuid():N}.db");
+        try
+        {
+            _ = new SqliteWorkflowRepository(path);
+            var submission = ApprovalSubmission();
+            await InsertApprovalSubmissionAsync(path, submission);
+            await new InAppNotificationService(path).NotifyApproverAsync(submission.PackageId, submission.Revision, ApprovalDecision());
+            var notification = Assert.Single(await new InAppNotificationService(path).GetForUserAsync("A-1"));
+            Assert.False(notification.IsRead);
+            Assert.Equal(submission.PackageId, notification.PackageId);
+            Assert.Equal(ApprovalDecision().DecidedUtc, notification.CreatedUtc);
+            Assert.Empty(await new InAppNotificationService(path).GetForUserAsync("A-2"));
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-AC07-MULTI distinct Approvers receive one notification and legacy assignment resolves")]
+    public async Task TSD_AC07_MULTI_deduplicates_approvers_and_preserves_legacy_assignment()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"notify-approval-multi-{Guid.NewGuid():N}.db");
+        try
+        {
+            _ = new SqliteWorkflowRepository(path);
+            var submission = ApprovalSubmission() with { AssignedApproverUserIds = Array.Empty<string>(), AssignedApproverUserId = "A-1" };
+            await InsertApprovalSubmissionAsync(path, submission);
+            var legacyDecision = ApprovalDecision();
+            await new InAppNotificationService(path).NotifyApproverAsync(submission.PackageId, submission.Revision, legacyDecision);
+            Assert.Single(await new InAppNotificationService(path).GetForUserAsync("A-1"));
+
+            var multi = ApprovalSubmission() with { SubmissionId = Guid.NewGuid(), AssignedApproverUserId = "A-1", AssignedApproverUserIds = new[] { "A-1", "a-1", "A-2" } };
+            await InsertApprovalSubmissionAsync(path, multi);
+            var multiDecision = ApprovalDecision() with { DecisionId = Guid.NewGuid() };
+            await new InAppNotificationService(path).NotifyApproverAsync(multi.PackageId, multi.Revision, multiDecision);
+            var approverOne = await new InAppNotificationService(path).GetForUserAsync("A-1");
+            var approverTwo = await new InAppNotificationService(path).GetForUserAsync("A-2");
+            Assert.Equal(2, approverOne.Count);
+            Assert.Single(approverOne.Where(x => x.ApprovalEventId == multiDecision.DecisionId));
+            Assert.Single(approverTwo);
+            Assert.Equal(multiDecision.DecisionId, approverTwo[0].ApprovalEventId);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-AC08-AUDIT approval notification records exact event and recipient fields")]
+    public async Task TSD_AC08_AUDIT_approval_notification_records_required_audit_fields()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"notify-approval-audit-{Guid.NewGuid():N}.db");
+        try
+        {
+            _ = new SqliteWorkflowRepository(path);
+            var submission = ApprovalSubmission();
+            var decision = ApprovalDecision();
+            await InsertApprovalSubmissionAsync(path, submission);
+            await new InAppNotificationService(path).NotifyApproverAsync(submission.PackageId, submission.Revision, decision);
+            await using var connection = new SqliteConnection($"Data Source={path}");
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT Action,UserId,TimestampUtc,DetailsJson,DocumentRevision FROM DocumentAuditLog WHERE DocumentId=$document";
+            command.Parameters.AddWithValue("$document", submission.PackageId.ToString());
+            await using var reader = await command.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal((int)DocumentAuditAction.ApproverNotificationSent, reader.GetInt32(0));
+            Assert.Equal("A-1", reader.GetString(1));
+            Assert.Equal(decision.DecidedUtc, DateTime.Parse(reader.GetString(2), null, DateTimeStyles.RoundtripKind));
+            Assert.Equal(submission.Revision.ToString(CultureInfo.InvariantCulture), reader.GetString(4));
+            Assert.Contains("ApproverNotificationSent", reader.GetString(3), StringComparison.Ordinal);
+            Assert.Contains("InApp", reader.GetString(3), StringComparison.Ordinal);
+            Assert.Contains(decision.DecisionId.ToString(), reader.GetString(3), StringComparison.Ordinal);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-AC10-IDEMPOTENCY suppresses duplicate approval event and allows re-approval")]
+    public async Task TSD_AC10_IDEMPOTENCY_suppresses_same_event_and_inserts_new_event()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"notify-approval-idempotency-{Guid.NewGuid():N}.db");
+        try
+        {
+            _ = new SqliteWorkflowRepository(path);
+            var submission = ApprovalSubmission();
+            var decision = ApprovalDecision();
+            await InsertApprovalSubmissionAsync(path, submission);
+            var service = new InAppNotificationService(path);
+            await service.NotifyApproverAsync(submission.PackageId, submission.Revision, decision);
+            await service.NotifyApproverAsync(submission.PackageId, submission.Revision, decision);
+            Assert.Single(await service.GetForUserAsync("A-1"));
+            await service.NotifyApproverAsync(submission.PackageId, submission.Revision, decision with { DecisionId = Guid.NewGuid() });
+            Assert.Equal(2, (await service.GetForUserAsync("A-1")).Count);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-AC11-RICH optional evidence does not replace mandatory approval content")]
+    public async Task TSD_AC11_RICH_optional_evidence_is_not_required_for_mandatory_content()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"notify-approval-rich-{Guid.NewGuid():N}.db");
+        try
+        {
+            _ = new SqliteWorkflowRepository(path);
+            var submission = ApprovalSubmission() with { VerificationEvidenceJson = "{malformed" };
+            await InsertApprovalSubmissionAsync(path, submission);
+            await new InAppNotificationService(path).NotifyApproverAsync(submission.PackageId, submission.Revision, ApprovalDecision());
+            var message = Assert.Single(await new InAppNotificationService(path).GetForUserAsync("A-1")).Message;
+            Assert.Contains("ready for final approval", message, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("verification summary", message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-AC12-READ mark-read is limited to the notification recipient")]
+    public async Task TSD_AC12_READ_mark_read_is_user_scoped()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"notify-approval-read-{Guid.NewGuid():N}.db");
+        try
+        {
+            _ = new SqliteWorkflowRepository(path);
+            var submission = ApprovalSubmission();
+            await InsertApprovalSubmissionAsync(path, submission);
+            var service = new InAppNotificationService(path);
+            await service.NotifyApproverAsync(submission.PackageId, submission.Revision, ApprovalDecision());
+            var notification = Assert.Single(await service.GetForUserAsync("A-1"));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => service.MarkReadAsync(notification.NotificationId, "A-2"));
+            Assert.False(Assert.Single(await service.GetForUserAsync("A-1")).IsRead);
+            await service.MarkReadAsync(notification.NotificationId, "A-1");
+            Assert.True(Assert.Single(await service.GetForUserAsync("A-1")).IsRead);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-AC13-LOCALE mandatory approval content remains when translation is unavailable")]
+    public async Task TSD_AC13_LOCALE_unavailable_translation_preserves_mandatory_content()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"notify-approval-locale-{Guid.NewGuid():N}.db");
+        try
+        {
+            _ = new SqliteWorkflowRepository(path);
+            var submission = ApprovalSubmission();
+            await InsertApprovalSubmissionAsync(path, submission);
+            await new InAppNotificationService(path).NotifyApproverAsync(submission.PackageId, submission.Revision, ApprovalDecision());
+            var message = Assert.Single(await new InAppNotificationService(path).GetForUserAsync("A-1")).Message;
+            Assert.Contains(submission.PackageId.ToString(), message, StringComparison.Ordinal);
+            Assert.Contains("approved by Checker", message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-AC14-TIMING approval notification timestamp is UTC and follows approval timestamp")]
+    public async Task TSD_AC14_TIMING_approval_dispatch_exposes_ordered_utc_timestamp()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"notify-approval-timing-{Guid.NewGuid():N}.db");
+        try
+        {
+            _ = new SqliteWorkflowRepository(path);
+            var submission = ApprovalSubmission();
+            var decision = ApprovalDecision();
+            await InsertApprovalSubmissionAsync(path, submission);
+            await new InAppNotificationService(path).NotifyApproverAsync(submission.PackageId, submission.Revision, decision);
+            var notification = Assert.Single(await new InAppNotificationService(path).GetForUserAsync("A-1"));
+            Assert.Equal(DateTimeKind.Utc, decision.DecidedUtc.Kind);
+            Assert.Equal(DateTimeKind.Utc, notification.CreatedUtc.Kind);
+            Assert.True(notification.CreatedUtc >= decision.DecidedUtc);
+            Assert.Equal(decision.DecisionId, notification.ApprovalEventId);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-AC09-RETRY invalid approval delivery fails visibly without a success row")]
+    public async Task TSD_AC09_RETRY_invalid_approval_delivery_is_not_reported_successful()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"notify-approval-retry-{Guid.NewGuid():N}.db");
+        try
+        {
+            _ = new SqliteWorkflowRepository(path);
+            var service = new InAppNotificationService(path);
+            await Assert.ThrowsAsync<InvalidDataException>(() => service.NotifyApproverAsync(Guid.Empty, 0, ApprovalDecision()));
+            Assert.Empty(await service.GetForUserAsync("A-1"));
+        }
+        finally { Delete(path); }
+    }
     [Fact(DisplayName = "TSD-AC02-CHANNELS unsupported channel fails visibly")]
     public async Task TSD_AC02_CHANNELS_unsupported_channel_is_not_reported_as_success()
     {
@@ -567,6 +803,29 @@ public sealed class SqliteWorkflowRepositoryTests
         MakerUserId = "M-1", MakerDisplayName = "Maker One", AssignedCheckerUserId = "C-1", AssignedCheckerUserIds = new[] { "C-1" },
         SubmittedUtc = new DateTime(2026, 9, 20, 10, 0, 0, DateTimeKind.Utc)
     };
+    private static ReviewSubmission ApprovalSubmission() => new()
+    {
+        SubmissionId = Guid.Parse("10000000-0000-0000-0000-000000000002"),
+        PackageId = Guid.Parse("20000000-0000-0000-0000-000000000002"), Revision = 3,
+        DxfDocumentId = Guid.NewGuid(), StepDocumentVersionId = Guid.NewGuid(), DxfDocumentVersionId = Guid.NewGuid(), VerificationSessionId = Guid.NewGuid(),
+        ExtractionEvidenceJson = "{}", VerificationEvidenceJson = "{\"summary\":\"All dimensions within tolerance\"}", MakerUserId = "M-1", MakerDisplayName = "Maker One",
+        AssignedApproverUserId = "A-1", AssignedApproverUserIds = new[] { "A-1" }, Status = WorkflowStatus.PendingFinalApproval,
+        SubmittedUtc = new DateTime(2026, 9, 20, 9, 59, 0, DateTimeKind.Utc), CreatedUtc = new DateTime(2026, 9, 20, 9, 59, 0, DateTimeKind.Utc)
+    };
+    private static ReviewDecision ApprovalDecision() => new()
+    {
+        DecisionId = Guid.Parse("30000000-0000-0000-0000-000000000002"), PackageId = Guid.Parse("20000000-0000-0000-0000-000000000002"), Revision = 3,
+        CheckerUserId = "C-1", CheckerDisplayName = "Checker One", DecidedUtc = new DateTime(2026, 9, 20, 10, 0, 0, DateTimeKind.Utc), DecisionType = ReviewDecisionType.Approve
+    };
+    private static async Task InsertApprovalSubmissionAsync(string path, ReviewSubmission submission)
+    {
+        await using var connection = new SqliteConnection($"Data Source={path}");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "INSERT INTO ReviewSubmission(SubmissionId,PackageId,DxfDocumentId,StepDocumentVersionId,DxfDocumentVersionId,VerificationSessionId,ExtractionEvidenceJson,VerificationEvidenceJson,Revision,MakerUserId,MakerDisplayName,CreatedUtc,SubmittedUtc,Status,AssignedApproverUserId,AssignedApproverUserIdsJson) VALUES($id,$package,$dxf,$step,$dxfVersion,$session,$extract,$verify,$revision,$maker,$display,$created,$submitted,$status,$approver,$approvers)";
+        command.Parameters.AddWithValue("$id", submission.SubmissionId.ToString()); command.Parameters.AddWithValue("$package", submission.PackageId.ToString()); command.Parameters.AddWithValue("$dxf", submission.DxfDocumentId.ToString()); command.Parameters.AddWithValue("$step", submission.StepDocumentVersionId.ToString()); command.Parameters.AddWithValue("$dxfVersion", submission.DxfDocumentVersionId.ToString()); command.Parameters.AddWithValue("$session", submission.VerificationSessionId.ToString()); command.Parameters.AddWithValue("$extract", submission.ExtractionEvidenceJson); command.Parameters.AddWithValue("$verify", submission.VerificationEvidenceJson); command.Parameters.AddWithValue("$revision", submission.Revision); command.Parameters.AddWithValue("$maker", submission.MakerUserId); command.Parameters.AddWithValue("$display", submission.MakerDisplayName); command.Parameters.AddWithValue("$created", submission.CreatedUtc.ToString("O", CultureInfo.InvariantCulture)); command.Parameters.AddWithValue("$submitted", submission.SubmittedUtc.ToString("O", CultureInfo.InvariantCulture)); command.Parameters.AddWithValue("$status", (int)submission.Status); command.Parameters.AddWithValue("$approver", (object?)submission.AssignedApproverUserId ?? DBNull.Value); command.Parameters.AddWithValue("$approvers", JsonSerializer.Serialize(submission.AssignedApproverUserIds));
+        await command.ExecuteNonQueryAsync();
+    }
     private static AuditEntry Audit(DocumentAuditAction action, Guid package, string result) => new() { DocumentId = package, UserId = "maker-001", Action = action, TimestampUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), DetailsJson = $"{{\"packageId\":\"{package}\",\"revision\":1,\"result\":\"{result}\",\"maker\":\"Maker One\"}}" };
     private static void Delete(string path)
     {

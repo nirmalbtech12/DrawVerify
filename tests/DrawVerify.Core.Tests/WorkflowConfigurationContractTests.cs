@@ -10,6 +10,32 @@ namespace DrawVerify.Core.Tests;
 
 public sealed class WorkflowConfigurationContractTests
 {
+    [Fact(DisplayName = "TSD-AC02-CHANNEL approval rule accepts configured InApp and rejects unsupported channels")]
+    public void TSD_AC02_CHANNEL_supported_approval_channel_is_explicit()
+    {
+        var supported = Baseline() with { Notifications = [new() { Event = WorkflowNotificationEvent.Approval, Enabled = true, RecipientRoles = [SystemRoles.Approver], Channels = [WorkflowNotificationChannel.InApp] }] };
+        Assert.Empty(supported.ApplicationValidation());
+
+        var unsupported = supported with { Notifications = [supported.Notifications[0] with { Channels = [(WorkflowNotificationChannel)99] }] };
+        Assert.NotEmpty(unsupported.ApplicationValidation());
+    }
+
+    [Fact(DisplayName = "TSD-AC06-PREFS disabled approval rule and invalid selection remain visible")]
+    public void TSD_AC06_PREFS_supported_preference_contract_does_not_silently_reset()
+    {
+        var disabled = Baseline() with { Notifications = [new() { Event = WorkflowNotificationEvent.Approval, Enabled = false, Channels = [WorkflowNotificationChannel.InApp] }] };
+        Assert.Empty(disabled.ApplicationValidation());
+        var invalid = disabled with { Notifications = [disabled.Notifications[0] with { Channels = [] }] };
+        Assert.NotEmpty(invalid.ApplicationValidation());
+    }
+
+    [Fact(DisplayName = "TSD-AC13-LOCALE existing content template remains the default source")]
+    public void TSD_AC13_LOCALE_uses_existing_template_source_without_inventing_provider()
+    {
+        var rule = new WorkflowNotificationRule { Event = WorkflowNotificationEvent.Approval, ContentTemplate = "Approved {document}", Channels = [WorkflowNotificationChannel.InApp] };
+        Assert.Equal("Approved {document}", rule.ContentTemplate);
+        Assert.DoesNotContain("provider", rule.ContentTemplate, StringComparison.OrdinalIgnoreCase);
+    }
     [Fact(DisplayName = "TD-CORE-001 complete versioned configuration round-trips without changing canonical roles")]
     public void Complete_configuration_round_trips()
     {

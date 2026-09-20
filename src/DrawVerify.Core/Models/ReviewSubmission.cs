@@ -24,6 +24,7 @@ public sealed record ReviewSubmission
     public IReadOnlyList<string> AssignedCheckerUserIds { get; init; } = Array.Empty<string>();
     public bool AvailableToCheckers { get; init; } = true;
     public string? AssignedApproverUserId { get; init; }
+    public IReadOnlyList<string> AssignedApproverUserIds { get; init; } = Array.Empty<string>();
     public bool AvailableToApprovers { get; init; } = true;
     public DocumentFingerprint? Fingerprint { get; init; }
     public SignatureData? MakerSignature { get; init; }
@@ -55,6 +56,8 @@ public sealed record SubmissionRequest(Guid PackageId, string? Note = null)
     public SignatureData? MakerSignature { get; init; }
     public string? AssignedCheckerUserId { get; init; }
     public IReadOnlyList<string> AssignedCheckerUserIds { get; init; } = Array.Empty<string>();
+    public string? AssignedApproverUserId { get; init; }
+    public IReadOnlyList<string> AssignedApproverUserIds { get; init; } = Array.Empty<string>();
 }
 public sealed record SubmissionResult(bool Succeeded, string Message, WorkflowState? State = null, ReviewSubmission? Submission = null, IReadOnlyList<string>? Failures = null)
 {

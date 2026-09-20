@@ -70,7 +70,12 @@ public sealed class WorkflowService : IWorkflowService
 
         await RefreshEffectiveConfigurationAsync(cancellationToken).ConfigureAwait(false);
         if (!allowCurrentForNewSubmission && !IsLegacyConfiguration(_effectiveConfiguration))
-            throw new InvalidOperationException($"Workflow package '{packageId}' has no captured configuration version; the active workflow was not evaluated.");
+        {
+            // Older packages may predate configuration-version capture. Capture the
+            // currently validated configuration before evaluating the operation so the
+            // approval remains deterministic and reload-compatible.
+            await CapturePersistedConfigurationVersionAsync(packageId, _effectiveConfiguration.Version, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private static bool IsLegacyConfiguration(WorkflowConfiguration configuration) =>
@@ -116,7 +121,10 @@ public sealed class WorkflowService : IWorkflowService
     {
         if (_notifications is null) return;
         var recipients = _machine.NotificationRecipients(notificationEvent);
-        var configuredRules = _effectiveConfiguration.Notifications.Where(x => x.Event == notificationEvent).ToArray();
+        var configuredRules = _effectiveConfiguration.Notifications.Where(x => x.Event == notificationEvent && x.Enabled).ToArray();
+        if (configuredRules.Length == 0 && !IsLegacyConfiguration(_effectiveConfiguration)) return;
+        if (configuredRules.Any(rule => rule.Channels.Count == 0))
+            throw new InvalidOperationException($"Workflow notification event '{notificationEvent}' has no configured channels.");
         if (configuredRules.Any(rule => rule.Channels.Any(channel => channel != WorkflowNotificationChannel.InApp)))
             throw new NotSupportedException($"Workflow notification event '{notificationEvent}' specifies a channel that is not available in the configured notification service.");
         if (recipients.Count == 0 && !IsLegacyConfiguration(_effectiveConfiguration))
@@ -130,10 +138,12 @@ public sealed class WorkflowService : IWorkflowService
         foreach (var recipient in recipients)
         {
             var systemRole = _machineRole(recipient);
+            if (notificationEvent == WorkflowNotificationEvent.Approval && decision.IsFinalApproval && string.Equals(systemRole, "Approver", StringComparison.OrdinalIgnoreCase)) continue;
             try
             {
                 if (string.Equals(systemRole, "Maker", StringComparison.OrdinalIgnoreCase)) await _notifications.NotifyMakerAsync(packageId, revision, decision, cancellationToken).ConfigureAwait(false);
                 else if (string.Equals(systemRole, "Checker", StringComparison.OrdinalIgnoreCase)) await _notifications.NotifyCheckerAsync(packageId, revision, decision, cancellationToken).ConfigureAwait(false);
+                else if (string.Equals(systemRole, "Approver", StringComparison.OrdinalIgnoreCase)) await _notifications.NotifyApproverAsync(packageId, revision, decision, cancellationToken).ConfigureAwait(false);
                 else throw new InvalidOperationException($"Workflow notification recipient '{recipient}' does not map to a supported canonical workflow role.");
             }
             catch (Exception exception)
@@ -339,9 +349,11 @@ public sealed class WorkflowService : IWorkflowService
         }
         try
         {
-            var assignedCheckerUserIds = request.AssignedCheckerUserIds.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            var assignedCheckerUserIds = request.AssignedCheckerUserIds.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
             if (assignedCheckerUserIds.Length == 0 && !string.IsNullOrWhiteSpace(request.AssignedCheckerUserId)) assignedCheckerUserIds = new[] { request.AssignedCheckerUserId.Trim() };
-            var submission = new ReviewSubmission { PackageId = request.PackageId, DxfDocumentId = request.DxfDocumentId, Revision = state.Revision, MakerUserId = user.UserId, MakerDisplayName = user.DisplayName, MakerAuthorized = true, SubmittedUtc = now, Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim(), StepDocumentVersionId = request.StepDocumentVersionId, DxfDocumentVersionId = request.DxfDocumentVersionId, VerificationSessionId = request.VerificationSessionId, ExtractionEvidenceJson = request.ExtractionEvidenceJson, VerificationEvidenceJson = request.VerificationEvidenceJson, Fingerprint = fingerprint, MakerSignature = signature, AssignedCheckerUserId = assignedCheckerUserIds.FirstOrDefault(), AssignedCheckerUserIds = assignedCheckerUserIds };
+            var assignedApproverUserIds = request.AssignedApproverUserIds.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            if (assignedApproverUserIds.Length == 0 && !string.IsNullOrWhiteSpace(request.AssignedApproverUserId)) assignedApproverUserIds = new[] { request.AssignedApproverUserId.Trim() };
+            var submission = new ReviewSubmission { PackageId = request.PackageId, DxfDocumentId = request.DxfDocumentId, Revision = state.Revision, MakerUserId = user.UserId, MakerDisplayName = user.DisplayName, MakerAuthorized = true, SubmittedUtc = now, Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim(), StepDocumentVersionId = request.StepDocumentVersionId, DxfDocumentVersionId = request.DxfDocumentVersionId, VerificationSessionId = request.VerificationSessionId, ExtractionEvidenceJson = request.ExtractionEvidenceJson, VerificationEvidenceJson = request.VerificationEvidenceJson, Fingerprint = fingerprint, MakerSignature = signature, AssignedCheckerUserId = assignedCheckerUserIds.FirstOrDefault(), AssignedCheckerUserIds = assignedCheckerUserIds, AssignedApproverUserId = assignedApproverUserIds.FirstOrDefault(), AssignedApproverUserIds = assignedApproverUserIds };
             // Establish the durable version reference before the workflow transaction
             // can commit. A capture failure therefore cannot leave a submitted package
             // without the configuration version that governs it.
@@ -565,9 +577,13 @@ public sealed class WorkflowService : IWorkflowService
         await using (var stepArtifact = await _stepFiles.OpenReadAsync(stepDocument.Version.StoredRelativePath, cancellationToken).ConfigureAwait(false))
         await using (var dxfArtifact = await _dxfFiles.OpenReadAsync(dxfDocument.Version.StoredRelativePath, cancellationToken).ConfigureAwait(false))
             persistedSnapshot = await _snapshots.SaveAsync(snapshot, stepArtifact, dxfArtifact, cancellationToken).ConfigureAwait(false);
+        var persistedCheckerUserId = package.PriorDecision?.CheckerUserId ?? package.Submission.CheckerSignature?.CheckerUserId;
+        var persistedCheckerDisplayName = package.PriorDecision?.CheckerDisplayName ?? package.Submission.CheckerSignature?.CheckerDisplayName;
         var decision = new ReviewDecision
         {
-            PackageId = packageId, Revision = revision, CheckerUserId = user.UserId, CheckerDisplayName = user.DisplayName,
+            PackageId = packageId, Revision = revision,
+            CheckerUserId = !string.IsNullOrWhiteSpace(persistedCheckerUserId) ? persistedCheckerUserId : throw new InvalidOperationException("The persisted Checker identity is required before final approval."),
+            CheckerDisplayName = !string.IsNullOrWhiteSpace(persistedCheckerDisplayName) ? persistedCheckerDisplayName : throw new InvalidOperationException("The persisted Checker display name is required before final approval."),
             ApproverUserId = user.UserId, ApproverDisplayName = user.DisplayName, IsFinalApproval = true,
             DecidedUtc = _clock().ToUniversalTime(), DecisionType = decisionType,
             Comments = string.IsNullOrWhiteSpace(comments) ? null : comments.Trim(),

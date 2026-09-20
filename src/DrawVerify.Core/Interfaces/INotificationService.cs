@@ -18,4 +18,6 @@ public interface INotificationService
         => Task.CompletedTask;
     Task NotifyCheckerAsync(Guid packageId, int revision, ReviewDecision decision, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
+    Task NotifyApproverAsync(Guid packageId, int revision, ReviewDecision decision, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
 }

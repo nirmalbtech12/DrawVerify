@@ -10,6 +10,15 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class FinalApprovalWorkflowServiceTests
 {
+    [Fact(DisplayName = "TSD-AC01-TRIGGER final approval fixture retains the persisted Checker event context")]
+    public async Task TSD_AC01_TRIGGER_final_approval_uses_persisted_checker_context()
+    {
+        var f = Fixture.Create();
+        var decision = await f.Service.FinalDecideAsync(f.Package, 1, ReviewDecisionType.Approve, null);
+        Assert.Equal("checker-001", decision.CheckerUserId);
+        Assert.NotEqual(Guid.Empty, decision.DecisionId);
+        Assert.Equal(DateTimeKind.Utc, decision.DecidedUtc.Kind);
+    }
     [Fact(DisplayName = "REV-KAN66-002 Approver signing requires eligible unlocked current final-approval state")]
     public void Approver_signing_contract_rejects_stale_locked_and_non_final_states()
     {

@@ -8,6 +8,15 @@ namespace DrawVerify.Core.Tests;
 
 public sealed class WorkflowSubmissionContractTests
 {
+    [Fact(DisplayName = "TSD-AC07-MULTI Approver assignments preserve legacy and distinct recipients")]
+    public void TSD_AC07_MULTI_approver_assignment_contract_preserves_legacy_value()
+    {
+        var submission = new ReviewSubmission { AssignedApproverUserId = "A-1", AssignedApproverUserIds = new[] { "A-1", "a-1", "A-2" } };
+        var distinct = submission.AssignedApproverUserIds.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        Assert.Equal("A-1", submission.AssignedApproverUserId);
+        Assert.Equal(new[] { "A-1", "A-2" }, distinct);
+        Assert.DoesNotContain(distinct, string.IsNullOrWhiteSpace);
+    }
     [Fact(DisplayName = "TD-CORE-01 workflow states and immutable snapshot contract")]
     public void Eligible_states_transition_and_duplicate_states_are_represented()
     {

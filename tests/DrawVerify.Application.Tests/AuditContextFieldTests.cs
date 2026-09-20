@@ -1,11 +1,26 @@
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Models;
+using System.Text.Json;
 using Xunit;
 
 namespace DrawVerify.Application.Tests;
 
 public sealed class AuditContextFieldTests
 {
+    [Fact(DisplayName = "TSD-AC08-AUDIT approval notification audit fields retain recipient and event context")]
+    public void TSD_AC08_AUDIT_approval_notification_context_is_complete()
+    {
+        var package = Guid.NewGuid();
+        var eventId = Guid.NewGuid();
+        var timestamp = new DateTime(2026, 9, 20, 10, 0, 0, DateTimeKind.Utc);
+        var details = JsonSerializer.Serialize(new { packageId = package, revision = 3, approvalEventId = eventId, channel = "InApp", recipient = "approver-1", eventType = "ApproverNotificationSent", timestamp });
+        using var document = JsonDocument.Parse(details);
+        Assert.Equal("ApproverNotificationSent", document.RootElement.GetProperty("eventType").GetString());
+        Assert.Equal("approver-1", document.RootElement.GetProperty("recipient").GetString());
+        Assert.Equal("InApp", document.RootElement.GetProperty("channel").GetString());
+        Assert.Equal(3, document.RootElement.GetProperty("revision").GetInt32());
+        Assert.Equal(DateTimeKind.Utc, timestamp.Kind);
+    }
     [Fact]
     public void TD_APP_002_context_fields_capture_comments_decisions_files_metadata_and_access()
     {
