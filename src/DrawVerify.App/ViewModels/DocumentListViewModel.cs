@@ -13,13 +13,15 @@ public sealed class DocumentListViewModel : INotifyPropertyChanged
     public ObservableCollection<DocumentListItem> Documents { get; } = new();
     public IReadOnlyList<ViewerAccessBulkItem> SelectedViewerAccessDocuments => Documents.Where(x => x.IsSelected).Select(x => new ViewerAccessBulkItem(x.DocumentId, x.VersionId)).ToArray();
     private DocumentListItem? _selectedDocument;
-    public DocumentListItem? SelectedDocument { get => _selectedDocument; set { _selectedDocument = value; Changed(); ((Command)OpenCommand).RaiseCanExecuteChanged(); } }
+    public DocumentListItem? SelectedDocument { get => _selectedDocument; set { _selectedDocument = value; Changed(); ((Command)OpenCommand).RaiseCanExecuteChanged(); ((Command)ShareCommand).RaiseCanExecuteChanged(); } }
     public ICommand OpenCommand { get; }
+    public ICommand ShareCommand { get; }
     public event Action<SharedDocument>? OpenRequested;
+    public event Action<SharedDocument>? SharingRequested;
     public string SharingStatusMessage { get; private set; } = string.Empty;
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public DocumentListViewModel() { OpenCommand = new Command(_ => OpenSelected(), _ => SelectedDocument?.SourceDocument is not null); }
+    public DocumentListViewModel() { OpenCommand = new Command(_ => OpenSelected(), _ => SelectedDocument?.SourceDocument is not null); ShareCommand = new Command(_ => ShareSelected(), _ => SelectedDocument?.SourceDocument is not null); }
     public DocumentListViewModel(IViewerAccessService sharingService) : this() => _sharingService = sharingService ?? throw new ArgumentNullException(nameof(sharingService));
 
     public Task LoadAsync(IEnumerable<DocumentListItem> rows, CancellationToken cancellationToken = default)
@@ -69,6 +71,7 @@ public sealed class DocumentListViewModel : INotifyPropertyChanged
     }
     private void Changed([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new(name));
     private void OpenSelected() { if (SelectedDocument?.SourceDocument is SharedDocument document) OpenRequested?.Invoke(document); }
+    private void ShareSelected() { if (SelectedDocument?.SourceDocument is SharedDocument document) SharingRequested?.Invoke(document); }
     private sealed class Command(Action<object?> execute, Predicate<object?>? canExecute = null) : ICommand
     {
         public event EventHandler? CanExecuteChanged;

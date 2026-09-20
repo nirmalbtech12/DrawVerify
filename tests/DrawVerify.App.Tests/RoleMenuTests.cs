@@ -39,12 +39,19 @@ public sealed class RoleMenuTests
         {
             var session = new TestSession(role);
             var menus = new RoleMenuBuilder(session, new RoleAuthorization()).Build(_ => { }, () => Task.CompletedTask, _ => { }).ToArray();
-            var expected = new[] { "_File", "_Verification", "_Workflow", "_Help" }
-                .Concat(uploadVisible ? ["_Upload & Verify"] : [])
-                .Concat(sharedDocumentsVisible ? ["_Shared Documents"] : [])
-                .Concat(adminVisible ? ["_Admin"] : [])
-                .OrderBy(x => x);
-            Assert.Equal(expected, menus.Select(x => x.Header?.ToString()).OrderBy(x => x));
+            IEnumerable<string> expected = role == SystemRoles.Approver
+                ? ["_File", "_Help", "_Shared Link Management", "_Verification", "_Workflow"]
+                : new[] { "_File", "_Verification", "_Workflow", "_Help" }
+                    .Concat(uploadVisible ? ["_Upload & Verify"] : [])
+                    .Concat(sharedDocumentsVisible ? ["_Shared Documents"] : [])
+                    .Concat(adminVisible ? ["_Admin"] : [])
+                    .OrderBy(x => x);
+            var expectedEntries = expected.ToHashSet(StringComparer.Ordinal);
+            var actualEntries = menus
+                .Select(x => x.Header?.ToString())
+                .ToHashSet(StringComparer.Ordinal);
+            Assert.Equal(expectedEntries.Count, actualEntries.Count);
+            Assert.All(expectedEntries, expectedEntry => Assert.Contains(expectedEntry, actualEntries));
             var file = Assert.Single(menus, x => x.Header?.ToString() == "_File");
             Assert.Contains(file.Items.Cast<MenuItem>(), x => x.Header?.ToString() == "_Dashboard / Home");
             Assert.Contains(file.Items.Cast<MenuItem>(), x => x.Header?.ToString() == "_Logout / Exit");

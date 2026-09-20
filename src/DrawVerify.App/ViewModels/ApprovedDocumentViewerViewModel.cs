@@ -44,7 +44,7 @@ public sealed class ApprovedDocumentViewerViewModel : INotifyPropertyChanged, ID
     }
 
     public ApprovedDocumentViewerViewModel(ApprovedDocumentService service, SharedDocument document, SharedLinkViewerContext context, ICentralizedLogger? logger = null)
-        : this(service, document, context.CanDownload, logger) => SharedLinkContext = context;
+        : this(service, document, context.CanDownload, logger) { SharedLinkContext = context; }
 
     public async Task OpenAsync()
     {

@@ -17,6 +17,7 @@ public static class ScreenRegistry
     public const string Report = "Report";
     public const string Help = "Help";
     public const string SharedDocuments = "SharedDocuments";
+    public const string SharedLinkManagement = SharedDocuments;
 
     public static IReadOnlyList<MenuDefinition> Menus { get; } = new[]
     {
@@ -25,6 +26,7 @@ public static class ScreenRegistry
         new MenuDefinition("_Verification", "Verification", Children: new[] { new MenuDefinition("_My Verifications", Verification), new MenuDefinition("_All Verifications", Verification, RolePermission.ReviewVerification) }),
         new MenuDefinition("_Workflow", "Workflow", Children: new[] { new MenuDefinition("_My Submissions", Workflow, RequiredRole: SystemRoles.Maker), new MenuDefinition("_To Review", Workflow, RequiredRole: SystemRoles.Checker), new MenuDefinition("_To Approve", Workflow, RequiredRole: SystemRoles.Approver) }),
         new MenuDefinition("_Shared Documents", SharedDocuments, RolePermission.ReadApprovedDocuments),
+        new MenuDefinition("_Shared Link Management", SharedLinkManagement, RolePermission.FinalApproval),
         new MenuDefinition("_Admin", "Admin", RolePermission.ManageGlobalConfiguration, Children: new[] { new MenuDefinition("_User Management", UserAdministration, RolePermission.ManageUsersAndRoles), new MenuDefinition("_Role Assignment", UserAdministration, RolePermission.ManageUsersAndRoles), new MenuDefinition("_Workflow Configuration", WorkflowConfiguration, RolePermission.ManageGlobalConfiguration), new MenuDefinition("_Report Template Configuration", ReportTemplateConfiguration, RolePermission.ManageGlobalConfiguration) }),
         new MenuDefinition("_Help", Help)
     };
