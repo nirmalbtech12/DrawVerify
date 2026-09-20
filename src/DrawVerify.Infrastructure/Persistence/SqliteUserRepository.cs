@@ -12,7 +12,7 @@ public sealed class SqliteUserRepository : IUserRepository
     private readonly ICentralizedLogger? _logger;
     public SqliteUserRepository(string databasePath, ICentralizedLogger? logger = null)
     {
-        _connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath }.ToString(); _logger=logger;
+        _connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath, Pooling = false }.ToString(); _logger=logger;
         try { Initialize(); } catch (Exception ex) { logger?.Log(ex, "SQLite identity startup", "Unable to initialize identity schema"); throw; }
     }
     private void Initialize()

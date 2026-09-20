@@ -17,6 +17,7 @@ public partial class MainWindow : Window
     private SubmissionRequest? _pendingSubmission;
     private string? _pendingVerificationHighlight;
     private ReviewPackage? _pendingReviewPackage;
+    private string? _pendingSharedLinkRoute;
     private readonly NavigationHistory _history = new();
     public Func<MessageBoxResult> DiscardConfirmation { get; set; } = () => MessageBox.Show("Discard unsaved changes?", "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Warning);
     public MainWindow()
@@ -24,14 +25,17 @@ public partial class MainWindow : Window
         CompositionRoot.Initialize(); InitializeComponent();
         if (System.Windows.Application.Current?.Resources["BrandIconSource"] is System.Windows.Media.ImageSource icon) Icon = icon;
         Loaded += async (_, _) => await ApplySystemRetentionAsync(); ShowLogin();
+        var startupRoute = Environment.GetCommandLineArgs().Skip(1).FirstOrDefault(IsSharedLinkRoute);
+        if (startupRoute is not null) OpenSharedLink(startupRoute);
         InputBindings.Add(new KeyBinding(new RelayCommand(_ => GoBack()), Key.Left, ModifierKeys.Alt));
     }
     private static async Task ApplySystemRetentionAsync() { try { await CompositionRoot.ApplySystemRetentionAsync(); } catch (Exception ex) { new CentralizedLogger().Log(ex, "System audit retention", "Unable to apply the configured audit retention policy."); } }
     private void ShowLogin()
     {
         _navigation = null; _history.Clear(); _shell = null;
-        var view = new LoginView { DataContext = new LoginViewModel(CompositionRoot.CreateAuthenticationService()) }; ((LoginViewModel)view.DataContext).LoginSucceeded += ShowAuthenticatedContent; MainContent.Content = view;
+        var view = new LoginView { DataContext = new LoginViewModel(CompositionRoot.CreateAuthenticationService()) }; ((LoginViewModel)view.DataContext).LoginSucceeded += OnLoginSucceeded; MainContent.Content = view;
     }
+    private void OnLoginSucceeded() { ShowAuthenticatedContent(); if (_pendingSharedLinkRoute is not null) _ = ResumeSharedLinkAsync(); }
     private void ShowAuthenticatedContent()
     {
         if (!CompositionRoot.SessionAuthentication.IsAuthenticated) { ShowLogin(); return; }
@@ -44,6 +48,7 @@ public partial class MainWindow : Window
         MainContent.Content = _shell;
         var guard = new ScreenAccessGuard(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization);
         if (requestedTarget is not null && guard.CanAccess(requestedTarget)) Navigate(requestedTarget); else Navigate(ScreenRegistry.Dashboard);
+        if (_pendingSharedLinkRoute is not null) _navigation.BeginSharedLink(_pendingSharedLinkRoute);
     }
     private void Navigate(string target) => _navigation?.Navigate(target, () => CreateScreen(target));
     public void ShowDocumentDetails(Document document, SubmissionRequest submissionRequest)
@@ -67,8 +72,21 @@ public partial class MainWindow : Window
         if (target == ScreenRegistry.Workflow) { var model = new WorkflowViewModel(CompositionRoot.CreateWorkflowService(), CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization, new CentralizedLogger()); model.NavigationRequested += _ => Navigate(ScreenRegistry.Workflow); model.VerificationNavigationRequested += finding => { _pendingReviewPackage = model.ReviewPackage; _pendingVerificationHighlight = finding.HighlightTarget ?? finding.Identifier; Navigate(ScreenRegistry.Verification); }; model.ReturnRequested += request => { _pendingSubmission = request; GoBack(); }; var pending = _pendingSubmission; _pendingSubmission = null; if (pending is not null) model.BeginSubmission(pending); var view = new WorkflowView { DataContext = model }; view.BackRequested += () => { if (model.IsConfirmationVisible) _ = model.CancelAndReturnAsync(); else HandleTaskBack(model); }; _ = model.LoadQueueAsync(); _ = model.LoadMakerReviewPackagesAsync(); return view; }
         if (target == ScreenRegistry.SharedDocuments)
         {
+            var sharedLinkDocument = _pendingSharedLinkDocument;
+            if (sharedLinkDocument is not null) return CreateSharedLinkManagementView(sharedLinkDocument);
             var model = CompositionRoot.CreateApprovedDocumentListViewModel();
             model.OpenRequested += document => ShowApprovedDocumentViewer(document, model);
+            model.SharingRequested += document => ShowSharedLinkManagement(document, model);
+            _ = LoadApprovedDocumentListAsync(model);
+            return new DocumentListView { DataContext = model };
+        }
+        if (target == ScreenRegistry.SharedLinkManagement)
+        {
+            var sharedLinkDocument = _pendingSharedLinkDocument;
+            if (sharedLinkDocument is not null) return CreateSharedLinkManagementView(sharedLinkDocument);
+            var model = CompositionRoot.CreateApprovedDocumentListViewModel();
+            model.OpenRequested += document => ShowApprovedDocumentViewer(document, model);
+            model.SharingRequested += document => ShowSharedLinkManagement(document, model);
             _ = LoadApprovedDocumentListAsync(model);
             return new DocumentListView { DataContext = model };
         }
@@ -108,6 +126,61 @@ public partial class MainWindow : Window
         var view = new ApprovedDocumentViewerView { DataContext = model };
         view.Unloaded += (_, _) => model.Dispose();
         _shell?.SetScreen(view, "ApprovedDocumentViewer");
+    }
+    private SharedDocument? _pendingSharedLinkDocument;
+    private DocumentListViewModel? _sharedLinkSource;
+    private void ShowSharedLinkManagement(SharedDocument document, DocumentListViewModel source)
+    {
+        if (document.DocumentId == Guid.Empty || document.VersionId == Guid.Empty) { Denied("Sharing options require a selected approved document version."); return; }
+        _pendingSharedLinkDocument = document; _sharedLinkSource = source;
+        Navigate(ScreenRegistry.SharedLinkManagement);
+    }
+    private UIElement CreateSharedLinkManagementView(SharedDocument document)
+    {
+        _pendingSharedLinkDocument = null;
+        var model = new InternalSharedLinkViewModel(CompositionRoot.CreateInternalSharedLinkService(), document.DocumentId, document.VersionId, new CentralizedLogger());
+        _ = model.LoadAsync(document.DocumentId, document.VersionId);
+        var view = new InternalSharedLinkView { DataContext = model };
+        view.Unloaded += (_, _) => _sharedLinkSource = null;
+        return view;
+    }
+    public void OpenSharedLink(string route)
+    {
+        var token = ExtractSharedLinkToken(route);
+        if (token is null) { Denied("Invalid or revoked link."); return; }
+        _pendingSharedLinkRoute = token;
+        if (!CompositionRoot.SessionAuthentication.IsAuthenticated) { ShowLogin(); return; }
+        if (_shell is null) ShowAuthenticatedContent();
+        _navigation?.BeginSharedLink(token);
+        _ = ResumeSharedLinkAsync();
+    }
+    private async Task ResumeSharedLinkAsync()
+    {
+        if (!CompositionRoot.SessionAuthentication.IsAuthenticated) return;
+        var token = _navigation?.ConsumeSharedLink() ?? _pendingSharedLinkRoute;
+        _pendingSharedLinkRoute = null;
+        if (string.IsNullOrWhiteSpace(token)) return;
+        try
+        {
+            var result = await CompositionRoot.CreateInternalSharedLinkService().AuthorizeAsync(new InternalSharedLinkAccessRequest(token));
+            if (!result.Succeeded || result.Link is null || result.Document is null) { Denied(string.IsNullOrWhiteSpace(result.Message) ? "Invalid or revoked link." : result.Message); return; }
+            var context = new SharedLinkViewerContext(result.Link.LinkId, result.Link.DocumentId, result.Link.VersionId, result.Link.AccessLevel == DrawVerify.Core.Enums.SharedLinkAccessLevel.ViewAndDownload);
+            var approvedService = CompositionRoot.CreateApprovedDocumentService();
+            var shared = await approvedService.GetSharedLinkDocumentAsync(context.DocumentId, context.VersionId);
+            if (shared is null) { Denied("The shared-link document version is unavailable."); return; }
+            var viewer = new ApprovedDocumentViewerViewModel(approvedService, shared, context, new CentralizedLogger());
+            var view = new ApprovedDocumentViewerView { DataContext = viewer };
+            view.Unloaded += (_, _) => viewer.Dispose();
+            _shell?.SetScreen(view, "SharedLinkViewer");
+        }
+        catch (Exception exception) { new CentralizedLogger().Log(exception, "Shared-link entry", "Unable to authorize the shared-link route."); Denied("The shared link could not be opened."); }
+    }
+    private static bool IsSharedLinkRoute(string value) => ExtractSharedLinkToken(value) is not null;
+    private static string? ExtractSharedLinkToken(string route)
+    {
+        if (!Uri.TryCreate(route, UriKind.Absolute, out var uri) || !uri.AbsolutePath.Contains("share", StringComparison.OrdinalIgnoreCase)) return null;
+        var token = uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries).Select(part => part.Split('=', 2)).FirstOrDefault(pair => pair.Length == 2 && string.Equals(pair[0], "token", StringComparison.OrdinalIgnoreCase))?[1];
+        return string.IsNullOrWhiteSpace(token) ? null : Uri.UnescapeDataString(token);
     }
     private void HandleTaskBack(TaskScreenViewModel model)
     {
