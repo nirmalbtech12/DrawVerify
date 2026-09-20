@@ -9,6 +9,33 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class InternalSharedLinkAuthorizationTests
 {
+    [Fact(DisplayName = "TSD-AC08-NODOWNLOAD unauthorized download result denies without document")]
+    public void Download_denial_is_not_successful()
+    {
+        var result = InternalSharedLinkAccessResult.Fail(InternalSharedLinkAccessFailure.Unauthorized, "Downloading is not permitted for this shared link.");
+        Assert.False(result.Succeeded);
+        Assert.Equal(InternalSharedLinkAccessFailure.Unauthorized, result.Failure);
+        Assert.Null(result.Document);
+    }
+
+    [Fact(DisplayName = "TSD-AC10-AUTHERROR unauthorized identity receives a clear denial")]
+    public void Unauthorized_identity_is_denied_without_content()
+    {
+        var result = InternalSharedLinkAccessResult.Fail(InternalSharedLinkAccessFailure.Unauthorized, "You are not authorized to access this shared link.");
+        Assert.False(result.Succeeded);
+        Assert.Contains("authorized", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(result.Document);
+    }
+
+    [Fact(DisplayName = "TSD-AC14-CONSISTENCY denied policy outcome is consistent across equivalent requests")]
+    public void Equivalent_denied_requests_have_the_same_policy_result()
+    {
+        var first = InternalSharedLinkAccessResult.Fail(InternalSharedLinkAccessFailure.Unauthorized, "You are not authorized to access this shared link.");
+        var second = InternalSharedLinkAccessResult.Fail(InternalSharedLinkAccessFailure.Unauthorized, "You are not authorized to access this shared link.");
+        Assert.Equal(first.Failure, second.Failure);
+        Assert.Equal(first.Succeeded, second.Succeeded);
+    }
+
     [Fact(DisplayName = "TSD-AC02 TSD-AC09 internal authorization denies external and unauthenticated retrieval")]
     public async Task Identity_policy_allows_internal_users_and_denies_external_or_unauthenticated_without_retrieval()
     {

@@ -43,6 +43,13 @@ public sealed class ApprovedDocumentService : IApprovedDocumentService
         return new SharedDocumentAccess(document, content);
     }
 
+    public async Task<Stream> DownloadSharedLinkAsync(SharedLinkViewerContext context, CancellationToken token = default)
+    {
+        if (!AllowDownload || !context.CanDownload) throw new UnauthorizedAccessException("Downloading is not permitted for this shared link.");
+        if (!await ValidateSharedLinkAccessAsync(context, token).ConfigureAwait(false)) throw new UnauthorizedAccessException(RevokedMessage);
+        return await DownloadAsync(context.DocumentId, context.VersionId, token).ConfigureAwait(false);
+    }
+
     public async Task<bool> ValidateSharedLinkAccessAsync(SharedLinkViewerContext context, CancellationToken token = default)
     {
         if (!_session.IsAuthenticated || _sharedLinks is null) return false;

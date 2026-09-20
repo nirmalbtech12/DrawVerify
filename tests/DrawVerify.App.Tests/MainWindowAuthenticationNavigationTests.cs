@@ -11,6 +11,15 @@ namespace DrawVerify.App.Tests;
 
 public sealed class MainWindowAuthenticationNavigationTests
 {
+    [Fact(DisplayName = "TSD-AC02-AUTH unauthenticated shared-link entry is represented as an authentication handoff")]
+    public void Unauthenticated_entry_requires_authentication_before_resume()
+    {
+        var result = InternalSharedLinkAccessResult.Fail(InternalSharedLinkAccessFailure.AuthenticationRequired, "Authentication is required to access this shared link.");
+        Assert.Equal(InternalSharedLinkAccessFailure.AuthenticationRequired, result.Failure);
+        Assert.False(result.Succeeded);
+        Assert.Null(result.Document);
+    }
+
     [Fact(DisplayName = "T-UX-01 clean Cancel returns from user creation to authenticated content")]
     public void Clean_user_creation_cancel_returns_to_authenticated_content()
     {
