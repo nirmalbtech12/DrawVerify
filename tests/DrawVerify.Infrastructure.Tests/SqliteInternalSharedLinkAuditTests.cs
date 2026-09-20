@@ -15,12 +15,15 @@ public sealed class SqliteInternalSharedLinkAuditTests
         {
             var repository = new SqliteAuditRepository(path);
             var document = Guid.NewGuid();
+            const string rawSecret = "raw-secret-must-not-be-persisted";
             await repository.AppendAsync(new AuditEntry { DocumentId = document, UserId = "viewer-1", DocumentVersion = "version-1", Action = DocumentAuditAction.AccessedViaSharedLink, TimestampUtc = DateTime.UtcNow, TimestampOffset = DateTimeOffset.UtcNow, DetailsJson = "{\"linkId\":\"link-1\",\"action\":\"AccessedViaSharedLink\"}" });
             var record = Assert.Single(await repository.QueryAsync(new AuditLogQuery(DocumentId: document)));
             Assert.Equal(DocumentAuditAction.AccessedViaSharedLink, record.Action);
             Assert.Equal("version-1", record.DocumentVersion);
             Assert.Equal("viewer-1", record.ActorId);
             Assert.Contains("link-1", record.DetailsJson, StringComparison.Ordinal);
+            Assert.DoesNotContain(rawSecret, record.DetailsJson, StringComparison.Ordinal);
+            Assert.NotEqual(default, record.Timestamp);
         }
         finally
         {

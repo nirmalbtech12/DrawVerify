@@ -27,15 +27,43 @@ public sealed class InternalSharedLinkServiceTests
         Assert.Equal(2, links.Items.Count);
     }
 
-    private sealed class DocumentsFake(Document document, DocumentVersion version) : IDocumentRepository
+    [Fact(DisplayName = "TSD-AC01 generation rejects missing non-approved unauthorized and persistence failures")]
+    public async Task Generation_failures_are_clear_and_do_not_create_partial_links()
     {
-        public Task<Document?> GetAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<Document?>(id == document.DocumentId ? document : null);
-        public Task<DocumentVersion?> GetVersionAsync(Guid id, Guid versionId, CancellationToken cancellationToken = default) => Task.FromResult<DocumentVersion?>(id == document.DocumentId && versionId == version.VersionId ? version : null);
+        var documentId = Guid.NewGuid();
+        var versionId = Guid.NewGuid();
+        var version = new DocumentVersion { DocumentId = documentId, VersionId = versionId };
+        var links = new LinksFake();
+        var approver = new SessionFake(new AuthenticatedUser("approver@drawverify.internal", new[] { SystemRoles.Approver }));
+        var missing = new InternalSharedLinkService(new DocumentsFake(null, version), links, approver);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => missing.GenerateAsync(documentId, versionId, new InternalSharedLinkConfiguration()));
+        Assert.Empty(links.Items);
+
+        var pending = new InternalSharedLinkService(new DocumentsFake(new Document { DocumentId = documentId, Status = DocumentStatus.Archived }, version), links, approver);
+        var rejected = await Assert.ThrowsAsync<InvalidOperationException>(() => pending.GenerateAsync(documentId, versionId, new InternalSharedLinkConfiguration()));
+        Assert.Equal(InternalSharedLinkService.ApprovedOnlyMessage, rejected.Message);
+        Assert.Empty(links.Items);
+
+        var unauthorized = new InternalSharedLinkService(new DocumentsFake(new Document { DocumentId = documentId, Status = DocumentStatus.Active }, version), links, new SessionFake(new AuthenticatedUser("viewer", new[] { SystemRoles.Viewer })));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => unauthorized.GenerateAsync(documentId, versionId, new InternalSharedLinkConfiguration()));
+        Assert.Empty(links.Items);
+
+        var failing = new LinksFake { ThrowOnCreate = true };
+        var persistence = new InternalSharedLinkService(new DocumentsFake(new Document { DocumentId = documentId, Status = DocumentStatus.Active }, version), failing, approver);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => persistence.GenerateAsync(documentId, versionId, new InternalSharedLinkConfiguration()));
+        Assert.Empty(failing.Items);
+    }
+
+    private sealed class DocumentsFake(Document? document, DocumentVersion version) : IDocumentRepository
+    {
+        public Task<Document?> GetAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<Document?>(document is not null && id == document.DocumentId ? document : null);
+        public Task<DocumentVersion?> GetVersionAsync(Guid id, Guid versionId, CancellationToken cancellationToken = default) => Task.FromResult<DocumentVersion?>(document is not null && id == document.DocumentId && versionId == version.VersionId ? version : null);
     }
     private sealed class LinksFake : IInternalSharedLinkRepository
     {
+        public bool ThrowOnCreate { get; init; }
         public List<InternalSharedLink> Items { get; } = new();
-        public Task<InternalSharedLink> CreateAsync(InternalSharedLink link, CancellationToken cancellationToken = default) { Items.Add(link); return Task.FromResult(link); }
+        public Task<InternalSharedLink> CreateAsync(InternalSharedLink link, CancellationToken cancellationToken = default) { if (ThrowOnCreate) throw new InvalidOperationException("persistence unavailable"); Items.Add(link); return Task.FromResult(link); }
         public Task<InternalSharedLink?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult(Items.SingleOrDefault(x => x.LinkId == id));
         public Task<InternalSharedLink?> FindByTokenAsync(string tokenHash, CancellationToken cancellationToken = default) => Task.FromResult(Items.SingleOrDefault(x => x.TokenHash == tokenHash));
         public Task<IReadOnlyList<InternalSharedLink>> ListAsync(Guid documentId, Guid? versionId = null, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<InternalSharedLink>>(Items.Where(x => x.DocumentId == documentId && (!versionId.HasValue || x.VersionId == versionId)).ToList());

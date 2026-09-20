@@ -21,6 +21,9 @@ public sealed class InternalSharedLinkViewModelTests
         vm.ExpiresUtc = DateTime.UtcNow.AddHours(1);
         Assert.False(vm.ActivateImmediately);
         Assert.Equal(SharedLinkAccessLevel.ViewOnly, vm.AccessLevel);
+        Assert.Equal(SharedLinkStatus.Active, vm.SelectedLink.Status);
+        Assert.Equal(link.Url, vm.SelectedLink.FullUrl);
+        Assert.Equal(DateTime.UtcNow.Date, vm.ExpiresUtc!.Value.Date);
     }
 
     private sealed class ServiceFake(InternalSharedLinkDetails details) : IInternalSharedLinkService

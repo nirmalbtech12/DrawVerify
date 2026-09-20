@@ -16,4 +16,14 @@ public sealed class InternalSharedLinkRegenerationTests
         Assert.False(revoked.IsActive);
         Assert.True(replacement.IsActive);
     }
+
+    [Fact(DisplayName = "TSD-AC07 failed replacement is not represented as a successful result")]
+    public void Replacement_failure_is_visible()
+    {
+        var result = InternalSharedLinkAccessResult.Fail(InternalSharedLinkAccessFailure.InvalidLink, "Replacement could not be created.");
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("Replacement could not be created.", result.Message);
+        Assert.Null(result.Link);
+    }
 }

@@ -16,5 +16,16 @@ public sealed class InternalSharedLinkConfigurationTests
         Assert.False(configuration.IsActive);
         Assert.Equal(expiry, configuration.ExpiresUtc);
         Assert.Throws<ArgumentException>(() => (configuration with { ExpiresUtc = DateTime.Now }).Validate());
+        Assert.Throws<ArgumentException>(() => (configuration with { ExpiresUtc = DateTime.UtcNow.AddMinutes(-1) }).Validate());
+    }
+
+    [Fact(DisplayName = "TSD-AC03 policy rejects disallowed download without downgrading")]
+    public void Disallowed_download_is_not_silently_downgraded()
+    {
+        var policy = new InternalSharedLinkPolicy { AllowDownload = false };
+        var configuration = new InternalSharedLinkConfiguration { AccessLevel = SharedLinkAccessLevel.ViewAndDownload };
+
+        Assert.False(policy.IsAccessLevelAllowed(configuration.AccessLevel));
+        Assert.Equal(SharedLinkAccessLevel.ViewAndDownload, configuration.AccessLevel);
     }
 }

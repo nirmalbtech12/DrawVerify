@@ -15,5 +15,8 @@ public sealed class InternalSharedLinkMultipleLinksTests
         Assert.True(policy.AllowMultipleLinks);
         Assert.NotEqual(first.AccessLevel, second.AccessLevel);
         Assert.True(policy.IsAccessLevelAllowed(second.AccessLevel));
+        Assert.False(new InternalSharedLinkPolicy { AllowMultipleLinks = false }.AllowMultipleLinks);
+        Assert.True(first.AllowMultipleLinks);
+        Assert.True(second.AllowMultipleLinks);
     }
 }

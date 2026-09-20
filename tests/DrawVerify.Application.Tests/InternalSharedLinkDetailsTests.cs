@@ -17,5 +17,8 @@ public sealed class InternalSharedLinkDetailsTests
         Assert.Equal(link.ExpiresUtc, details.ExpiresUtc);
         Assert.Equal(4, details.AccessCount);
         Assert.Null(new InternalSharedLinkDetails { Link = link, Status = details.Status }.AccessCount);
+
+        Assert.Equal(SharedLinkStatus.Expired, (link with { ExpiresUtc = now.AddMinutes(-1) }).Status(now));
+        Assert.Equal(SharedLinkStatus.Inactive, (link with { IsActive = false }).Status(now));
     }
 }

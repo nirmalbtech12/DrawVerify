@@ -21,6 +21,10 @@ public sealed class SqliteInternalSharedLinkRepositoryTests
             Assert.Equal(link.Url, saved!.Url);
             Assert.Equal(link.DocumentId, saved.DocumentId);
             Assert.Equal(link.VersionId, saved.VersionId);
+            Assert.Equal(link.TokenHash, saved.TokenHash);
+            Assert.Equal(link.AccessLevel, saved.AccessLevel);
+            Assert.Equal(link.IsActive, saved.IsActive);
+            Assert.Null(await repository.FindByTokenAsync("different-token-hash"));
         }
         finally
         {
