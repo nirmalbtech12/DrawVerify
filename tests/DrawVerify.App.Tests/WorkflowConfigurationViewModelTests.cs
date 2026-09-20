@@ -12,6 +12,20 @@ namespace DrawVerify.App.Tests;
 
 public sealed class WorkflowConfigurationViewModelTests
 {
+    [Fact(DisplayName = "TSD-AC06-PREFS approval notification rule exposes supported InApp configuration")]
+    public void TSD_AC06_PREFS_supported_approval_rule_is_preserved()
+    {
+        Sta.Run(() =>
+        {
+            var configuration = Service.BaselineConfiguration() with
+            {
+                Notifications = [new() { Event = WorkflowNotificationEvent.Approval, Enabled = true, Channels = [WorkflowNotificationChannel.InApp] }]
+            };
+            var vm = new WorkflowConfigurationViewModel(new Service(configuration), new Session(new("admin", [SystemRoles.Admin])), new RoleAuthorization());
+            Assert.Contains(vm.Notifications, notification => notification.Event == WorkflowNotificationEvent.Approval);
+            Assert.Contains(vm.Notifications.Single(notification => notification.Event == WorkflowNotificationEvent.Approval).Channels, channel => channel == WorkflowNotificationChannel.InApp);
+        });
+    }
     [Fact(DisplayName = "TD-UI-001 Admin workflow configuration view exposes editing and preview commands")]
     public void Admin_view_model_is_editable_and_view_renders_sections()
     {

@@ -61,7 +61,11 @@ public sealed record WorkflowConfiguration
         foreach (var transition in StatusTransitions)
             foreach (var role in transition.AuthorizedRoles) if (!known.Contains(role)) errors.Add($"StatusTransitions references undefined role '{role}'.");
         foreach (var notification in Notifications)
+        {
             foreach (var role in notification.RecipientRoles) if (!known.Contains(role)) errors.Add($"Notifications.{notification.Event} references undefined role '{role}'.");
+            if (notification.Channels.Count == 0) errors.Add($"Notifications.{notification.Event}.Channels must define at least one supported channel.");
+            if (notification.Channels.Any(channel => channel != WorkflowNotificationChannel.InApp)) errors.Add($"Notifications.{notification.Event}.Channels contains an unsupported channel.");
+        }
         return errors;
     }
 }

@@ -13,4 +13,5 @@ public sealed record InAppNotification
     public string Target { get; init; } = string.Empty;
     public string EventType { get; init; } = string.Empty;
     public string Channel { get; init; } = string.Empty;
+    public Guid? ApprovalEventId { get; init; }
 }

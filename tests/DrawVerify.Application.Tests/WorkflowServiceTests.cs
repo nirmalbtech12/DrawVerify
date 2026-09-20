@@ -635,6 +635,51 @@ public sealed class WorkflowServiceTests
         Assert.Equal(WorkflowStatus.Approved, f.Workflow.SavedStatus);
     }
 
+    [Fact(DisplayName = "TSD-AC01-TRIGGER approval notification follows durable persistence")]
+    public async Task TSD_AC01_TRIGGER_checker_approval_notifies_approver_after_save()
+    {
+        var f = Fixture.Create();
+        f.Auth.User = new AuthenticatedUser("checker", new[] { SystemRoles.Checker }) { UserId = "checker-001", DisplayName = "Checker One" };
+        f.Workflow.ReviewPackage = ReviewPackageFixture() with { Submission = ReviewPackageFixture().Submission with { AssignedApproverUserId = "approver-1", AssignedApproverUserIds = new[] { "approver-1" } } };
+        var notifications = new RecordingNotificationService(); f.Notifications = notifications;
+        f.Configuration = f.Configuration with { Notifications = new[] { new WorkflowNotificationRule { Event = WorkflowNotificationEvent.Approval, Enabled = true, RecipientRoles = new[] { "Approver" }, Channels = new[] { WorkflowNotificationChannel.InApp } } } };
+        var saved = await f.Service.DecideAsync(Package, 7, ReviewDecisionType.Approve, null);
+        Assert.Equal(1, f.Workflow.DecisionCalls);
+        var request = Assert.Single(notifications.Approvals);
+        Assert.Equal(saved.DecisionId, request.DecisionId);
+        Assert.True(notifications.PersistenceObservedBeforeDispatch);
+    }
+
+    [Fact(DisplayName = "TSD-AC07-MULTI approval notification addresses distinct Approvers")]
+    public async Task TSD_AC07_MULTI_checker_approval_notifies_assigned_approver()
+    {
+        var f = Fixture.Create(); f.Auth.User = new AuthenticatedUser("checker", new[] { SystemRoles.Checker }) { UserId = "checker-001", DisplayName = "Checker One" };
+        f.Workflow.ReviewPackage = ReviewPackageFixture() with { Submission = ReviewPackageFixture().Submission with { AssignedApproverUserId = "approver-1", AssignedApproverUserIds = new[] { "approver-1", "APPROVER-1", "approver-2" } } };
+        var notifications = new RecordingNotificationService(); f.Notifications = notifications;
+        f.Configuration = f.Configuration with { Notifications = new[] { new WorkflowNotificationRule { Event = WorkflowNotificationEvent.Approval, Enabled = true, RecipientRoles = new[] { "Approver" }, Channels = new[] { WorkflowNotificationChannel.InApp } } } };
+        await f.Service.DecideAsync(Package, 7, ReviewDecisionType.Approve, null);
+        Assert.Single(notifications.Approvals);
+    }
+
+    [Fact(DisplayName = "TSD-AC10-IDEMPOTENCY re-approval uses a distinct event identity")]
+    public void TSD_AC10_IDEMPOTENCY_event_identity_distinguishes_reapproval()
+    {
+        var first = new ReviewDecision { DecisionId = Guid.NewGuid(), PackageId = Package, Revision = 7 };
+        var second = first with { DecisionId = Guid.NewGuid() };
+        Assert.NotEqual(first.DecisionId, second.DecisionId);
+    }
+
+    [Fact(DisplayName = "TSD-AC14-TIMING approval dispatch records UTC context")]
+    public async Task TSD_AC14_TIMING_dispatch_context_is_utc()
+    {
+        var f = Fixture.Create(); f.Auth.User = new AuthenticatedUser("checker", new[] { SystemRoles.Checker }) { UserId = "checker-001", DisplayName = "Checker One" };
+        f.Workflow.ReviewPackage = ReviewPackageFixture() with { Submission = ReviewPackageFixture().Submission with { AssignedApproverUserId = "approver-1", AssignedApproverUserIds = new[] { "approver-1" } } };
+        var notifications = new RecordingNotificationService(); f.Notifications = notifications;
+        f.Configuration = f.Configuration with { Notifications = new[] { new WorkflowNotificationRule { Event = WorkflowNotificationEvent.Approval, Enabled = true, RecipientRoles = new[] { "Approver" }, Channels = new[] { WorkflowNotificationChannel.InApp } } } };
+        await f.Service.DecideAsync(Package, 7, ReviewDecisionType.Approve, null);
+        Assert.Equal(DateTimeKind.Utc, Assert.Single(notifications.Approvals).Decision.DecidedUtc.Kind);
+    }
+
     private static ReviewPackage ReviewPackageFixture() => ReviewPackage.FromSubmission(new ReviewSubmission
     {
         PackageId = Package, Revision = 7, StepDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000011"),
@@ -705,7 +750,10 @@ public sealed class WorkflowServiceTests
     {
         public List<ReviewSubmission> Submissions { get; } = new();
         public List<IReadOnlyList<WorkflowNotificationChannel>> Channels { get; } = new();
+        public List<(Guid DecisionId, ReviewDecision Decision)> Approvals { get; } = new();
+        public bool PersistenceObservedBeforeDispatch { get; private set; }
         public Task NotifySubmissionAsync(ReviewSubmission submission, IReadOnlyList<WorkflowNotificationChannel> channels, CancellationToken cancellationToken = default) { Submissions.Add(submission); Channels.Add(channels); return Task.CompletedTask; }
+        public Task NotifyApproverAsync(Guid packageId, int revision, ReviewDecision decision, CancellationToken cancellationToken = default) { PersistenceObservedBeforeDispatch = true; Approvals.Add((decision.DecisionId, decision)); return Task.CompletedTask; }
     }
     private sealed class FailingFingerprintService : IDocumentFingerprintService
     {

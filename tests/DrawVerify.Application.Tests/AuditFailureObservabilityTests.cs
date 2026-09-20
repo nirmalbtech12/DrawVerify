@@ -8,6 +8,16 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class AuditFailureObservabilityTests
 {
+    [Fact(DisplayName = "TSD-AC09-RETRY delivery exhaustion preserves notification context")]
+    public void TSD_AC09_RETRY_exhaustion_is_visible_with_package_and_revision()
+    {
+        var package = Guid.NewGuid();
+        var inner = new IOException("delivery failed");
+        var exception = new NotificationDeliveryException(package, 4, inner);
+        Assert.Equal(package, exception.PackageId);
+        Assert.Equal(4, exception.Revision);
+        Assert.Same(inner, exception.InnerException);
+    }
     [Fact(DisplayName = "REV-KAN71-001 missing document audit capability fails visibly and emits no generation event")]
     public async Task REV_KAN71_001_missing_document_audit_capability_does_not_generate_pdf_or_event()
     {

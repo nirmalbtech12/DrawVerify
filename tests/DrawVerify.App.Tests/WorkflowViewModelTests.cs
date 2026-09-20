@@ -240,6 +240,30 @@ public sealed class WorkflowViewModelTests
         Assert.True(Assert.Single(service.Notifications).IsRead);
     }
 
+    [Fact(DisplayName = "TSD-AC04-ROUTE activation raises final approval navigation")]
+    public async Task TSD_AC04_ROUTE_activation_raises_existing_navigation_request()
+    {
+        var notification = NotificationFixture() with { Target = "/workflow/20000000-0000-0000-0000-000000000001/3" };
+        var service = new RecordingNotificationService(notification);
+        var model = new NotificationCenterViewModel(service, new FakeAuthentication(new AuthenticatedUser("approver", new[] { SystemRoles.Approver }) { UserId = "C-1" }));
+        model.ReviewRequested += service.AddReviewRequest;
+        await model.ActivateAsync(notification);
+        Assert.Equal((notification.PackageId, notification.Revision), Assert.Single(service.ReviewRequests));
+    }
+
+    [Fact(DisplayName = "TSD-AC03-CONTENT notification center exposes approval message content")]
+    public async Task TSD_AC03_CONTENT_notification_projection_exposes_message_and_reference()
+    {
+        var notification = NotificationFixture() with { Message = "Document 20000000-0000-0000-0000-000000000001, revision 3, Checker One, approved by Checker - ready for final approval." };
+        var service = new RecordingNotificationService(notification);
+        var model = new NotificationCenterViewModel(service, new FakeAuthentication(new AuthenticatedUser("approver", new[] { SystemRoles.Approver }) { UserId = "C-1" }));
+        await model.LoadAsync();
+        var loaded = Assert.Single(model.Notifications);
+        Assert.Contains("approved by Checker", loaded.Message, StringComparison.Ordinal);
+        Assert.Contains("revision 3", loaded.Message, StringComparison.Ordinal);
+        Assert.NotEmpty(loaded.Target);
+    }
+
     [Fact(DisplayName = "TSD-AC05-CENTER notification center loads the authenticated user projection")]
     public async Task TSD_AC05_CENTER_loads_timestamp_reference_and_unread_state()
     {

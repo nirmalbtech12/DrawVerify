@@ -62,4 +62,5 @@ public enum DocumentAuditAction
     ,SharedLinkRegenerated = 74
     ,AccessedViaSharedLink = 75
     ,CheckerNotificationSent = 76
+    ,ApproverNotificationSent = 77
 }
