@@ -79,6 +79,12 @@ public static class CompositionRoot
         var viewerAccess = new SqliteViewerAccessRepository(database, logger);
         return new ApprovedDocumentService(new SqliteSharedDocumentRepository(database, logger), Session, Authorization, new SqliteAuditRepository(database), logger, new DocumentFileStore(AppContext.BaseDirectory, StepUploadConfiguration), new DxfDocumentFileStore(AppContext.BaseDirectory, DxfUploadConfiguration), ViewerDocumentConfiguration, viewerAccess);
     }
+    public static InternalSharedLinkService CreateInternalSharedLinkService()
+    {
+        var database = DatabasePath();
+        var logger = new CentralizedLogger();
+        return new InternalSharedLinkService(new SqliteDocumentRepository(database, logger), new SqliteInternalSharedLinkRepository(database), Session, Authorization, new SqliteDocumentAuditRepository(database), logger);
+    }
     public static DocumentListViewModel CreateApprovedDocumentListViewModel() => new(CreateViewerAccessService());
     public static ApprovedDocumentService CreateApprovedDocumentListDataService() => CreateApprovedDocumentService();
     private static ViewerDocumentConfiguration LoadViewerDocumentConfiguration()

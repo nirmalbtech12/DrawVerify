@@ -28,6 +28,7 @@ public sealed class ApprovedDocumentViewerViewModel : INotifyPropertyChanged, ID
     public Stream? Content { get; private set; }
     public UIElement? ViewerContent { get; private set; }
     public bool IsReadOnly => true;
+    public SharedLinkViewerContext? SharedLinkContext { get; }
     public bool CanDownload => _hasAccess && _service.AllowDownload;
     public string Status { get => _status; private set { _status = value; PropertyChanged?.Invoke(this, new(nameof(Status))); } }
     public ICommand DownloadCommand { get; }
@@ -41,6 +42,9 @@ public sealed class ApprovedDocumentViewerViewModel : INotifyPropertyChanged, ID
         DownloadCommand = new Command(async _ => await DownloadAsync(), _ => CanDownload);
         _ = OpenAsync();
     }
+
+    public ApprovedDocumentViewerViewModel(ApprovedDocumentService service, SharedDocument document, SharedLinkViewerContext context, ICentralizedLogger? logger = null)
+        : this(service, document, context.CanDownload, logger) => SharedLinkContext = context;
 
     public async Task OpenAsync()
     {

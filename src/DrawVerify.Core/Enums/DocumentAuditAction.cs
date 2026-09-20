@@ -57,4 +57,8 @@ public enum DocumentAuditAction
     ,AccessGranted = 69
     ,AccessRevoked = 70
     ,AccessModified = 71
+    ,SharedLinkCreated = 72
+    ,SharedLinkRevoked = 73
+    ,SharedLinkRegenerated = 74
+    ,AccessedViaSharedLink = 75
 }
