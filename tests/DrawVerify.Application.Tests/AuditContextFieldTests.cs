@@ -7,13 +7,15 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class AuditContextFieldTests
 {
-    [Fact(DisplayName = "TSD-NOTIFICATION-AUDIT MakerNotificationSent fields retain rejection context")]
-    public void TSD_NOTIFICATION_AUDIT_maker_notification_context_is_complete()
+    [Theory(DisplayName = "TSD-NOTIFICATION-AUDIT MakerNotificationSent fields retain rejection context")]
+    [InlineData("Checker One", "checker-001", "Checker")]
+    [InlineData("Approver One", "approver-001", "Approver")]
+    public void MakerNotificationSent_fields_retain_rejection_context(string rejectorName, string rejectorUserId, string rejectorRole)
     {
         var package = Guid.NewGuid(); var eventId = Guid.NewGuid(); var timestamp = new DateTime(2026, 9, 20, 10, 0, 0, DateTimeKind.Utc);
-        var details = JsonSerializer.Serialize(new { packageId = package, revision = 2, rejectionEventId = eventId, channel = "InApp", recipient = "maker-001", rejectorName = "Checker One", rejectorRole = "Checker", eventType = "MakerNotificationSent", rejectionTimestampUtc = timestamp });
+        var details = JsonSerializer.Serialize(new { packageId = package, revision = 2, rejectionEventId = eventId, channel = "InApp", recipient = "maker-001", rejectorName, rejectorUserId, rejectorRole, eventType = "MakerNotificationSent", rejectionTimestampUtc = timestamp });
         using var document = JsonDocument.Parse(details); var root = document.RootElement;
-        Assert.Equal("MakerNotificationSent", root.GetProperty("eventType").GetString()); Assert.Equal(package, root.GetProperty("packageId").GetGuid()); Assert.Equal(2, root.GetProperty("revision").GetInt32()); Assert.Equal(eventId, root.GetProperty("rejectionEventId").GetGuid()); Assert.Equal("InApp", root.GetProperty("channel").GetString()); Assert.Equal("maker-001", root.GetProperty("recipient").GetString()); Assert.Equal("Checker One", root.GetProperty("rejectorName").GetString()); Assert.Equal("Checker", root.GetProperty("rejectorRole").GetString());
+        Assert.Equal("MakerNotificationSent", root.GetProperty("eventType").GetString()); Assert.Equal(package, root.GetProperty("packageId").GetGuid()); Assert.Equal(2, root.GetProperty("revision").GetInt32()); Assert.Equal(eventId, root.GetProperty("rejectionEventId").GetGuid()); Assert.Equal("InApp", root.GetProperty("channel").GetString()); Assert.Equal("maker-001", root.GetProperty("recipient").GetString()); Assert.Equal(rejectorName, root.GetProperty("rejectorName").GetString()); Assert.Equal(rejectorUserId, root.GetProperty("rejectorUserId").GetString()); Assert.NotEqual("maker-001", root.GetProperty("rejectorUserId").GetString()); Assert.Equal(rejectorRole, root.GetProperty("rejectorRole").GetString());
     }
     [Fact(DisplayName = "TSD-AC08-AUDIT approval notification audit fields retain recipient and event context")]
     public void TSD_AC08_AUDIT_approval_notification_context_is_complete()
