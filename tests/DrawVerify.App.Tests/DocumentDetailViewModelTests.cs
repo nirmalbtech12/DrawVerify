@@ -16,6 +16,13 @@ namespace DrawVerify.App.Tests;
 
 public sealed class DocumentDetailViewModelTests
 {
+    [Fact(DisplayName = "TSD-DOCUMENT-LINK document detail retains exact revision identity")]
+    public void TSD_DOCUMENT_LINK_document_detail_preserves_document_revision()
+    {
+        var document = new Document { DocumentId = Guid.Parse("20000000-0000-0000-0000-000000000001"), OriginalFileName = "part.step", CurrentVersion = 4, Version = new DocumentVersion { VersionId = Guid.NewGuid(), DocumentId = Guid.Parse("20000000-0000-0000-0000-000000000001") } };
+        var model = new DocumentDetailViewModel(document);
+        Assert.Equal(document.DocumentId, model.Document!.DocumentId); Assert.Equal(4, model.CurrentVersion); Assert.Equal("part.step", model.OriginalFileName);
+    }
     [Fact(DisplayName = "TD-07 exposes fingerprint metadata and exact verification states")]
     public void Fingerprint_metadata_and_result_messages_are_distinct()
     {

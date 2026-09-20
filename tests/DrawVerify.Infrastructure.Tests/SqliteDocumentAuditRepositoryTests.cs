@@ -10,6 +10,31 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteDocumentAuditRepositoryTests
 {
+    [Fact(DisplayName = "TSD-NOTIFICATION-AUDIT SQLite stores MakerNotificationSent with document and version")]
+    public async Task TSD_NOTIFICATION_AUDIT_round_trips_maker_notification_event()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"audit-maker-notification-{Guid.NewGuid():N}.db"); var document = Guid.NewGuid();
+        try
+        {
+            var repository = new SqliteAuditRepository(path); var timestamp = new DateTimeOffset(2026, 9, 20, 10, 0, 0, TimeSpan.Zero);
+            await repository.AppendAsync(Entry(document, DocumentAuditAction.MakerNotificationSent, "2", timestamp, "{\"eventType\":\"MakerNotificationSent\",\"channel\":\"InApp\",\"recipient\":\"maker-001\",\"rejectorRole\":\"Checker\"}"));
+            var record = Assert.Single(await repository.QueryAsync(new AuditLogQuery(DocumentId: document)));
+            Assert.Equal(DocumentAuditAction.MakerNotificationSent, record.Action); Assert.Equal("2", record.DocumentRevision); Assert.Equal("1", record.DocumentVersion); Assert.Contains("MakerNotificationSent", record.EventMetadataJson); Assert.Equal("Maker", record.ActorRole);
+        }
+        finally { SqliteConnection.ClearAllPools(); foreach (var file in new[] { path, path + "-wal", path + "-shm" }) if (File.Exists(file)) File.Delete(file); }
+    }
+
+    [Fact(DisplayName = "TSD-NOTIFICATION-RETRY audit persistence failure remains explicit")]
+    public async Task TSD_NOTIFICATION_RETRY_invalid_audit_write_does_not_report_success()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"audit-maker-retry-failure-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteAuditRepository(path); var entry = new AuditEntry { AuditId = Guid.NewGuid(), DocumentId = Guid.NewGuid(), UserId = "", Action = DocumentAuditAction.MakerNotificationSent, TimestampOffset = DateTimeOffset.UtcNow, TimestampUtc = DateTime.UtcNow, DocumentRevision = "2", DetailsJson = "{}" };
+            await Assert.ThrowsAsync<ArgumentException>(() => repository.AppendAsync(entry));
+        }
+        finally { SqliteConnection.ClearAllPools(); foreach (var file in new[] { path, path + "-wal", path + "-shm" }) if (File.Exists(file)) File.Delete(file); }
+    }
     [Fact(DisplayName = "TSD-AC02-LIFECYCLE-ACTIONS round-trips lifecycle actions with versions")]
     public async Task TSD_AC02_LIFECYCLE_ACTIONS_round_trips_action_and_version_fields()
     {

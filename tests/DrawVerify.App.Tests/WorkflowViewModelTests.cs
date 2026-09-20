@@ -226,6 +226,37 @@ public sealed class WorkflowViewModelTests
         Assert.Equal("Tolerance corrected", loaded.Comments.Single(x => x.PriorCommentId == prior.CommentId).CorrectionResponse);
     }
 
+    [Fact(DisplayName = "TSD-REJECTION-FEEDBACK Maker view exposes reason comments correction and issue references")]
+    public async Task TSD_REJECTION_FEEDBACK_exposes_feedback_and_correction_fields()
+    {
+        var package = ReviewFixture() with
+        {
+            Status = WorkflowStatus.Rejected,
+            PriorDecision = new ReviewDecision { DecisionType = ReviewDecisionType.Reject, OverallReason = "Dimension mismatch", Comments = "Fix DIM-4", CorrectionAction = "Correct dimension 4", CheckerDisplayName = "Checker One" },
+            Comments = new[] { new ReviewComment { Text = "Fix DIM-4", ReferenceType = "dimension", ReferenceId = "DIM-4", IsDraft = false } }
+        };
+        var service = new FakeWorkflowService { ReviewPackage = package, MakerPackages = new[] { package } }; var model = new WorkflowViewModel(service, new FakeAuthentication(new AuthenticatedUser("maker", new[] { SystemRoles.Maker })));
+        await model.SelectMakerPackageAsync(package);
+        Assert.Equal("Dimension mismatch", model.SelectedMakerPackage!.RejectionReason); Assert.Equal("Correct dimension 4", model.SelectedMakerPackage.CorrectionAction); Assert.Contains(model.MakerReviewComments, comment => comment.ReferenceId == "DIM-4");
+    }
+
+    [Fact(DisplayName = "TSD-DOCUMENT-LIST-STATUS Maker workflow list preserves distinct rejection statuses")]
+    public async Task TSD_DOCUMENT_LIST_STATUS_keeps_rejected_and_returned_for_rework_distinct()
+    {
+        var rejected = ReviewFixture() with { Status = WorkflowStatus.Rejected }; var returned = ReviewFixture() with { Revision = 8, Status = WorkflowStatus.ReturnedForRework };
+        var service = new FakeWorkflowService { MakerPackages = new[] { rejected, returned } }; var model = new WorkflowViewModel(service, new FakeAuthentication(new AuthenticatedUser("maker", new[] { SystemRoles.Maker })));
+        await model.LoadMakerReviewPackagesAsync();
+        Assert.Equal(new[] { WorkflowStatus.Rejected, WorkflowStatus.ReturnedForRework }, model.MakerPackages.Select(package => package.Status)); Assert.All(model.MakerPackages, package => Assert.Equal("maker-1", package.MakerUserId));
+    }
+
+    [Fact(DisplayName = "TSD-DOCUMENT-LINK workflow notification target preserves package and revision")]
+    public async Task TSD_DOCUMENT_LINK_workflow_activation_preserves_target_identifiers()
+    {
+        var notification = NotificationFixture() with { PackageId = Guid.Parse("20000000-0000-0000-0000-000000000001"), Revision = 3, Target = "/workflow/20000000-0000-0000-0000-000000000001/3" }; var service = new RecordingNotificationService(notification); var model = new NotificationCenterViewModel(service, new FakeAuthentication(new AuthenticatedUser("maker", new[] { SystemRoles.Maker }) { UserId = "C-1" })); model.ReviewRequested += service.AddReviewRequest;
+        await model.ActivateAsync(notification);
+        Assert.Equal((notification.PackageId, notification.Revision), Assert.Single(service.ReviewRequests));
+    }
+
     [Fact(DisplayName = "TSD-AC04-LINK notification activation requests the document review target")]
     public async Task TSD_AC04_LINK_activation_navigates_to_document_revision()
     {
@@ -341,6 +372,7 @@ sealed class FakeWorkflowService : IWorkflowService
     public SubmissionResult Result { get; set; } = new(true, "The drawing was submitted for review.");
     public bool ThrowOnSubmit { get; set; }
     public ReviewPackage? ReviewPackage { get; set; }
+    public IReadOnlyList<ReviewPackage> MakerPackages { get; set; } = Array.Empty<ReviewPackage>();
     public int DecisionCalls { get; private set; }
     public int CommentCalls { get; private set; }
     public int DraftCalls { get; private set; }
@@ -359,6 +391,8 @@ sealed class FakeWorkflowService : IWorkflowService
     public Task<IReadOnlyList<ReviewSubmission>> GetSubmittedPackagesAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ReviewSubmission>>(Array.Empty<ReviewSubmission>());
     public Task<IReadOnlyList<WorkflowQueueItem>> GetCheckerQueueAsync(CancellationToken cancellationToken = default) => ThrowOnQueue ? Task.FromException<IReadOnlyList<WorkflowQueueItem>>(new UnauthorizedAccessException()) : Task.FromResult<IReadOnlyList<WorkflowQueueItem>>(Array.Empty<WorkflowQueueItem>());
     public Task<ReviewPackage?> OpenReviewPackageAsync(Guid packageId, int revision, CancellationToken cancellationToken = default) => Task.FromResult(ReviewPackage);
+    public Task<ReviewPackage?> GetReviewPackageForReaderAsync(Guid packageId, int revision, CancellationToken cancellationToken = default) => Task.FromResult<ReviewPackage?>(MakerPackages.FirstOrDefault(package => package.PackageId == packageId && package.Revision == revision) ?? ReviewPackage);
+    public Task<IReadOnlyList<ReviewPackage>> GetMakerReviewPackagesAsync(CancellationToken cancellationToken = default) => Task.FromResult(MakerPackages);
     public Task<IReadOnlyList<ReviewDecision>> GetApprovalHistoryAsync(Guid packageId, int revision, CancellationToken cancellationToken = default) => Task.FromResult(ApprovalHistory);
     public Task<ReviewDecision> RejectToCheckerAsync(Guid packageId, int revision, string reason, string comments, CancellationToken cancellationToken = default) => Task.FromResult(new ReviewDecision { PackageId = packageId, Revision = revision, Route = ReviewDecisionRoute.ToChecker, OverallReason = reason, Comments = comments });
     public Task<ReviewDecision> DecideAsync(Guid packageId, int revision, ReviewDecisionType decisionType, string? comments, CancellationToken cancellationToken = default) { DecisionCalls++; if (DecideException is not null) return Task.FromException<ReviewDecision>(DecideException); LastDecisionType = decisionType; LastComments = comments?.Trim(); return Task.FromResult(new ReviewDecision { PackageId = packageId, Revision = revision, DecisionType = decisionType, CheckerUserId = "checker-1" }); }

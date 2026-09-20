@@ -14,4 +14,5 @@ public sealed record InAppNotification
     public string EventType { get; init; } = string.Empty;
     public string Channel { get; init; } = string.Empty;
     public Guid? ApprovalEventId { get; init; }
+    public Guid? RejectionEventId { get; init; }
 }
