@@ -10,6 +10,13 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class FinalApprovalWorkflowServiceTests
 {
+    [Fact(DisplayName = "TSD-REJECTION-EVENT Approver return retains rejector and correction metadata")]
+    public async Task TSD_REJECTION_EVENT_approver_return_retains_rejection_metadata()
+    {
+        var f = Fixture.Create(includeApproverSignature: false);
+        var decision = await f.Service.FinalDecideAsync(f.Package, 1, ReviewDecisionType.Return, "Dimension mismatch");
+        Assert.Equal(ReviewDecisionType.Return, decision.DecisionType); Assert.Equal("approver-1", decision.ApproverUserId); Assert.Equal("Approver One", decision.ApproverDisplayName); Assert.Equal("Dimension mismatch", decision.Comments); Assert.Equal(WorkflowStatus.ReturnedForRework, f.Repository.SavedStatus);
+    }
     [Fact(DisplayName = "TSD-AC01-TRIGGER final approval fixture retains the persisted Checker event context")]
     public async Task TSD_AC01_TRIGGER_final_approval_uses_persisted_checker_context()
     {

@@ -695,6 +695,144 @@ public sealed class SqliteWorkflowRepositoryTests
         finally { Delete(path); }
     }
 
+    [Theory(DisplayName = "TSD-REJECTION-EVENT persists one Maker notification for each rejection outcome")]
+    [InlineData(ReviewDecisionType.Reject, WorkflowStatus.Rejected, "Checker One", "checker-1", "Checker")]
+    [InlineData(ReviewDecisionType.Return, WorkflowStatus.ReturnedForRework, "Approver One", "approver-1", "Approver")]
+    public async Task TSD_REJECTION_EVENT_persists_rejection_notification(ReviewDecisionType decisionType, WorkflowStatus status, string rejectorName, string rejectorId, string rejectorRole)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-maker-rejection-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteWorkflowRepository(path); var package = Guid.NewGuid();
+            var submission = Snapshot(package) with { Revision = 1, MakerUserId = "maker-001", Status = WorkflowStatus.SubmittedForReview };
+            await repository.SubmitAtomicallyAsync(new WorkflowState { PackageId = package, Status = WorkflowStatus.Draft, Revision = 1 }, submission, Audit(DocumentAuditAction.SubmissionSucceeded, package, "Submitted"));
+            var review = (await repository.GetReviewPackageAsync(package, 1))!;
+            var decision = new ReviewDecision { DecisionId = Guid.NewGuid(), PackageId = package, Revision = 1, CheckerUserId = rejectorId, CheckerDisplayName = rejectorName, ApproverUserId = rejectorRole == "Approver" ? rejectorId : string.Empty, ApproverDisplayName = rejectorRole == "Approver" ? rejectorName : string.Empty, DecisionType = decisionType, Comments = "Fix dimension 4", OverallReason = "Dimension 4 is outside tolerance", CorrectionAction = "Correct dimension 4 and resubmit", SnapshotReference = review.SnapshotReference, SnapshotJson = JsonSerializer.Serialize(review), DecidedUtc = new DateTime(2026, 9, 20, 10, 0, 0, DateTimeKind.Utc) };
+            var saved = await repository.SaveReviewDecisionAsync(review, decision, status, Audit(DocumentAuditAction.Rejected, package, "Rejected"));
+
+            await new InAppNotificationService(path).NotifyMakerAsync(package, 1, saved);
+
+            var notification = Assert.Single(await new InAppNotificationService(path).GetForUserAsync("maker-001"));
+            Assert.Equal(saved.DecisionId, notification.RejectionEventId);
+            Assert.Equal("MakerNotificationSent", notification.EventType);
+            Assert.Contains(rejectorName, notification.Message);
+            Assert.Contains(rejectorRole, notification.Message);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-NOTIFICATION-CONTENT notification preserves required semantic fields")]
+    public async Task TSD_NOTIFICATION_CONTENT_contains_reference_revision_rejector_time_and_action()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-maker-content-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteWorkflowRepository(path); var package = Guid.NewGuid(); var submission = Snapshot(package) with { Revision = 2, MakerUserId = "maker-001" };
+            await repository.SubmitAtomicallyAsync(new WorkflowState { PackageId = package, Status = WorkflowStatus.Draft, Revision = 2 }, submission, Audit(DocumentAuditAction.SubmissionSucceeded, package, "Submitted"));
+            var review = (await repository.GetReviewPackageAsync(package, 2))!; var decided = new DateTime(2026, 9, 20, 10, 0, 0, DateTimeKind.Utc);
+            var decision = new ReviewDecision { DecisionId = Guid.NewGuid(), PackageId = package, Revision = 2, CheckerUserId = "checker-1", CheckerDisplayName = "Checker One", DecisionType = ReviewDecisionType.Reject, Comments = "Fix dimension 4", OverallReason = "Dimension 4 is outside tolerance", CorrectionAction = "Correct dimension 4", SnapshotReference = review.SnapshotReference, SnapshotJson = JsonSerializer.Serialize(review), DecidedUtc = decided };
+            await repository.SaveReviewDecisionAsync(review, decision, WorkflowStatus.Rejected, Audit(DocumentAuditAction.Rejected, package, "Rejected"));
+            await new InAppNotificationService(path).NotifyMakerAsync(package, 2, decision);
+            var notification = Assert.Single(await new InAppNotificationService(path).GetForUserAsync("maker-001"));
+            Assert.Contains(package.ToString(), notification.Message); Assert.Contains("revision 2", notification.Message); Assert.Contains("Checker One", notification.Message); Assert.Contains("Checker", notification.Message); Assert.Contains(decided.ToString("O"), notification.Message); Assert.Contains("action required", notification.Message, StringComparison.OrdinalIgnoreCase); Assert.Equal($"/workflow/{package:D}/2", notification.Target);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-INAPP-CENTER notification is unread and filtered to its Maker")]
+    public async Task TSD_INAPP_CENTER_loads_unread_notification_with_timestamp_and_reference()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-maker-center-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteWorkflowRepository(path); var package = Guid.NewGuid(); var submission = Snapshot(package) with { MakerUserId = "maker-001" };
+            await repository.SubmitAtomicallyAsync(new WorkflowState { PackageId = package, Status = WorkflowStatus.Draft, Revision = 1 }, submission, Audit(DocumentAuditAction.SubmissionSucceeded, package, "Submitted"));
+            var review = (await repository.GetReviewPackageAsync(package, 1))!; var decision = new ReviewDecision { DecisionId = Guid.NewGuid(), PackageId = package, Revision = 1, CheckerUserId = "checker-1", CheckerDisplayName = "Checker One", DecisionType = ReviewDecisionType.Reject, Comments = "Fix it", OverallReason = "Fix it", SnapshotReference = review.SnapshotReference, SnapshotJson = JsonSerializer.Serialize(review), DecidedUtc = new DateTime(2026, 9, 20, 10, 0, 0, DateTimeKind.Utc) };
+            await new InAppNotificationService(path).NotifyMakerAsync(package, 1, decision);
+            var notification = Assert.Single(await new InAppNotificationService(path).GetForUserAsync("maker-001"));
+            Assert.False(notification.IsRead); Assert.Equal(package, notification.PackageId); Assert.Equal(1, notification.Revision); Assert.Equal(decision.DecidedUtc, notification.CreatedUtc);
+            Assert.Empty(await new InAppNotificationService(path).GetForUserAsync("other-maker"));
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-NOTIFICATION-IDEMPOTENCY repeated rejection event creates one record")]
+    public async Task TSD_NOTIFICATION_IDEMPOTENCY_repeated_decision_is_not_duplicated()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-maker-idempotency-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteWorkflowRepository(path); var package = Guid.NewGuid(); var submission = Snapshot(package) with { MakerUserId = "maker-001" };
+            await repository.SubmitAtomicallyAsync(new WorkflowState { PackageId = package, Status = WorkflowStatus.Draft, Revision = 1 }, submission, Audit(DocumentAuditAction.SubmissionSucceeded, package, "Submitted"));
+            var review = (await repository.GetReviewPackageAsync(package, 1))!; var decision = new ReviewDecision { DecisionId = Guid.NewGuid(), PackageId = package, Revision = 1, CheckerUserId = "checker-1", CheckerDisplayName = "Checker One", DecisionType = ReviewDecisionType.Reject, Comments = "Fix it", OverallReason = "Fix it", SnapshotReference = review.SnapshotReference, SnapshotJson = JsonSerializer.Serialize(review), DecidedUtc = new DateTime(2026, 9, 20, 10, 0, 0, DateTimeKind.Utc) };
+            var service = new InAppNotificationService(path); await service.NotifyMakerAsync(package, 1, decision); await service.NotifyMakerAsync(package, 1, decision);
+            var notifications = await service.GetForUserAsync("maker-001"); Assert.Single(notifications); Assert.Equal(decision.DecisionId, notifications[0].RejectionEventId);
+            await using var connection = new SqliteConnection($"Data Source={path}"); await connection.OpenAsync(); await using var command = connection.CreateCommand(); command.CommandText = "SELECT COUNT(*) FROM DocumentAuditLog WHERE Action=$action"; command.Parameters.AddWithValue("$action", (int)DocumentAuditAction.MakerNotificationSent); Assert.Equal(1L, await command.ExecuteScalarAsync());
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-NOTIFICATION-READ durable read state changes only after persistence")]
+    public async Task TSD_NOTIFICATION_READ_persists_read_state_for_notification_access()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-maker-read-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteWorkflowRepository(path); var package = Guid.NewGuid(); var submission = Snapshot(package) with { MakerUserId = "maker-001" };
+            await repository.SubmitAtomicallyAsync(new WorkflowState { PackageId = package, Status = WorkflowStatus.Draft, Revision = 1 }, submission, Audit(DocumentAuditAction.SubmissionSucceeded, package, "Submitted")); var review = (await repository.GetReviewPackageAsync(package, 1))!;
+            var decision = new ReviewDecision { DecisionId = Guid.NewGuid(), PackageId = package, Revision = 1, CheckerUserId = "checker-1", CheckerDisplayName = "Checker One", DecisionType = ReviewDecisionType.Reject, Comments = "Fix it", OverallReason = "Fix it", SnapshotReference = review.SnapshotReference, SnapshotJson = JsonSerializer.Serialize(review), DecidedUtc = DateTime.UtcNow };
+            var service = new InAppNotificationService(path); await service.NotifyMakerAsync(package, 1, decision); var before = Assert.Single(await service.GetForUserAsync("maker-001")); Assert.False(before.IsRead); await service.MarkReadAsync(before.NotificationId, "maker-001"); var after = Assert.Single(await service.GetForUserAsync("maker-001")); Assert.True(after.IsRead);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-NOTIFICATION-TIMING timestamps preserve rejection-to-persistence order")]
+    public async Task TSD_NOTIFICATION_TIMING_preserves_utc_stage_timestamps()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-maker-timing-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteWorkflowRepository(path); var package = Guid.NewGuid(); var submission = Snapshot(package) with { MakerUserId = "maker-001" };
+            await repository.SubmitAtomicallyAsync(new WorkflowState { PackageId = package, Status = WorkflowStatus.Draft, Revision = 1 }, submission, Audit(DocumentAuditAction.SubmissionSucceeded, package, "Submitted")); var review = (await repository.GetReviewPackageAsync(package, 1))!; var rejectedUtc = new DateTime(2026, 9, 20, 10, 0, 0, DateTimeKind.Utc);
+            var decision = new ReviewDecision { DecisionId = Guid.NewGuid(), PackageId = package, Revision = 1, CheckerUserId = "checker-1", CheckerDisplayName = "Checker One", DecisionType = ReviewDecisionType.Reject, Comments = "Fix it", OverallReason = "Fix it", SnapshotReference = review.SnapshotReference, SnapshotJson = JsonSerializer.Serialize(review), DecidedUtc = rejectedUtc };
+            var service = new InAppNotificationService(path); await service.NotifyMakerAsync(package, 1, decision); var notification = Assert.Single(await service.GetForUserAsync("maker-001")); Assert.Equal(DateTimeKind.Utc, notification.CreatedUtc.Kind); Assert.Equal(rejectedUtc, notification.CreatedUtc); Assert.True(notification.CreatedUtc >= rejectedUtc);
+        }
+        finally { Delete(path); }
+    }
+
+    [Theory(DisplayName = "TSD-NOTIFICATION-AUDIT durable MakerNotificationSent rows retain Checker and Approver identity")]
+    [InlineData(ReviewDecisionType.Reject, WorkflowStatus.Rejected, "Checker One", "checker-1", "Checker")]
+    [InlineData(ReviewDecisionType.Return, WorkflowStatus.ReturnedForRework, "Approver One", "approver-1", "Approver")]
+    public async Task TSD_NOTIFICATION_AUDIT_stores_required_event_identity(ReviewDecisionType decisionType, WorkflowStatus status, string rejectorName, string rejectorUserId, string rejectorRole)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-maker-audit-{Guid.NewGuid():N}.db"); var package = Guid.NewGuid(); var timestamp = new DateTime(2026, 9, 20, 10, 0, 0, DateTimeKind.Utc);
+        try
+        {
+            var repository = new SqliteWorkflowRepository(path); var submission = Snapshot(package) with { Revision = 2, MakerUserId = "maker-001", Status = WorkflowStatus.SubmittedForReview };
+            await repository.SubmitAtomicallyAsync(new WorkflowState { PackageId = package, Status = WorkflowStatus.Draft, Revision = 2 }, submission, Audit(DocumentAuditAction.SubmissionSucceeded, package, "Submitted"));
+            var review = (await repository.GetReviewPackageAsync(package, 2))!;
+            var decision = new ReviewDecision { DecisionId = Guid.NewGuid(), PackageId = package, Revision = 2, CheckerUserId = rejectorRole == "Checker" ? rejectorUserId : "checker-1", CheckerDisplayName = rejectorRole == "Checker" ? rejectorName : "Checker One", ApproverUserId = rejectorRole == "Approver" ? rejectorUserId : string.Empty, ApproverDisplayName = rejectorRole == "Approver" ? rejectorName : string.Empty, DecisionType = decisionType, Comments = "Fix dimension 4", OverallReason = "Dimension 4 is outside tolerance", CorrectionAction = "Correct dimension 4 and resubmit", SnapshotReference = review.SnapshotReference, SnapshotJson = JsonSerializer.Serialize(review), DecidedUtc = timestamp };
+            var saved = await repository.SaveReviewDecisionAsync(review, decision, status, Audit(DocumentAuditAction.Rejected, package, "Rejected"));
+            await new InAppNotificationService(path).NotifyMakerAsync(package, 2, saved);
+            await using var connection = new SqliteConnection($"Data Source={path}"); await connection.OpenAsync(); await using var command = connection.CreateCommand(); command.CommandText = "SELECT Action,DocumentRevision,TimestampUtc,UserId,DetailsJson FROM DocumentAuditLog WHERE DocumentId=$document AND Action=$action ORDER BY TimestampUtc DESC LIMIT 1"; command.Parameters.AddWithValue("$document", package.ToString()); command.Parameters.AddWithValue("$action", (int)DocumentAuditAction.MakerNotificationSent); await using var reader = await command.ExecuteReaderAsync(); Assert.True(await reader.ReadAsync()); Assert.Equal((int)DocumentAuditAction.MakerNotificationSent, reader.GetInt32(0)); Assert.Equal("2", reader.GetString(1)); Assert.Equal(timestamp.ToString("O"), reader.GetString(2)); Assert.Equal("maker-001", reader.GetString(3)); using var document = JsonDocument.Parse(reader.GetString(4)); var root = document.RootElement; Assert.Equal("MakerNotificationSent", root.GetProperty("eventType").GetString()); Assert.Equal(package, root.GetProperty("packageId").GetGuid()); Assert.Equal(2, root.GetProperty("revision").GetInt32()); Assert.Equal(saved.DecisionId, root.GetProperty("rejectionEventId").GetGuid()); Assert.Equal("InApp", root.GetProperty("channel").GetString()); Assert.Equal("maker-001", root.GetProperty("recipient").GetString()); Assert.Equal(rejectorName, root.GetProperty("rejectorName").GetString()); Assert.Equal(rejectorUserId, root.GetProperty("rejectorUserId").GetString()); Assert.NotEqual("maker-001", root.GetProperty("rejectorUserId").GetString()); Assert.Equal(rejectorRole, root.GetProperty("rejectorRole").GetString()); Assert.Equal(timestamp, root.GetProperty("rejectionTimestampUtc").GetDateTime());
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-NOTIFICATION-RETRY invalid rejection fails without false success")]
+    public async Task TSD_NOTIFICATION_RETRY_invalid_rejection_does_not_create_notification()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-maker-retry-failure-{Guid.NewGuid():N}.db"); var package = Guid.NewGuid();
+        try
+        {
+            _ = new SqliteWorkflowRepository(path);
+            var decision = new ReviewDecision { PackageId = package, Revision = 1, DecisionType = ReviewDecisionType.Reject, Comments = "" };
+            await Assert.ThrowsAsync<InvalidDataException>(() => new InAppNotificationService(path).NotifyMakerAsync(package, 1, decision));
+            await using var connection = new SqliteConnection($"Data Source={path}"); await connection.OpenAsync(); await using var command = connection.CreateCommand(); command.CommandText = "SELECT COUNT(*) FROM InAppNotification WHERE PackageId=$package"; command.Parameters.AddWithValue("$package", package.ToString()); Assert.Equal(0L, await command.ExecuteScalarAsync());
+        }
+        finally { Delete(path); }
+    }
+
     [Fact(DisplayName = "TD-04 issue references and draft comment edits round-trip transactionally")]
     public async Task Review_comments_round_trip_references_edit_and_discard()
     {
@@ -752,13 +890,13 @@ public sealed class SqliteWorkflowRepositoryTests
             var repository = new SqliteWorkflowRepository(path); var package = Guid.NewGuid(); var snapshot = Snapshot(package);
             await repository.SubmitAtomicallyAsync(new WorkflowState { PackageId = package, Status = WorkflowStatus.Draft, Revision = 1 }, snapshot, Audit(DocumentAuditAction.SubmissionSucceeded, package, "Submitted"));
             var review = (await repository.GetReviewPackageAsync(package, 1))!;
-            var decision = new ReviewDecision { PackageId = package, Revision = 1, CheckerUserId = "checker-001", DecisionType = ReviewDecisionType.Reject, Comments = "Fix dimension 4", OverallReason = "Fix dimension 4", SnapshotReference = review.SnapshotReference, SnapshotJson = JsonSerializer.Serialize(review) };
+            var decision = new ReviewDecision { PackageId = package, Revision = 1, CheckerUserId = "checker-001", CheckerDisplayName = "Checker One", DecidedUtc = new DateTime(2026, 9, 20, 10, 0, 0, DateTimeKind.Utc), DecisionType = ReviewDecisionType.Reject, Comments = "Fix dimension 4", OverallReason = "Fix dimension 4", SnapshotReference = review.SnapshotReference, SnapshotJson = JsonSerializer.Serialize(review) };
             var saved = await repository.SaveReviewDecisionAsync(review, decision, WorkflowStatus.Rejected, Audit(DocumentAuditAction.Rejected, package, "Rejected"));
             await new DrawVerify.Infrastructure.Notifications.InAppNotificationService(path).NotifyMakerAsync(package, 1, saved);
             await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString()); await connection.OpenAsync();
             await using var command = connection.CreateCommand(); command.CommandText = "SELECT Message FROM InAppNotification WHERE PackageId=$package"; command.Parameters.AddWithValue("$package", package.ToString());
             var message = (string?)await command.ExecuteScalarAsync();
-            Assert.NotNull(message); Assert.Contains(package.ToString(), message); Assert.Contains("revision 1", message); Assert.Contains("Rejected", message); Assert.Contains("/comments", message);
+            Assert.NotNull(message); Assert.Contains(package.ToString(), message); Assert.Contains("revision 1", message); Assert.Contains("Rejected", message); Assert.Contains($"/workflow/{package:D}/1", message);
         }
         finally { Delete(path); }
     }

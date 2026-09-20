@@ -10,6 +10,18 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteWorkflowConfigurationRepositoryTests
 {
+    [Fact(DisplayName = "TSD-CHANNEL-DISPATCH configuration persists supported InApp channel")]
+    public async Task TSD_CHANNEL_DISPATCH_round_trips_inapp_preference()
+    {
+        var path = TempPath();
+        try
+        {
+            var configuration = Baseline() with { Notifications = [new() { Event = WorkflowNotificationEvent.Rejection, RecipientRoles = ["Maker"], Channels = [WorkflowNotificationChannel.InApp], ContentTemplate = "rejected" }] };
+            var repository = new SqliteWorkflowConfigurationRepository(path); await repository.SaveAsync(configuration, Audit(1), null);
+            var loaded = await repository.GetCurrentAsync(); var rule = Assert.Single(loaded!.Notifications); Assert.Equal(WorkflowNotificationChannel.InApp, Assert.Single(rule.Channels)); Assert.Contains("Maker", rule.RecipientRoles);
+        }
+        finally { Cleanup(path); }
+    }
     [Fact(DisplayName = "TD-INF-001 migration creates additive configuration tables")]
     public async Task Migration_is_additive()
     {

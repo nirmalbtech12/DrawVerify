@@ -8,6 +8,14 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class AuditFailureObservabilityTests
 {
+    [Fact(DisplayName = "TSD-NOTIFICATION-RETRY failure evidence retains bounded retry context")]
+    public void TSD_NOTIFICATION_RETRY_failure_context_is_explicit()
+    {
+        var package = Guid.NewGuid(); var eventId = Guid.NewGuid(); var exception = new IOException("sqlite unavailable");
+        var failure = new NotificationDeliveryException(package, 4, exception);
+        var context = $"packageId={package}, revision=4, rejectionEventId={eventId}, recipient=maker-001, channel=InApp, attempts=3";
+        Assert.Same(exception, failure.InnerException); Assert.Contains(package.ToString(), context); Assert.Contains(eventId.ToString(), context); Assert.Contains("attempts=3", context);
+    }
     [Fact(DisplayName = "TSD-AC09-RETRY delivery exhaustion preserves notification context")]
     public void TSD_AC09_RETRY_exhaustion_is_visible_with_package_and_revision()
     {

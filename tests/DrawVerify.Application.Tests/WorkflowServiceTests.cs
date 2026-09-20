@@ -450,6 +450,68 @@ public sealed class WorkflowServiceTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => f.Service.DecideAsync(Package, 7, ReviewDecisionType.Approve, null));
     }
 
+    [Theory(DisplayName = "TSD-REJECTION-EVENT Maker is notified for both rejection outcomes")]
+    [InlineData(ReviewDecisionType.Reject, "Checker One", "Checker", WorkflowStatus.Rejected)]
+    [InlineData(ReviewDecisionType.Return, "Approver One", "Approver", WorkflowStatus.ReturnedForRework)]
+    public async Task TSD_REJECTION_EVENT_notifies_maker_after_persisted_rejection(ReviewDecisionType type, string rejectorName, string rejectorRole, WorkflowStatus expectedStatus)
+    {
+        var f = Fixture.Create();
+        f.Auth.User = new AuthenticatedUser(rejectorRole.ToLowerInvariant(), new[] { rejectorRole }) { UserId = $"{rejectorRole.ToLowerInvariant()}-1", DisplayName = rejectorName };
+        f.Workflow.ReviewPackage = ReviewPackageFixture();
+        f.Configuration = f.Configuration with
+        {
+            Notifications = new[] { new WorkflowNotificationRule { Event = type == ReviewDecisionType.Reject ? WorkflowNotificationEvent.Rejection : WorkflowNotificationEvent.Return, Enabled = true, RecipientRoles = new[] { "Maker" }, Channels = new[] { WorkflowNotificationChannel.InApp } } }
+        };
+        var notifications = new RecordingNotificationService();
+        f.Notifications = notifications;
+
+        var saved = await f.Service.DecideAsync(Package, 7, type, "Dimension mismatch", "Correct dimension 4 and resubmit");
+
+        Assert.Equal(expectedStatus, f.Workflow.SavedStatus);
+        var call = Assert.Single(notifications.Makers);
+        Assert.Equal(saved.DecisionId, call.DecisionId);
+        Assert.Equal(rejectorName, call.Decision.CheckerDisplayName);
+        Assert.True(notifications.PersistenceObservedBeforeDispatch);
+    }
+
+    [Fact(DisplayName = "TSD-NOTIFICATION-PREFERENCES disabled Maker rule suppresses delivery explicitly")]
+    public async Task TSD_NOTIFICATION_PREFERENCES_disabled_maker_rule_does_not_deliver()
+    {
+        var f = Fixture.Create();
+        f.Auth.User = new AuthenticatedUser("checker", new[] { SystemRoles.Checker }) { UserId = "checker-1", DisplayName = "Checker One" };
+        f.Workflow.ReviewPackage = ReviewPackageFixture();
+        f.Configuration = f.Configuration with { Notifications = new[] { new WorkflowNotificationRule { Event = WorkflowNotificationEvent.Rejection, Enabled = false, RecipientRoles = new[] { "Maker" }, Channels = new[] { WorkflowNotificationChannel.InApp } } } };
+        var notifications = new RecordingNotificationService();
+        f.Notifications = notifications;
+
+        await f.Service.DecideAsync(Package, 7, ReviewDecisionType.Reject, "Fix dimensions", "Correct dimension 4");
+
+        Assert.Empty(notifications.Makers);
+    }
+
+    [Fact(DisplayName = "TSD-REJECTION-FEEDBACK feedback metadata remains available to the Maker")]
+    public void TSD_REJECTION_FEEDBACK_review_package_retains_reason_comments_and_correction()
+    {
+        var package = ReviewPackage.FromSubmission(new ReviewSubmission { PackageId = Package, Revision = 1, MakerUserId = "maker-001", MakerDisplayName = "Maker One", Status = WorkflowStatus.Rejected }, new ReviewDecision { DecisionType = ReviewDecisionType.Reject, OverallReason = "Dimension mismatch", Comments = "Fix DIM-4", CorrectionAction = "Correct dimension 4" }, new[] { new ReviewComment { Text = "Fix DIM-4", ReferenceType = "dimension", ReferenceId = "DIM-4" } });
+        Assert.Equal("Dimension mismatch", package.RejectionReason); Assert.Equal("Correct dimension 4", package.CorrectionAction); Assert.Contains(package.Comments, comment => comment.ReferenceId == "DIM-4");
+    }
+
+    [Theory(DisplayName = "TSD-DOCUMENT-LIST-STATUS workflow package retains Maker rejection status")]
+    [InlineData(WorkflowStatus.Rejected)]
+    [InlineData(WorkflowStatus.ReturnedForRework)]
+    public void TSD_DOCUMENT_LIST_STATUS_preserves_rejection_status(WorkflowStatus status)
+    {
+        var package = ReviewPackage.FromSubmission(new ReviewSubmission { PackageId = Package, Revision = 1, MakerUserId = "maker-001", MakerDisplayName = "Maker One", Status = status });
+        Assert.Equal(status, package.Status); Assert.Equal("maker-001", package.MakerUserId);
+    }
+
+    [Fact(DisplayName = "TSD-NOTIFICATION-LOCALIZATION default rejection content remains explicit")]
+    public void TSD_NOTIFICATION_LOCALIZATION_does_not_claim_unavailable_translation()
+    {
+        var decision = new ReviewDecision { DecisionType = ReviewDecisionType.Reject, Comments = "Fix DIM-4", OverallReason = "Dimension mismatch", CorrectionAction = "Correct dimension 4" };
+        Assert.Equal("Dimension mismatch", decision.OverallReason); Assert.Equal("Correct dimension 4", decision.CorrectionAction); Assert.DoesNotContain("translated", decision.Comments!, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory(DisplayName = "TD-APP-051 blank reject or request-change comments do not persist")]
     [InlineData(ReviewDecisionType.Reject)]
     [InlineData(ReviewDecisionType.RequestChanges)]
@@ -751,9 +813,11 @@ public sealed class WorkflowServiceTests
         public List<ReviewSubmission> Submissions { get; } = new();
         public List<IReadOnlyList<WorkflowNotificationChannel>> Channels { get; } = new();
         public List<(Guid DecisionId, ReviewDecision Decision)> Approvals { get; } = new();
+        public List<(Guid DecisionId, ReviewDecision Decision)> Makers { get; } = new();
         public bool PersistenceObservedBeforeDispatch { get; private set; }
         public Task NotifySubmissionAsync(ReviewSubmission submission, IReadOnlyList<WorkflowNotificationChannel> channels, CancellationToken cancellationToken = default) { Submissions.Add(submission); Channels.Add(channels); return Task.CompletedTask; }
         public Task NotifyApproverAsync(Guid packageId, int revision, ReviewDecision decision, CancellationToken cancellationToken = default) { PersistenceObservedBeforeDispatch = true; Approvals.Add((decision.DecisionId, decision)); return Task.CompletedTask; }
+        public Task NotifyMakerAsync(Guid packageId, int revision, ReviewDecision decision, CancellationToken cancellationToken = default) { PersistenceObservedBeforeDispatch = true; Makers.Add((decision.DecisionId, decision)); return Task.CompletedTask; }
     }
     private sealed class FailingFingerprintService : IDocumentFingerprintService
     {

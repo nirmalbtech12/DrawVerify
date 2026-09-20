@@ -3,12 +3,29 @@ using DrawVerify.Core.Authorization;
 using DrawVerify.Core.Configuration;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
+using DrawVerify.Core.Enums;
 using Xunit;
 
 namespace DrawVerify.Application.Tests;
 
 public sealed class WorkflowConfigurationServiceTests
 {
+    [Fact(DisplayName = "TSD-CHANNEL-DISPATCH supported InApp and unsupported channel rules are explicit")]
+    public async Task TSD_CHANNEL_DISPATCH_validates_supported_and_unsupported_channels()
+    {
+        var session = new TestSession(new("admin", [SystemRoles.Admin])); var repository = new MemoryRepository { Current = Baseline() with { Version = 1 } }; var service = new WorkflowConfigurationService(repository, session, new RoleAuthorization());
+        var supported = Baseline() with { Notifications = [new() { Event = WorkflowNotificationEvent.Rejection, RecipientRoles = ["Maker"], Channels = [WorkflowNotificationChannel.InApp], ContentTemplate = "rejected" }] };
+        var saved = await service.SaveAsync(supported, 1); Assert.Contains(saved.Notifications, rule => rule.Channels.Contains(WorkflowNotificationChannel.InApp));
+        var unsupported = supported with { Notifications = [supported.Notifications[0] with { Channels = [(WorkflowNotificationChannel)999] }] };
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.SaveAsync(unsupported, saved.Version)); Assert.Contains("unsupported", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact(DisplayName = "TSD-NOTIFICATION-LOCALIZATION missing resource does not invent a translation")]
+    public void TSD_NOTIFICATION_LOCALIZATION_preserves_existing_content_template()
+    {
+        var rule = new WorkflowNotificationRule { Event = WorkflowNotificationEvent.Rejection, RecipientRoles = ["Maker"], Channels = [WorkflowNotificationChannel.InApp], ContentTemplate = "Document rejected - action required" };
+        Assert.Equal("Document rejected - action required", rule.ContentTemplate); Assert.DoesNotContain("translation", rule.ContentTemplate, StringComparison.OrdinalIgnoreCase);
+    }
     [Fact(DisplayName = "TSD-AC06-POLICY defaults to approval-only sharing")]
     public void Viewer_access_policy_defaults_to_approved_only()
     {

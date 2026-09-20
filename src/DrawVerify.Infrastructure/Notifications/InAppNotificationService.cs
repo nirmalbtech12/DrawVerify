@@ -49,8 +49,8 @@ public sealed class InAppNotificationService : INotificationService
     {
         if (string.IsNullOrWhiteSpace(userId)) throw new ArgumentException("A notification user is required.", nameof(userId));
         await using var connection = new SqliteConnection(_connectionString); await connection.OpenAsync(cancellationToken); await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT NotificationId,SubmissionId,UserId,PackageId,Revision,Message,CreatedUtc,IsRead,Target,EventType,Channel,ApprovalEventId FROM InAppNotification WHERE UserId=$user ORDER BY CreatedUtc DESC"; command.Parameters.AddWithValue("$user", userId);
-        var result = new List<InAppNotification>(); await using var reader = await command.ExecuteReaderAsync(cancellationToken); while (await reader.ReadAsync(cancellationToken)) result.Add(new InAppNotification { NotificationId=Guid.Parse(reader.GetString(0)), SubmissionId=reader.IsDBNull(1) ? Guid.Empty : Guid.Parse(reader.GetString(1)), UserId=reader.GetString(2), PackageId=Guid.Parse(reader.GetString(3)), Revision=reader.GetInt32(4), Message=reader.GetString(5), CreatedUtc=DateTime.Parse(reader.GetString(6), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), IsRead=reader.GetInt32(7) != 0, Target=reader.IsDBNull(8) ? string.Empty : reader.GetString(8), EventType=reader.IsDBNull(9) ? string.Empty : reader.GetString(9), Channel=reader.IsDBNull(10) ? string.Empty : reader.GetString(10), ApprovalEventId=reader.IsDBNull(11) ? null : Guid.Parse(reader.GetString(11)) }); return result;
+        command.CommandText = "SELECT NotificationId,SubmissionId,UserId,PackageId,Revision,Message,CreatedUtc,IsRead,Target,EventType,Channel,ApprovalEventId,RejectionEventId FROM InAppNotification WHERE UserId=$user ORDER BY CreatedUtc DESC"; command.Parameters.AddWithValue("$user", userId);
+        var result = new List<InAppNotification>(); await using var reader = await command.ExecuteReaderAsync(cancellationToken); while (await reader.ReadAsync(cancellationToken)) result.Add(new InAppNotification { NotificationId=Guid.Parse(reader.GetString(0)), SubmissionId=reader.IsDBNull(1) ? Guid.Empty : Guid.Parse(reader.GetString(1)), UserId=reader.GetString(2), PackageId=Guid.Parse(reader.GetString(3)), Revision=reader.GetInt32(4), Message=reader.GetString(5), CreatedUtc=DateTime.Parse(reader.GetString(6), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), IsRead=reader.GetInt32(7) != 0, Target=reader.IsDBNull(8) ? string.Empty : reader.GetString(8), EventType=reader.IsDBNull(9) ? string.Empty : reader.GetString(9), Channel=reader.IsDBNull(10) ? string.Empty : reader.GetString(10), ApprovalEventId=reader.IsDBNull(11) ? null : Guid.Parse(reader.GetString(11)), RejectionEventId=reader.IsDBNull(12) ? null : Guid.Parse(reader.GetString(12)) }); return result;
     }
     public async Task MarkReadAsync(Guid notificationId, string userId, CancellationToken cancellationToken = default)
     {
@@ -58,11 +58,76 @@ public sealed class InAppNotificationService : INotificationService
     }
     public async Task NotifyMakerAsync(Guid packageId, int revision, ReviewDecision decision, CancellationToken cancellationToken = default)
     {
-        await using var connection = new SqliteConnection(_connectionString); await connection.OpenAsync(cancellationToken); await using var command = connection.CreateCommand();
-        command.CommandText = "INSERT INTO InAppNotification(NotificationId,UserId,PackageId,Revision,Message,CreatedUtc) SELECT $id,MakerUserId,$package,$revision,$message,$created FROM ReviewSubmission WHERE PackageId=$package AND Revision=$revision";
-        var status = decision.DecisionType switch { DrawVerify.Core.Enums.ReviewDecisionType.Reject => "Rejected", DrawVerify.Core.Enums.ReviewDecisionType.Return => "ReturnedForRework", DrawVerify.Core.Enums.ReviewDecisionType.RequestChanges => "ChangesRequested", DrawVerify.Core.Enums.ReviewDecisionType.Approve when decision.IsFinalApproval => "FinallyApproved", _ => "Approved" };
-        command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString()); command.Parameters.AddWithValue("$package", packageId.ToString()); command.Parameters.AddWithValue("$revision", revision); command.Parameters.AddWithValue("$message", $"Document {packageId}, revision {revision}: status {status}. Reason: {decision.OverallReason ?? decision.Comments}. Correction: {decision.CorrectionAction ?? "See review comments"}. Comments: /workflow/{packageId:D}/{revision}/comments" ); command.Parameters.AddWithValue("$created", decision.DecidedUtc.ToString("O", CultureInfo.InvariantCulture));
-        if (await command.ExecuteNonQueryAsync(cancellationToken) != 1) throw new InvalidOperationException("The Maker notification could not be persisted because the submission was not found.");
+        if (decision.DecisionType is not (ReviewDecisionType.Reject or ReviewDecisionType.Return))
+        {
+            await using var legacyConnection = new SqliteConnection(_connectionString); await legacyConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await using var legacyCommand = legacyConnection.CreateCommand();
+            legacyCommand.CommandText = "INSERT INTO InAppNotification(NotificationId,UserId,PackageId,Revision,Message,CreatedUtc) SELECT $id,MakerUserId,$package,$revision,$message,$created FROM ReviewSubmission WHERE PackageId=$package AND Revision=$revision";
+            var legacyStatus = decision.DecisionType switch { ReviewDecisionType.Approve when decision.IsFinalApproval => "FinallyApproved", _ => "Approved" };
+            legacyCommand.Parameters.AddWithValue("$id", Guid.NewGuid().ToString()); legacyCommand.Parameters.AddWithValue("$package", packageId.ToString()); legacyCommand.Parameters.AddWithValue("$revision", revision); legacyCommand.Parameters.AddWithValue("$message", $"Document {packageId}, revision {revision}: status {legacyStatus}. Reason: {decision.OverallReason ?? decision.Comments}. Correction: {decision.CorrectionAction ?? "See review comments"}. Comments: /workflow/{packageId:D}/{revision}/comments"); legacyCommand.Parameters.AddWithValue("$created", decision.DecidedUtc.ToString("O", CultureInfo.InvariantCulture));
+            if (await legacyCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1) throw new InvalidOperationException("The Maker notification could not be persisted because the submission was not found.");
+            return;
+        }
+        if (packageId == Guid.Empty || revision < 1 || decision.DecisionId == Guid.Empty || decision.DecidedUtc == default)
+            throw new InvalidDataException("Maker rejection notification requires package, revision, rejection event identity, rejection type, and timestamp.");
+        if (string.IsNullOrWhiteSpace(decision.OverallReason ?? decision.Comments)) throw new InvalidDataException("Maker rejection notification requires a rejection reason or comment.");
+        await using var connection = new SqliteConnection(_connectionString); await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        string? makerUserId; Guid submissionId;
+        await using (var lookup = connection.CreateCommand())
+        {
+            lookup.CommandText = "SELECT SubmissionId,MakerUserId FROM ReviewSubmission WHERE PackageId=$package AND Revision=$revision ORDER BY SubmittedUtc DESC, rowid DESC LIMIT 1";
+            lookup.Parameters.AddWithValue("$package", packageId.ToString()); lookup.Parameters.AddWithValue("$revision", revision);
+            await using var reader = await lookup.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) throw new KeyNotFoundException($"The submitted package {packageId}, revision {revision} was not found for Maker notification.");
+            submissionId = Guid.Parse(reader.GetString(0)); makerUserId = reader.GetString(1);
+        }
+        if (string.IsNullOrWhiteSpace(makerUserId)) throw new InvalidOperationException($"The Maker identity is missing for package {packageId}, revision {revision}.");
+        var rejectorRole = string.IsNullOrWhiteSpace(decision.ApproverUserId) ? "Checker" : "Approver";
+        var rejectorName = string.IsNullOrWhiteSpace(decision.ApproverDisplayName) ? decision.CheckerDisplayName : decision.ApproverDisplayName;
+        if (string.IsNullOrWhiteSpace(rejectorName)) throw new InvalidDataException($"The {rejectorRole} identity is missing for rejection event {decision.DecisionId}.");
+        var status = decision.DecisionType == ReviewDecisionType.Reject ? "Rejected" : "Returned for Rework";
+        var message = $"Document {packageId}, revision {revision}: {status} - action required. {rejectorRole} {rejectorName} at {decision.DecidedUtc.ToUniversalTime():O}. Reason: {decision.OverallReason ?? decision.Comments}. Correction: {decision.CorrectionAction ?? "See review comments"}. Open: /workflow/{packageId:D}/{revision}";
+        await PersistMakerNotificationWithRetryAsync(connection, submissionId, packageId, revision, decision, makerUserId, rejectorRole, rejectorName, message, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task PersistMakerNotificationWithRetryAsync(SqliteConnection connection, Guid submissionId, Guid packageId, int revision, ReviewDecision decision, string recipient, string rejectorRole, string rejectorName, string message, CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 3;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+                await using (var replay = connection.CreateCommand())
+                {
+                    replay.Transaction = transaction; replay.CommandText = "SELECT 1 FROM InAppNotification WHERE RejectionEventId=$event AND UserId=$user AND Channel=$channel LIMIT 1";
+                    replay.Parameters.AddWithValue("$event", decision.DecisionId.ToString()); replay.Parameters.AddWithValue("$user", recipient); replay.Parameters.AddWithValue("$channel", WorkflowNotificationChannel.InApp.ToString());
+                    if (await replay.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not null) { await transaction.CommitAsync(cancellationToken).ConfigureAwait(false); return; }
+                }
+                await using (var command = connection.CreateCommand())
+                {
+                    command.Transaction = transaction; command.CommandText = "INSERT OR IGNORE INTO InAppNotification(NotificationId,SubmissionId,RejectionEventId,UserId,PackageId,Revision,Message,CreatedUtc,IsRead,Target,EventType,Channel) VALUES($id,$submission,$event,$user,$package,$revision,$message,$created,0,$target,$type,$channel)";
+                    command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString()); command.Parameters.AddWithValue("$submission", submissionId.ToString()); command.Parameters.AddWithValue("$event", decision.DecisionId.ToString()); command.Parameters.AddWithValue("$user", recipient); command.Parameters.AddWithValue("$package", packageId.ToString()); command.Parameters.AddWithValue("$revision", revision); command.Parameters.AddWithValue("$message", message); command.Parameters.AddWithValue("$created", decision.DecidedUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture)); command.Parameters.AddWithValue("$target", $"/workflow/{packageId:D}/{revision}"); command.Parameters.AddWithValue("$type", "MakerNotificationSent"); command.Parameters.AddWithValue("$channel", WorkflowNotificationChannel.InApp.ToString());
+                    if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1)
+                    {
+                        await using var audit = connection.CreateCommand(); audit.Transaction = transaction; audit.CommandText = "INSERT INTO DocumentAuditLog(AuditId,DocumentId,Action,UserId,TimestampUtc,DetailsJson,DocumentRevision) VALUES($id,$document,$action,$user,$time,$details,$revision)";
+                        var rejectorUserId = string.Equals(rejectorRole, "Approver", StringComparison.OrdinalIgnoreCase) ? decision.ApproverUserId : decision.CheckerUserId;
+                        audit.Parameters.AddWithValue("$id", Guid.NewGuid().ToString()); audit.Parameters.AddWithValue("$document", packageId.ToString()); audit.Parameters.AddWithValue("$action", (int)DocumentAuditAction.MakerNotificationSent); audit.Parameters.AddWithValue("$user", recipient); audit.Parameters.AddWithValue("$time", decision.DecidedUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture)); audit.Parameters.AddWithValue("$details", System.Text.Json.JsonSerializer.Serialize(new { packageId, revision, rejectionEventId = decision.DecisionId, channel = WorkflowNotificationChannel.InApp.ToString(), recipient, rejectorUserId, rejectorName, rejectorRole, eventType = "MakerNotificationSent", rejectionTimestampUtc = decision.DecidedUtc.ToUniversalTime(), reason = decision.OverallReason ?? decision.Comments, correctionAction = decision.CorrectionAction })); audit.Parameters.AddWithValue("$revision", revision.ToString(CultureInfo.InvariantCulture)); await audit.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false); return;
+            }
+            catch (SqliteException exception) when (attempt < maxAttempts)
+            {
+                _logger?.Log(exception, "Maker notification retry", $"Retrying packageId={packageId}, revision={revision}, rejectionEventId={decision.DecisionId}, recipient={recipient}, channel={WorkflowNotificationChannel.InApp}, attempt={attempt}.");
+                await Task.Delay(TimeSpan.FromMilliseconds(25 * attempt), cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                _logger?.Log(exception, "Maker notification delivery", $"Unable to deliver packageId={packageId}, revision={revision}, rejectionEventId={decision.DecisionId}, recipient={recipient}, channel={WorkflowNotificationChannel.InApp}.");
+                throw;
+            }
+        }
     }
     public async Task NotifyCheckerAsync(Guid packageId, int revision, ReviewDecision decision, CancellationToken cancellationToken = default)
     {

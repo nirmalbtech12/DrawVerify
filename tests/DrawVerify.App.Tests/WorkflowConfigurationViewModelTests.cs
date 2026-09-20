@@ -12,6 +12,17 @@ namespace DrawVerify.App.Tests;
 
 public sealed class WorkflowConfigurationViewModelTests
 {
+    [Fact(DisplayName = "TSD-NOTIFICATION-PREFERENCES Maker rejection preference preserves enabled InApp rule")]
+    public void TSD_NOTIFICATION_PREFERENCES_maker_rejection_rule_is_visible()
+    {
+        Sta.Run(() =>
+        {
+            var configuration = Service.BaselineConfiguration() with { Notifications = [new() { Event = WorkflowNotificationEvent.Rejection, Enabled = true, RecipientRoles = ["Maker"], Channels = [WorkflowNotificationChannel.InApp], ContentTemplate = "rejected" }] };
+            var vm = new WorkflowConfigurationViewModel(new Service(configuration), new Session(new("admin", [SystemRoles.Admin])), new RoleAuthorization());
+            var rule = Assert.Single(vm.Notifications, notification => notification.Event == WorkflowNotificationEvent.Rejection);
+            Assert.True(rule.Enabled); Assert.Contains(WorkflowNotificationChannel.InApp, rule.Channels); Assert.Contains("Maker", rule.RecipientRoles);
+        });
+    }
     [Fact(DisplayName = "TSD-AC06-PREFS approval notification rule exposes supported InApp configuration")]
     public void TSD_AC06_PREFS_supported_approval_rule_is_preserved()
     {
