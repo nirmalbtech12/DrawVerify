@@ -226,6 +226,71 @@ public sealed class WorkflowViewModelTests
         Assert.Equal("Tolerance corrected", loaded.Comments.Single(x => x.PriorCommentId == prior.CommentId).CorrectionResponse);
     }
 
+    [Fact(DisplayName = "TSD-AC04-LINK notification activation requests the document review target")]
+    public async Task TSD_AC04_LINK_activation_navigates_to_document_revision()
+    {
+        var notification = NotificationFixture();
+        var service = new RecordingNotificationService(notification);
+        var model = new NotificationCenterViewModel(service, new FakeAuthentication(new AuthenticatedUser("checker", new[] { SystemRoles.Checker }) { UserId = "C-1" }));
+        model.ReviewRequested += service.AddReviewRequest;
+        await model.LoadAsync();
+        await model.ActivateAsync(notification);
+
+        Assert.Equal((notification.PackageId, notification.Revision), Assert.Single(service.ReviewRequests));
+        Assert.True(Assert.Single(service.Notifications).IsRead);
+    }
+
+    [Fact(DisplayName = "TSD-AC05-CENTER notification center loads the authenticated user projection")]
+    public async Task TSD_AC05_CENTER_loads_timestamp_reference_and_unread_state()
+    {
+        var notification = NotificationFixture();
+        var service = new RecordingNotificationService(notification);
+        var model = new NotificationCenterViewModel(service, new FakeAuthentication(new AuthenticatedUser("checker", new[] { SystemRoles.Checker }) { UserId = "C-1" }));
+
+        await model.LoadAsync();
+
+        var loaded = Assert.Single(model.Notifications);
+        Assert.Equal(notification.PackageId, loaded.PackageId);
+        Assert.Equal(notification.CreatedUtc, loaded.CreatedUtc);
+        Assert.False(loaded.IsRead);
+    }
+
+    [Fact(DisplayName = "TSD-AC12-READ failed mark-read leaves the projection unread")]
+    public async Task TSD_AC12_READ_mark_read_failure_does_not_update_projection()
+    {
+        var notification = NotificationFixture();
+        var service = new RecordingNotificationService(notification) { FailMarkRead = true };
+        var model = new NotificationCenterViewModel(service, new FakeAuthentication(new AuthenticatedUser("checker", new[] { SystemRoles.Checker }) { UserId = "C-1" }));
+        await model.LoadAsync();
+
+        await model.ActivateAsync(notification);
+
+        Assert.False(Assert.Single(model.Notifications).IsRead);
+        Assert.NotEmpty(model.Error);
+        Assert.Empty(service.ReviewRequests);
+    }
+
+    [Fact(DisplayName = "TSD-AC13-LOCALIZE notification content remains observable when no translation service is present")]
+    public async Task TSD_AC13_LOCALIZE_missing_translation_does_not_emit_empty_content()
+    {
+        var notification = NotificationFixture() with { Message = "Document submitted for review." };
+        var service = new RecordingNotificationService(notification);
+        var model = new NotificationCenterViewModel(service, new FakeAuthentication(new AuthenticatedUser("checker", new[] { SystemRoles.Checker }) { UserId = "C-1" }));
+
+        await model.LoadAsync();
+
+        Assert.NotEmpty(Assert.Single(model.Notifications).Message);
+    }
+
+    private static InAppNotification NotificationFixture() => new()
+    {
+        NotificationId = Guid.NewGuid(), SubmissionId = Guid.NewGuid(), UserId = "C-1",
+        PackageId = Guid.Parse("20000000-0000-0000-0000-000000000001"), Revision = 3,
+        Message = "Document 20000000-0000-0000-0000-000000000001, revision 3: submitted for review.",
+        CreatedUtc = new DateTime(2026, 9, 20, 10, 0, 0, DateTimeKind.Utc), IsRead = false,
+        Target = "/workflow/20000000-0000-0000-0000-000000000001/3", EventType = "CheckerNotificationSent", Channel = "InApp"
+    };
+
     private static ReviewPackage ReviewFixture() => ReviewPackage.FromSubmission(new ReviewSubmission
     {
         PackageId = Guid.Parse("00000000-0000-0000-0000-000000000001"), Revision = 7,
@@ -275,6 +340,26 @@ sealed class FakeWorkflowService : IWorkflowService
     public Task<ReviewDecision> DecideAsync(Guid packageId, int revision, ReviewDecisionType decisionType, string? comments, CancellationToken cancellationToken = default) { DecisionCalls++; if (DecideException is not null) return Task.FromException<ReviewDecision>(DecideException); LastDecisionType = decisionType; LastComments = comments?.Trim(); return Task.FromResult(new ReviewDecision { PackageId = packageId, Revision = revision, DecisionType = decisionType, CheckerUserId = "checker-1" }); }
     public Task<ReviewComment> AddReviewCommentAsync(Guid packageId, int revision, string text, CancellationToken cancellationToken = default) { CommentCalls++; return Task.FromResult(new ReviewComment { PackageId = packageId, Revision = revision, AuthorUserId = "checker-1", Text = text.Trim() }); }
     public Task<ReviewComment> SaveReviewCommentDraftAsync(Guid packageId, int revision, string text, string? referenceType = null, string? referenceId = null, string? location = null, CancellationToken cancellationToken = default) { DraftCalls++; LastDraftText = text.Trim(); LastReferenceType = referenceType; LastReferenceId = referenceId; LastReferenceLocation = location; return Task.FromResult(new ReviewComment { PackageId = packageId, Revision = revision, AuthorUserId = "checker-1", Text = LastDraftText, ReferenceType = referenceType, ReferenceId = referenceId, Location = location }); }
+}
+
+file sealed class RecordingNotificationService(InAppNotification notification) : INotificationService
+{
+    public List<InAppNotification> Notifications { get; } = new() { notification };
+    public List<(Guid PackageId, int Revision)> ReviewRequests { get; } = new();
+    public bool FailMarkRead { get; init; }
+    public Task<IReadOnlyList<InAppNotification>> GetForUserAsync(string userId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<InAppNotification>>(Notifications);
+    public Task MarkReadAsync(Guid notificationId, string userId, CancellationToken cancellationToken = default)
+    {
+        if (FailMarkRead) return Task.FromException(new InvalidOperationException("mark-read failed"));
+        var index = Notifications.FindIndex(x => x.NotificationId == notificationId);
+        if (index < 0) return Task.FromException(new InvalidOperationException("notification not found"));
+        Notifications[index] = Notifications[index] with { IsRead = true };
+        return Task.CompletedTask;
+    }
+    public Task NotifySubmissionAsync(ReviewSubmission submission, IReadOnlyList<WorkflowNotificationChannel> channels, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task NotifyMakerAsync(Guid packageId, int revision, ReviewDecision decision, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task NotifyCheckerAsync(Guid packageId, int revision, ReviewDecision decision, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public void AddReviewRequest(Guid packageId, int revision) => ReviewRequests.Add((packageId, revision));
 }
 
 file sealed class FakeAuthentication(AuthenticatedUser? user) : ISessionAuthenticationService

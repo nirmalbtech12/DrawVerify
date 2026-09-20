@@ -249,6 +249,83 @@ public sealed class WorkflowServiceTests
         Assert.Equal(DocumentAuditAction.SubmissionRejected, Assert.Single(f.Workflow.Audits).Action);
     }
 
+    [Fact(DisplayName = "TSD-AC01-TRIGGER submission notifies the assigned Checker once")]
+    public async Task TSD_AC01_TRIGGER_notifies_assigned_checker_once_with_committed_submission()
+    {
+        var f = Fixture.Create();
+        var notifications = new RecordingNotificationService();
+        f.Notifications = notifications;
+        f.Configuration = new WorkflowConfiguration
+        {
+            PermittedInitialStates = new[] { WorkflowStatus.Draft, WorkflowStatus.InPreparation },
+            DuplicateSubmissionStates = new[] { WorkflowStatus.SubmittedForReview, WorkflowStatus.UnderReview, WorkflowStatus.Approved },
+            Notifications = new[] { new WorkflowNotificationRule { Event = WorkflowNotificationEvent.Submission, Enabled = true, Channels = new[] { WorkflowNotificationChannel.InApp } } }
+        };
+        f.Request = f.Request with { AssignedCheckerUserId = "C-1" };
+
+        var result = await f.Service.SubmitForReviewAsync(f.Request);
+
+        var call = Assert.Single(notifications.Submissions);
+        Assert.True(result.Succeeded, result.Message);
+        Assert.Equal(result.Submission!.SubmissionId, call.SubmissionId);
+        Assert.Equal(1, call.Revision);
+        Assert.Equal(new[] { "C-1" }, call.AssignedCheckerUserIds);
+    }
+
+    [Fact(DisplayName = "TSD-AC02-CHANNELS configured supported channel is delivered")]
+    public async Task TSD_AC02_CHANNELS_uses_configured_supported_channel()
+    {
+        var f = Fixture.Create();
+        var notifications = new RecordingNotificationService();
+        f.Notifications = notifications;
+        f.Configuration = f.Configuration with { Notifications = new[] { new WorkflowNotificationRule { Event = WorkflowNotificationEvent.Submission, Channels = new[] { WorkflowNotificationChannel.InApp } } } };
+        f.Request = f.Request with { AssignedCheckerUserId = "C-1" };
+
+        await f.Service.SubmitForReviewAsync(f.Request);
+
+        Assert.Contains(WorkflowNotificationChannel.InApp, Assert.Single(notifications.Channels));
+    }
+
+    [Fact(DisplayName = "TSD-AC06-PREFS disabled submission notification is not enabled")]
+    public async Task TSD_AC06_PREFS_disabled_submission_rule_does_not_deliver()
+    {
+        var f = Fixture.Create();
+        var notifications = new RecordingNotificationService();
+        f.Notifications = notifications;
+        f.Configuration = f.Configuration with { Notifications = new[] { new WorkflowNotificationRule { Event = WorkflowNotificationEvent.Submission, Enabled = false } } };
+        f.Request = f.Request with { AssignedCheckerUserId = "C-1" };
+
+        var result = await f.Service.SubmitForReviewAsync(f.Request);
+
+        Assert.True(result.Succeeded, result.Message);
+        Assert.Empty(notifications.Submissions);
+    }
+
+    [Fact(DisplayName = "TSD-AC07-RECIPIENTS preserves every assigned Checker")]
+    public async Task TSD_AC07_RECIPIENTS_notifies_each_assigned_checker()
+    {
+        var f = Fixture.Create();
+        var notifications = new RecordingNotificationService();
+        f.Notifications = notifications;
+        f.Configuration = f.Configuration with { Notifications = new[] { new WorkflowNotificationRule { Event = WorkflowNotificationEvent.Submission, Channels = new[] { WorkflowNotificationChannel.InApp } } } };
+        f.Request = f.Request with { AssignedCheckerUserIds = new[] { "C-1", "C-2" } };
+
+        var result = await f.Service.SubmitForReviewAsync(f.Request);
+
+        Assert.True(result.Succeeded, result.Message);
+        Assert.Equal(new[] { "C-1", "C-2" }, notifications.Submissions.Single().AssignedCheckerUserIds);
+    }
+
+    [Fact(DisplayName = "TSD-AC10-IDEMPOTENCY distinct submission identities remain distinct")]
+    public void TSD_AC10_IDEMPOTENCY_submission_identity_is_not_replaced_by_revision()
+    {
+        var first = new ReviewSubmission { PackageId = Package, Revision = 3, SubmissionId = Guid.NewGuid(), AssignedCheckerUserIds = new[] { "C-1" } };
+        var second = first with { SubmissionId = Guid.NewGuid(), Revision = 4 };
+
+        Assert.NotEqual(first.SubmissionId, second.SubmissionId);
+        Assert.Equal("C-1", Assert.Single(second.AssignedCheckerUserIds));
+    }
+
     [Fact(DisplayName = "TD-APP-01 InPreparation is an eligible initial state")]
     public async Task In_preparation_package_can_be_submitted()
     {
@@ -574,8 +651,10 @@ public sealed class WorkflowServiceTests
         public Document? Document { get; set; } = new() { DocumentId = Package, DocumentType = DrawVerify.Core.Enums.DocumentType.StepModel, OriginalFileName = "package.step", FileSizeBytes = 1024, GeometryStatus = CoreGeometryStatus.Processed, Version = new DocumentVersion { VersionId = Guid.Parse("00000000-0000-0000-0000-000000000011"), DocumentId = Package } };
         public Document DxfDocumentRecord { get; } = new() { DocumentId = DxfDocument, DocumentType = DrawVerify.Core.Enums.DocumentType.DxfDrawing, OriginalFileName = "drawing.dxf", FileSizeBytes = 1024, UploadStatus = DrawVerify.Core.Enums.UploadStatus.Uploaded, VerificationStatus = VerificationStatus.DimensionsExtracted, Version = new DocumentVersion { VersionId = DxfVersion, DocumentId = DxfDocument }, Versions = new[] { new DocumentVersion { VersionId = DxfVersion, DocumentId = DxfDocument } } };
         public WorkflowState WorkflowState { get => _state; set { _state = value; Workflow.InitialStatus = value.Status; } } private WorkflowState _state = new() { PackageId = Package, Status = WorkflowStatus.Draft, Revision = 1 };
+        public WorkflowConfiguration Configuration { get; set; } = new() { PermittedInitialStates = new[] { WorkflowStatus.Draft, WorkflowStatus.InPreparation }, DuplicateSubmissionStates = new[] { WorkflowStatus.SubmittedForReview, WorkflowStatus.UnderReview, WorkflowStatus.Approved } };
+        public RecordingNotificationService? Notifications { get; set; }
         public SubmissionRequest Request { get; set; } = new(Package) { DxfDocumentId = DxfDocument, StepDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000011"), DxfDocumentVersionId = DxfVersion, VerificationSessionId = Guid.Parse("00000000-0000-0000-0000-000000000013"), ExtractionEvidenceJson = "{\"extracted\":true}", VerificationEvidenceJson = "{\"verified\":true}", MakerSignature = SignatureData.Create(SignatureMethod.Typed, "Maker One", "maker-001", "Maker One", Package, 1, new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero)) };
-        public WorkflowService Service => new(Workflow, Auth, new WorkflowConfiguration { PermittedInitialStates = new[] { WorkflowStatus.Draft, WorkflowStatus.InPreparation }, DuplicateSubmissionStates = new[] { WorkflowStatus.SubmittedForReview, WorkflowStatus.UnderReview, WorkflowStatus.Approved } }, new RoleAuthorization(), Logger, new FakeDocuments(this), null, () => Now);
+        public WorkflowService Service => new(Workflow, Auth, Configuration, new RoleAuthorization(), Logger, new FakeDocuments(this), null, () => Now, Notifications, configurationRepository: new MemoryWorkflowConfigurationRepository(Configuration));
         public IDocumentRepository CreateDocumentRepository() => new FakeDocuments(this);
         public static Fixture Create() { var f = new Fixture(); f.Workflow.StateProvider = () => f._state; return f; }
         private sealed class FakeDocuments(Fixture owner) : IDocumentRepository
@@ -613,6 +692,21 @@ public sealed class WorkflowServiceTests
     }
     private sealed class FakeAuth : ISessionAuthenticationService { public AuthenticatedUser? User { get; set; } = CreateMaker(); private static AuthenticatedUser CreateMaker() => new AuthenticatedUser("maker", new[] { SystemRoles.Maker }) { UserId = "maker-001", DisplayName = "Maker One" }; public AuthenticatedUser? CurrentUser => User; public bool IsAuthenticated => User is not null; public void SignIn(AuthenticatedUser user) => User = user; public void SignOut() => User = null; }
     private sealed class FakeLogger : ICentralizedLogger { public string Context { get; private set; } = ""; public void Log(Exception exception, string operation, string context) => Context = context; }
+    private sealed class MemoryWorkflowConfigurationRepository(WorkflowConfiguration configuration) : IWorkflowConfigurationRepository
+    {
+        private readonly Dictionary<string, int?> _capturedVersions = new(StringComparer.Ordinal);
+        public Task<WorkflowConfiguration?> GetCurrentAsync(CancellationToken cancellationToken = default) => Task.FromResult<WorkflowConfiguration?>(configuration);
+        public Task<WorkflowConfiguration?> GetVersionAsync(int version, CancellationToken cancellationToken = default) => Task.FromResult<WorkflowConfiguration?>(configuration.Version == version ? configuration : null);
+        public Task<WorkflowConfiguration> SaveAsync(WorkflowConfiguration value, WorkflowConfigurationAudit audit, int? expectedVersion, CancellationToken cancellationToken = default) => Task.FromResult(value);
+        public Task<int?> GetWorkflowVersionAsync(string workflowId, CancellationToken cancellationToken = default) => Task.FromResult(_capturedVersions.TryGetValue(workflowId, out var version) ? version : null);
+        public Task CaptureWorkflowVersionAsync(string workflowId, int? version, CancellationToken cancellationToken = default) { _capturedVersions[workflowId] = version; return Task.CompletedTask; }
+    }
+    private sealed class RecordingNotificationService : INotificationService
+    {
+        public List<ReviewSubmission> Submissions { get; } = new();
+        public List<IReadOnlyList<WorkflowNotificationChannel>> Channels { get; } = new();
+        public Task NotifySubmissionAsync(ReviewSubmission submission, IReadOnlyList<WorkflowNotificationChannel> channels, CancellationToken cancellationToken = default) { Submissions.Add(submission); Channels.Add(channels); return Task.CompletedTask; }
+    }
     private sealed class FailingFingerprintService : IDocumentFingerprintService
     {
         public Task<DocumentFingerprint> ComputeAsync(DocumentFingerprintContext context, IReadOnlyCollection<DocumentFingerprintArtifact> artifacts, IProgress<long>? progress = null, CancellationToken cancellationToken = default) => Task.FromException<DocumentFingerprint>(new IOException("hash input failed"));
