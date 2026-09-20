@@ -4,6 +4,7 @@ using DrawVerify.Core.Enums;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
 using DrawVerify.Infrastructure.Persistence;
+using DrawVerify.Infrastructure.Notifications;
 using Microsoft.Data.Sqlite;
 using Xunit;
 
@@ -11,6 +12,147 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteWorkflowRepositoryTests
 {
+    [Fact(DisplayName = "TSD-AC02-CHANNELS unsupported channel fails visibly")]
+    public async Task TSD_AC02_CHANNELS_unsupported_channel_is_not_reported_as_success()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"notify-channel-{Guid.NewGuid():N}.db");
+        try
+        {
+            _ = new SqliteWorkflowRepository(path);
+            var service = new InAppNotificationService(path);
+            await Assert.ThrowsAsync<NotSupportedException>(() => service.NotifySubmissionAsync(NotificationSubmission(), new[] { WorkflowNotificationChannel.Email }));
+            Assert.Empty(await service.GetForUserAsync("C-1"));
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-AC03-CONTENT notification retains committed submission details")]
+    public async Task TSD_AC03_CONTENT_notification_contains_required_submission_snapshot()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"notify-content-{Guid.NewGuid():N}.db");
+        try
+        {
+            _ = new SqliteWorkflowRepository(path);
+            var submission = NotificationSubmission();
+            var service = new InAppNotificationService(path);
+            await service.NotifySubmissionAsync(submission, new[] { WorkflowNotificationChannel.InApp });
+            var notification = Assert.Single(await service.GetForUserAsync("C-1"));
+            Assert.Contains(submission.PackageId.ToString(), notification.Message, StringComparison.Ordinal);
+            Assert.Contains($"revision {submission.Revision}", notification.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(submission.MakerDisplayName, notification.Message, StringComparison.Ordinal);
+            Assert.Contains("submitted for review", notification.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(submission.SubmittedUtc, notification.CreatedUtc);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-AC05-CENTER notification center projection is initially unread")]
+    public async Task TSD_AC05_CENTER_loads_timestamped_unread_notification_for_checker()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"notify-center-{Guid.NewGuid():N}.db");
+        try
+        {
+            _ = new SqliteWorkflowRepository(path);
+            var submission = NotificationSubmission();
+            var service = new InAppNotificationService(path);
+            await service.NotifySubmissionAsync(submission, new[] { WorkflowNotificationChannel.InApp });
+            var notification = Assert.Single(await service.GetForUserAsync("C-1"));
+            Assert.Equal("C-1", notification.UserId);
+            Assert.False(notification.IsRead);
+            Assert.Equal(submission.PackageId, notification.PackageId);
+            Assert.Equal(submission.SubmittedUtc, notification.CreatedUtc);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-AC08-AUDIT notification send records CheckerNotificationSent")]
+    public async Task TSD_AC08_AUDIT_notification_send_records_required_audit_context()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"notify-audit-{Guid.NewGuid():N}.db");
+        try
+        {
+            _ = new SqliteWorkflowRepository(path);
+            var submission = NotificationSubmission();
+            await new InAppNotificationService(path).NotifySubmissionAsync(submission, new[] { WorkflowNotificationChannel.InApp });
+            await using var connection = new SqliteConnection($"Data Source={path}");
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT Action,UserId,TimestampUtc,DetailsJson FROM DocumentAuditLog WHERE DocumentId=$document";
+            command.Parameters.AddWithValue("$document", submission.PackageId.ToString());
+            await using var reader = await command.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal((int)DocumentAuditAction.CheckerNotificationSent, reader.GetInt32(0));
+            Assert.Equal("C-1", reader.GetString(1));
+            Assert.Equal(submission.SubmittedUtc, DateTime.Parse(reader.GetString(2), null, System.Globalization.DateTimeStyles.RoundtripKind));
+            Assert.Contains("CheckerNotificationSent", reader.GetString(3), StringComparison.Ordinal);
+            Assert.Contains("InApp", reader.GetString(3), StringComparison.Ordinal);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-AC10-IDEMPOTENCY replay is suppressed and resubmission is delivered")]
+    public async Task TSD_AC10_IDEMPOTENCY_suppresses_exact_replay_only()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"notify-idempotency-{Guid.NewGuid():N}.db");
+        try
+        {
+            _ = new SqliteWorkflowRepository(path);
+            var service = new InAppNotificationService(path);
+            var first = NotificationSubmission();
+            await service.NotifySubmissionAsync(first, new[] { WorkflowNotificationChannel.InApp });
+            await service.NotifySubmissionAsync(first, new[] { WorkflowNotificationChannel.InApp });
+            var second = first with { SubmissionId = Guid.NewGuid(), Revision = first.Revision + 1 };
+            await service.NotifySubmissionAsync(second, new[] { WorkflowNotificationChannel.InApp });
+            var notifications = await service.GetForUserAsync("C-1");
+            Assert.Equal(2, notifications.Count);
+            Assert.Contains(notifications, x => x.SubmissionId == first.SubmissionId && x.Revision == first.Revision);
+            Assert.Contains(notifications, x => x.SubmissionId == second.SubmissionId && x.Revision == second.Revision);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-AC11-CONTEXT required content remains when optional context is absent")]
+    public async Task TSD_AC11_CONTEXT_base_notification_remains_non_empty_without_enrichment()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"notify-context-{Guid.NewGuid():N}.db");
+        try
+        {
+            _ = new SqliteWorkflowRepository(path);
+            await new InAppNotificationService(path).NotifySubmissionAsync(NotificationSubmission(), new[] { WorkflowNotificationChannel.InApp });
+            Assert.NotEmpty(Assert.Single(await new InAppNotificationService(path).GetForUserAsync("C-1")).Message);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-AC12-READ mark-read persists read state")]
+    public async Task TSD_AC12_READ_mark_read_persists_before_reload()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"notify-read-{Guid.NewGuid():N}.db");
+        try
+        {
+            _ = new SqliteWorkflowRepository(path);
+            var service = new InAppNotificationService(path);
+            await service.NotifySubmissionAsync(NotificationSubmission(), new[] { WorkflowNotificationChannel.InApp });
+            var notification = Assert.Single(await service.GetForUserAsync("C-1"));
+            await service.MarkReadAsync(notification.NotificationId, "C-1");
+            Assert.True(Assert.Single(await service.GetForUserAsync("C-1")).IsRead);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-AC14-TIMING persisted notification timestamp uses submission timestamp")]
+    public async Task TSD_AC14_TIMING_uses_configured_submission_timestamp()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"notify-timing-{Guid.NewGuid():N}.db");
+        try
+        {
+            _ = new SqliteWorkflowRepository(path);
+            var submission = NotificationSubmission() with { SubmittedUtc = new DateTime(2026, 9, 20, 10, 0, 0, DateTimeKind.Utc) };
+            await new InAppNotificationService(path).NotifySubmissionAsync(submission, new[] { WorkflowNotificationChannel.InApp });
+            Assert.Equal(submission.SubmittedUtc, Assert.Single(await new InAppNotificationService(path).GetForUserAsync("C-1")).CreatedUtc);
+        }
+        finally { Delete(path); }
+    }
     [Fact(DisplayName = "TD-REG-01 SQLite legacy rows remain readable with additive Approver fields")]
     public void Legacy_schema_contract_keeps_maker_checker_data_and_adds_nullable_approver_columns()
     {
@@ -418,6 +560,13 @@ public sealed class SqliteWorkflowRepositoryTests
     }
 
     private static ReviewSubmission Snapshot(Guid package) => new() { SubmissionId = Guid.NewGuid(), PackageId = package, DxfDocumentId = Guid.Parse("00000000-0000-0000-0000-000000000010"), StepDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000011"), DxfDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000012"), VerificationSessionId = Guid.Parse("00000000-0000-0000-0000-000000000013"), ExtractionEvidenceJson = "{\"extracted\":true}", VerificationEvidenceJson = "{\"verified\":true}", MakerUserId = "maker-001", MakerDisplayName = "Maker One", SubmittedUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), Note = "Please review hole tolerances", Revision = 1, Fingerprint = new DocumentFingerprint { Value = new string('a', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 } };
+    private static ReviewSubmission NotificationSubmission() => new()
+    {
+        SubmissionId = Guid.Parse("10000000-0000-0000-0000-000000000001"),
+        PackageId = Guid.Parse("20000000-0000-0000-0000-000000000001"), Revision = 3,
+        MakerUserId = "M-1", MakerDisplayName = "Maker One", AssignedCheckerUserId = "C-1", AssignedCheckerUserIds = new[] { "C-1" },
+        SubmittedUtc = new DateTime(2026, 9, 20, 10, 0, 0, DateTimeKind.Utc)
+    };
     private static AuditEntry Audit(DocumentAuditAction action, Guid package, string result) => new() { DocumentId = package, UserId = "maker-001", Action = action, TimestampUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), DetailsJson = $"{{\"packageId\":\"{package}\",\"revision\":1,\"result\":\"{result}\",\"maker\":\"Maker One\"}}" };
     private static void Delete(string path)
     {

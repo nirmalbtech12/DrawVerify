@@ -339,18 +339,42 @@ public sealed class WorkflowService : IWorkflowService
         }
         try
         {
-            var submission = new ReviewSubmission { PackageId = request.PackageId, DxfDocumentId = request.DxfDocumentId, Revision = state.Revision, MakerUserId = user.UserId, MakerDisplayName = user.DisplayName, MakerAuthorized = true, SubmittedUtc = now, Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim(), StepDocumentVersionId = request.StepDocumentVersionId, DxfDocumentVersionId = request.DxfDocumentVersionId, VerificationSessionId = request.VerificationSessionId, ExtractionEvidenceJson = request.ExtractionEvidenceJson, VerificationEvidenceJson = request.VerificationEvidenceJson, Fingerprint = fingerprint, MakerSignature = signature };
+            var assignedCheckerUserIds = request.AssignedCheckerUserIds.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            if (assignedCheckerUserIds.Length == 0 && !string.IsNullOrWhiteSpace(request.AssignedCheckerUserId)) assignedCheckerUserIds = new[] { request.AssignedCheckerUserId.Trim() };
+            var submission = new ReviewSubmission { PackageId = request.PackageId, DxfDocumentId = request.DxfDocumentId, Revision = state.Revision, MakerUserId = user.UserId, MakerDisplayName = user.DisplayName, MakerAuthorized = true, SubmittedUtc = now, Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim(), StepDocumentVersionId = request.StepDocumentVersionId, DxfDocumentVersionId = request.DxfDocumentVersionId, VerificationSessionId = request.VerificationSessionId, ExtractionEvidenceJson = request.ExtractionEvidenceJson, VerificationEvidenceJson = request.VerificationEvidenceJson, Fingerprint = fingerprint, MakerSignature = signature, AssignedCheckerUserId = assignedCheckerUserIds.FirstOrDefault(), AssignedCheckerUserIds = assignedCheckerUserIds };
             // Establish the durable version reference before the workflow transaction
             // can commit. A capture failure therefore cannot leave a submitted package
             // without the configuration version that governs it.
             await CapturePersistedConfigurationVersionAsync(request.PackageId, EffectiveConfigurationVersion, cancellationToken).ConfigureAwait(false);
             var saved = await _workflow.SubmitAtomicallyAsync(state, submission, CreateAudit(request.PackageId, state.Revision, DocumentAuditAction.MakerSignatureApplied, "Submitted", now, user, documentVersionId: request.StepDocumentVersionId, dxfDocumentVersionId: request.DxfDocumentVersionId, previousWorkflowStatus: state.Status, workflowStatus: WorkflowStatus.SubmittedForReview, fingerprint: fingerprint, signature: signature), cancellationToken).ConfigureAwait(false);
+            await NotifySubmissionConfiguredAsync(saved, cancellationToken).ConfigureAwait(false);
             return new(true, "The drawing was submitted for review.", state with { Status = WorkflowStatus.SubmittedForReview, UpdatedUtc = now }, saved);
         }
         catch (Exception exception)
         {
             _logger?.Log(exception, "Workflow submission", $"Unable to submit packageId={request.PackageId}.");
             throw;
+        }
+    }
+
+    private async Task NotifySubmissionConfiguredAsync(ReviewSubmission submission, CancellationToken cancellationToken)
+    {
+        if (_notifications is null) return;
+        var configuredRules = _effectiveConfiguration.Notifications.Where(x => x.Event == WorkflowNotificationEvent.Submission).ToArray();
+        if (configuredRules.Length == 0 || configuredRules.All(x => !x.Enabled)) return;
+        var rules = configuredRules.Where(x => x.Enabled).ToArray();
+        if (rules.Any(x => x.Channels.Count == 0)) throw new InvalidOperationException("Checker submission notification has no configured channels.");
+        var channels = rules.SelectMany(x => x.Channels).Distinct().ToArray();
+        if (channels.Any(x => x is not WorkflowNotificationChannel.InApp and not WorkflowNotificationChannel.Email))
+            throw new NotSupportedException("Checker submission notification contains an unsupported channel.");
+        try
+        {
+            await _notifications.NotifySubmissionAsync(submission, channels.Length == 0 ? new[] { WorkflowNotificationChannel.InApp } : channels, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            _logger?.Log(exception, "Checker submission notification", $"Unable to deliver packageId={submission.PackageId}, submissionId={submission.SubmissionId}, revision={submission.Revision}, recipients={string.Join(',', submission.AssignedCheckerUserIds)}.");
+            throw new NotificationDeliveryException(submission.PackageId, submission.Revision, exception);
         }
     }
 
