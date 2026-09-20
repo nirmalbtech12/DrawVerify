@@ -37,15 +37,19 @@ public sealed class ApprovedDocumentViewerViewModel : INotifyPropertyChanged, ID
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public ApprovedDocumentViewerViewModel(ApprovedDocumentService service, SharedDocument document, bool canDownload, ICentralizedLogger? logger = null)
+        : this(service, document, canDownload, null, logger) { }
+
+    public ApprovedDocumentViewerViewModel(ApprovedDocumentService service, SharedDocument document, SharedLinkViewerContext context, ICentralizedLogger? logger = null)
+        : this(service, document, context.CanDownload, context, logger) { }
+
+    private ApprovedDocumentViewerViewModel(ApprovedDocumentService service, SharedDocument document, bool canDownload, SharedLinkViewerContext? context, ICentralizedLogger? logger)
     {
-        _service = service; _document = document; _logger = logger ?? new CentralizedLogger(); _canDownload = canDownload;
+        _service = service; _document = document; SharedLinkContext = context; _logger = logger ?? new CentralizedLogger(); _canDownload = canDownload;
         _accessTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) }; _accessTickHandler = (_, _) => _ = ValidateAccessAsync(); _accessTimer.Tick += _accessTickHandler; _accessTimer.Start();
         DownloadCommand = new Command(async _ => await DownloadAsync(), _ => CanDownload);
         _ = OpenAsync();
     }
 
-    public ApprovedDocumentViewerViewModel(ApprovedDocumentService service, SharedDocument document, SharedLinkViewerContext context, ICentralizedLogger? logger = null)
-        : this(service, document, context.CanDownload, logger) { SharedLinkContext = context; }
 
     public async Task OpenAsync()
     {
@@ -89,7 +93,13 @@ public sealed class ApprovedDocumentViewerViewModel : INotifyPropertyChanged, ID
 
     private async Task DownloadAsync()
     {
-        try { var replacement = await _service.DownloadAsync(_document.DocumentId, _document.VersionId).ConfigureAwait(true); await ReplaceContentAsync(replacement).ConfigureAwait(true); Status = "Download ready."; }
+        try
+        {
+            var replacement = SharedLinkContext is null
+                ? await _service.DownloadAsync(_document.DocumentId, _document.VersionId).ConfigureAwait(true)
+                : await _service.DownloadSharedLinkAsync(SharedLinkContext).ConfigureAwait(true);
+            await ReplaceContentAsync(replacement).ConfigureAwait(true); Status = "Download ready.";
+        }
         catch (Exception exception) { _logger.Log(exception, "Approved document viewer download", $"Unable to download document {_document.DocumentId}, version {_document.VersionId}, format={_document.DocumentType}."); HandleFailure(exception, "Unable to download the approved document"); }
     }
 

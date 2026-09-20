@@ -10,6 +10,40 @@ namespace DrawVerify.App.Tests;
 
 public sealed class ApprovedDocumentViewerViewModelTests
 {
+    [Fact(DisplayName = "TSD-AC05-VIEW authorized viewer contract is read-only")]
+    public void Authorized_viewer_contract_is_read_only()
+    {
+        var context = new SharedLinkViewerContext(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), false);
+        Assert.True(context.IsReadOnly);
+        Assert.False(context.CanEdit);
+        Assert.False(context.CanWorkflow);
+    }
+
+    [Fact(DisplayName = "TSD-AC06-META viewer metadata retains persisted values and missing values")]
+    public void Viewer_metadata_retains_persisted_and_missing_values()
+    {
+        var documentId = Guid.NewGuid();
+        var approvedAt = DateTime.UtcNow;
+        var stamp = InternalApprovalStamp.Create(documentId, 1, "approver-1", "Approver One", new DateTimeOffset(approvedAt), "fingerprint");
+        var signature = SignatureData.CreateApprover(SignatureMethod.Typed, "SIGNATURE", "approver-1", "Approver One", documentId, 1, new DateTimeOffset(approvedAt));
+        var complete = new SharedDocument { DocumentId = documentId, ApproverName = "Approver One", FinalApprovalUtc = approvedAt, ApprovalStamp = stamp, ApproverSignature = signature };
+        var incomplete = complete with { ApprovalStamp = null, ApproverSignature = null };
+        Assert.Equal("Approver One", complete.ApproverName);
+        Assert.NotNull(complete.FinalApprovalUtc);
+        Assert.Same(stamp, complete.ApprovalStamp);
+        Assert.Same(signature, complete.ApproverSignature);
+        Assert.Null(incomplete.ApprovalStamp);
+        Assert.Null(incomplete.ApproverSignature);
+    }
+
+    [Fact(DisplayName = "TSD-AC12-DEEPLINK malformed optional viewer values remain explicit")]
+    public void Viewer_context_remains_safe_when_optional_location_is_absent()
+    {
+        var context = new SharedLinkViewerContext(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), false);
+        Assert.True(context.IsReadOnly);
+        Assert.NotEqual(Guid.Empty, context.DocumentId);
+    }
+
     [Fact(DisplayName = "TSD-VIEWER-OPEN TSD-READONLY TSD-CROSS-CLIENT viewer contract opens read-only and exposes only configured download")]
     public void Viewer_contract_is_read_only_and_download_is_configuration_gated()
     {

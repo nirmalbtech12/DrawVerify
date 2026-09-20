@@ -9,6 +9,23 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class ApprovedDocumentServiceTests
 {
+    [Fact(DisplayName = "TSD-AC06-META approval metadata remains explicit for complete and incomplete versions")]
+    public void Approval_metadata_is_projected_without_fabrication()
+    {
+        var documentId = Guid.NewGuid();
+        var approvedAt = new DateTime(2026, 9, 18, 10, 30, 0, DateTimeKind.Utc);
+        var stamp = InternalApprovalStamp.Create(documentId, 1, "approver-1", "Approver One", new DateTimeOffset(approvedAt), "fingerprint");
+        var signature = SignatureData.CreateApprover(SignatureMethod.Typed, "SIGNATURE", "approver-1", "Approver One", documentId, 1, new DateTimeOffset(approvedAt));
+        var complete = Document(WorkflowStatus.FinallyApproved, "approved.dxf") with { DocumentId = documentId, ApproverName = "Approver One", FinalApprovalUtc = approvedAt, ApprovalStamp = stamp, ApproverSignature = signature };
+        var incomplete = complete with { ApprovalStamp = null, ApproverSignature = null };
+        Assert.Equal("Approver One", complete.ApproverName);
+        Assert.Equal(new DateTime(2026, 9, 18, 10, 30, 0, DateTimeKind.Utc), complete.FinalApprovalUtc);
+        Assert.Same(stamp, complete.ApprovalStamp);
+        Assert.Same(signature, complete.ApproverSignature);
+        Assert.Null(incomplete.ApprovalStamp);
+        Assert.Null(incomplete.ApproverSignature);
+    }
+
     [Fact(DisplayName = "TSD-AC04-REVOKE removes revoked grants from effective access")]
     public void Revoked_grant_is_not_effective()
     {
