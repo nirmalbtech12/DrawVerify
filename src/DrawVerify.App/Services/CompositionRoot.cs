@@ -34,6 +34,7 @@ public static class CompositionRoot
     private static readonly DimensionMatchingConfiguration DimensionMatchingConfiguration = LoadDimensionMatchingConfiguration();
     private static readonly WorkflowConfiguration WorkflowConfiguration = LoadWorkflowConfiguration();
     private static readonly ViewerDocumentConfiguration ViewerDocumentConfiguration = LoadViewerDocumentConfiguration();
+    private static readonly (InternalSharedLinkPolicy Policy, string BaseUrl) InternalSharedLinkConfiguration = LoadInternalSharedLinkConfiguration();
     private static readonly SessionAuthenticationService Session = new();
     private static readonly RoleAuthorization Authorization = new();
     public static void Initialize()
@@ -77,13 +78,13 @@ public static class CompositionRoot
     {
         var database = DatabasePath(); var logger = new CentralizedLogger();
         var viewerAccess = new SqliteViewerAccessRepository(database, logger);
-        return new ApprovedDocumentService(new SqliteSharedDocumentRepository(database, logger), Session, Authorization, new SqliteAuditRepository(database), logger, new DocumentFileStore(AppContext.BaseDirectory, StepUploadConfiguration), new DxfDocumentFileStore(AppContext.BaseDirectory, DxfUploadConfiguration), ViewerDocumentConfiguration, viewerAccess);
+        return new ApprovedDocumentService(new SqliteSharedDocumentRepository(database, logger), Session, Authorization, new SqliteAuditRepository(database), logger, new DocumentFileStore(AppContext.BaseDirectory, StepUploadConfiguration), new DxfDocumentFileStore(AppContext.BaseDirectory, DxfUploadConfiguration), ViewerDocumentConfiguration, viewerAccess, new SqliteInternalSharedLinkRepository(database));
     }
     public static InternalSharedLinkService CreateInternalSharedLinkService()
     {
         var database = DatabasePath();
         var logger = new CentralizedLogger();
-        return new InternalSharedLinkService(new SqliteDocumentRepository(database, logger), new SqliteInternalSharedLinkRepository(database), Session, Authorization, new SqliteDocumentAuditRepository(database), logger);
+        return new InternalSharedLinkService(new SqliteDocumentRepository(database, logger), new SqliteInternalSharedLinkRepository(database), Session, Authorization, new SqliteDocumentAuditRepository(database), logger, policy: InternalSharedLinkConfiguration.Policy, baseUrl: InternalSharedLinkConfiguration.BaseUrl, workflow: new SqliteWorkflowRepository(database, logger, WorkflowConfiguration));
     }
     public static DocumentListViewModel CreateApprovedDocumentListViewModel() => new(CreateViewerAccessService());
     public static ApprovedDocumentService CreateApprovedDocumentListDataService() => CreateApprovedDocumentService();
@@ -273,6 +274,23 @@ public static class CompositionRoot
         }
     }
     private static string DatabasePath() => Path.Combine(AppContext.BaseDirectory,"drawverify.db");
+    private static (InternalSharedLinkPolicy Policy, string BaseUrl) LoadInternalSharedLinkConfiguration()
+    {
+        var logger = new CentralizedLogger();
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "appsettings.json")));
+            var section = document.RootElement.GetProperty("InternalSharedLinks");
+            var baseUrl = section.GetProperty("BaseUrl").GetString();
+            if (string.IsNullOrWhiteSpace(baseUrl) || !Uri.TryCreate(baseUrl, UriKind.Absolute, out _)) throw new InvalidOperationException("InternalSharedLinks.BaseUrl must be an absolute URL.");
+            var allowedRoles = section.TryGetProperty("AllowedRoles", out var roles) ? roles.EnumerateArray().Select(x => x.GetString() ?? string.Empty).Where(x => !string.IsNullOrWhiteSpace(x)).ToHashSet(StringComparer.OrdinalIgnoreCase) : new HashSet<string>(new[] { "Approver", "Viewer" }, StringComparer.OrdinalIgnoreCase);
+            var allowedGroups = section.TryGetProperty("AllowedGroups", out var groups) ? groups.EnumerateArray().Select(x => x.GetString() ?? string.Empty).Where(x => !string.IsNullOrWhiteSpace(x)).ToHashSet(StringComparer.OrdinalIgnoreCase) : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var policy = new InternalSharedLinkPolicy { AllowDownload = section.GetProperty("AllowDownload").GetBoolean(), AllowTracking = section.GetProperty("AllowTracking").GetBoolean(), AllowMultipleLinks = section.GetProperty("AllowMultipleLinks").GetBoolean(), AllowExpiration = section.GetProperty("AllowExpiration").GetBoolean(), InternalDomain = section.GetProperty("InternalDomain").GetString() ?? string.Empty, AllowedRoles = allowedRoles, AllowedGroups = allowedGroups };
+            if (policy.AllowedRoles.Count == 0 && policy.AllowedGroups.Count == 0 && string.IsNullOrWhiteSpace(policy.InternalDomain)) throw new InvalidOperationException("InternalSharedLinks must configure an internal domain, allowed role, or allowed group.");
+            return (policy, baseUrl.TrimEnd('/'));
+        }
+        catch (Exception exception) { logger.Log(exception, "Internal shared-link configuration startup", "Unable to load or validate InternalSharedLinks settings."); throw; }
+    }
     private static WorkflowConfiguration LoadWorkflowConfiguration()
     {
         var logger = new CentralizedLogger();

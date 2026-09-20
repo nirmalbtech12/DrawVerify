@@ -164,11 +164,11 @@ public partial class MainWindow : Window
         {
             var result = await CompositionRoot.CreateInternalSharedLinkService().AuthorizeAsync(new InternalSharedLinkAccessRequest(token));
             if (!result.Succeeded || result.Link is null || result.Document is null) { Denied(string.IsNullOrWhiteSpace(result.Message) ? "Invalid or revoked link." : result.Message); return; }
-            var version = result.Document.Versions.FirstOrDefault(x => x.VersionId == result.Link.VersionId) ?? result.Document.Version;
-            if (version is null || version.VersionId != result.Link.VersionId) { Denied("The shared-link document version is unavailable."); return; }
-            var shared = new SharedDocument { DocumentId = result.Document.DocumentId, VersionId = version.VersionId, DocumentName = result.Document.OriginalFileName, Revision = version.VersionNumber, ApprovalStatus = DrawVerify.Core.Enums.WorkflowStatus.FinallyApproved, DocumentType = result.Document.DocumentType, StoredRelativePath = version.StoredRelativePath };
             var context = new SharedLinkViewerContext(result.Link.LinkId, result.Link.DocumentId, result.Link.VersionId, result.Link.AccessLevel == DrawVerify.Core.Enums.SharedLinkAccessLevel.ViewAndDownload);
-            var viewer = new ApprovedDocumentViewerViewModel(CompositionRoot.CreateApprovedDocumentService(), shared, context, new CentralizedLogger());
+            var approvedService = CompositionRoot.CreateApprovedDocumentService();
+            var shared = await approvedService.GetSharedLinkDocumentAsync(context.DocumentId, context.VersionId);
+            if (shared is null) { Denied("The shared-link document version is unavailable."); return; }
+            var viewer = new ApprovedDocumentViewerViewModel(approvedService, shared, context, new CentralizedLogger());
             var view = new ApprovedDocumentViewerView { DataContext = viewer };
             view.Unloaded += (_, _) => viewer.Dispose();
             _shell?.SetScreen(view, "SharedLinkViewer");

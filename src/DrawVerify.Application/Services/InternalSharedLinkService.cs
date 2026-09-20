@@ -24,10 +24,11 @@ public sealed class InternalSharedLinkService : IInternalSharedLinkService
     private readonly ISharedLinkIdentityProvider _identity;
     private readonly InternalSharedLinkPolicy _policy;
     private readonly string _baseUrl;
+    private readonly IWorkflowRepository? _workflow;
 
-    public InternalSharedLinkService(IDocumentRepository documents, IInternalSharedLinkRepository links, ISessionAuthenticationService session, RoleAuthorization? authorization = null, IDocumentAuditRepository? audit = null, ICentralizedLogger? logger = null, ISharedLinkIdentityProvider? identity = null, InternalSharedLinkPolicy? policy = null, string? baseUrl = null)
+    public InternalSharedLinkService(IDocumentRepository documents, IInternalSharedLinkRepository links, ISessionAuthenticationService session, RoleAuthorization? authorization = null, IDocumentAuditRepository? audit = null, ICentralizedLogger? logger = null, ISharedLinkIdentityProvider? identity = null, InternalSharedLinkPolicy? policy = null, string? baseUrl = null, IWorkflowRepository? workflow = null)
     {
-        _documents = documents; _links = links; _session = session; _authorization = authorization ?? new(); _audit = audit; _logger = logger; _policy = policy ?? new(); _baseUrl = string.IsNullOrWhiteSpace(baseUrl) ? "https://drawverify.internal/share" : baseUrl.TrimEnd('/');
+        _documents = documents; _links = links; _session = session; _authorization = authorization ?? new(); _audit = audit; _logger = logger; _policy = policy ?? throw new ArgumentNullException(nameof(policy)); _baseUrl = string.IsNullOrWhiteSpace(baseUrl) ? throw new ArgumentException("A shared-link base URL is required.", nameof(baseUrl)) : baseUrl.TrimEnd('/'); _workflow = workflow;
         _identity = identity ?? new SessionSharedLinkIdentityProvider(session, _policy);
     }
 
@@ -36,7 +37,8 @@ public sealed class InternalSharedLinkService : IInternalSharedLinkService
         EnsureApprover(); configuration.Validate(); ValidateConfiguration(configuration);
         var document = await _documents.GetAsync(documentId, cancellationToken).ConfigureAwait(false) ?? throw new InvalidOperationException("The document could not be found.");
         var version = await _documents.GetVersionAsync(documentId, versionId, cancellationToken).ConfigureAwait(false) ?? throw new InvalidOperationException("The document version could not be found.");
-        if (document.Status != DocumentStatus.Active) throw new InvalidOperationException(ApprovedOnlyMessage);
+        var workflowState = _workflow is null ? null : await _workflow.GetStateAsync(documentId, cancellationToken).ConfigureAwait(false);
+        if (document.Status != DocumentStatus.Active || workflowState is null || workflowState.Status is not (WorkflowStatus.FinallyApproved or WorkflowStatus.Released) || workflowState.Revision != version.VersionNumber) throw new InvalidOperationException(ApprovedOnlyMessage);
         if (!configuration.AllowMultipleLinks && (await _links.ListAsync(documentId, versionId, cancellationToken).ConfigureAwait(false)).Any(x => x.Status(DateTime.UtcNow) is SharedLinkStatus.Active or SharedLinkStatus.Inactive)) throw new InvalidOperationException("A shared link already exists for this document version.");
         var link = CreateLink(documentId, versionId, configuration); var persisted = await _links.CreateAsync(link, cancellationToken).ConfigureAwait(false); await WriteAuditAsync(documentId, versionId, DocumentAuditAction.SharedLinkCreated, new { linkId = link.LinkId, accessLevel = link.AccessLevel.ToString(), expiresUtc = link.ExpiresUtc }, cancellationToken).ConfigureAwait(false); return await DetailsAsync(persisted, cancellationToken).ConfigureAwait(false);
     }

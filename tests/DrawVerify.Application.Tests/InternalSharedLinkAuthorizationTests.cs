@@ -18,7 +18,7 @@ public sealed class InternalSharedLinkAuthorizationTests
         var link = new InternalSharedLink { DocumentId = document.DocumentId, VersionId = version.VersionId, Token = "hash", IsActive = true, TrackingEnabled = false };
         var documents = new DocumentsFake(document, version);
         var session = new SessionFake(new AuthenticatedUser("viewer@drawverify.internal", new[] { "Viewer" }));
-        var service = new InternalSharedLinkService(documents, new LinksFake(link), session, identity: new Provider(policy), policy: policy);
+        var service = new InternalSharedLinkService(documents, new LinksFake(link), session, identity: new Provider(policy), policy: policy, baseUrl: "https://drawverify.internal/share");
         var internalUser = new AuthenticatedUser("viewer@drawverify.internal", new[] { "Viewer" });
         var externalUser = new AuthenticatedUser("viewer@external.example", new[] { "Viewer" });
         var allowed = await service.AuthorizeAsync(new InternalSharedLinkAccessRequest("any"));

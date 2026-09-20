@@ -13,11 +13,11 @@ public sealed class InternalSharedLinkServiceTests
     public async Task Approved_approver_generation_returns_persisted_url()
     {
         var document = new Document { DocumentId = Guid.NewGuid(), Status = DocumentStatus.Active };
-        var version = new DocumentVersion { DocumentId = document.DocumentId, VersionId = Guid.NewGuid() };
+        var version = new DocumentVersion { DocumentId = document.DocumentId, VersionId = Guid.NewGuid(), VersionNumber = 1 };
         var documents = new DocumentsFake(document, version);
         var links = new LinksFake();
         var session = new SessionFake(new AuthenticatedUser("approver@drawverify.internal", new[] { SystemRoles.Approver }));
-        var service = new InternalSharedLinkService(documents, links, session, baseUrl: "https://drawverify.internal/share");
+        var service = new InternalSharedLinkService(documents, links, session, policy: new InternalSharedLinkPolicy(), baseUrl: "https://drawverify.internal/share", workflow: new WorkflowFake());
 
         var first = await service.GenerateAsync(document.DocumentId, version.VersionId, new InternalSharedLinkConfiguration());
         var second = await service.RegenerateAsync(first.Link.LinkId);
@@ -32,24 +32,26 @@ public sealed class InternalSharedLinkServiceTests
     {
         var documentId = Guid.NewGuid();
         var versionId = Guid.NewGuid();
-        var version = new DocumentVersion { DocumentId = documentId, VersionId = versionId };
+        var version = new DocumentVersion { DocumentId = documentId, VersionId = versionId, VersionNumber = 1 };
         var links = new LinksFake();
         var approver = new SessionFake(new AuthenticatedUser("approver@drawverify.internal", new[] { SystemRoles.Approver }));
-        var missing = new InternalSharedLinkService(new DocumentsFake(null, version), links, approver);
+        var policy = new InternalSharedLinkPolicy();
+        const string baseUrl = "https://drawverify.internal/share";
+        var missing = new InternalSharedLinkService(new DocumentsFake(null, version), links, approver, policy: policy, baseUrl: baseUrl, workflow: new WorkflowFake());
         await Assert.ThrowsAsync<InvalidOperationException>(() => missing.GenerateAsync(documentId, versionId, new InternalSharedLinkConfiguration()));
         Assert.Empty(links.Items);
 
-        var pending = new InternalSharedLinkService(new DocumentsFake(new Document { DocumentId = documentId, Status = DocumentStatus.Archived }, version), links, approver);
+        var pending = new InternalSharedLinkService(new DocumentsFake(new Document { DocumentId = documentId, Status = DocumentStatus.Archived }, version), links, approver, policy: policy, baseUrl: baseUrl, workflow: new WorkflowFake());
         var rejected = await Assert.ThrowsAsync<InvalidOperationException>(() => pending.GenerateAsync(documentId, versionId, new InternalSharedLinkConfiguration()));
         Assert.Equal(InternalSharedLinkService.ApprovedOnlyMessage, rejected.Message);
         Assert.Empty(links.Items);
 
-        var unauthorized = new InternalSharedLinkService(new DocumentsFake(new Document { DocumentId = documentId, Status = DocumentStatus.Active }, version), links, new SessionFake(new AuthenticatedUser("viewer", new[] { SystemRoles.Viewer })));
+        var unauthorized = new InternalSharedLinkService(new DocumentsFake(new Document { DocumentId = documentId, Status = DocumentStatus.Active }, version), links, new SessionFake(new AuthenticatedUser("viewer", new[] { SystemRoles.Viewer })), policy: policy, baseUrl: baseUrl, workflow: new WorkflowFake());
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => unauthorized.GenerateAsync(documentId, versionId, new InternalSharedLinkConfiguration()));
         Assert.Empty(links.Items);
 
         var failing = new LinksFake { ThrowOnCreate = true };
-        var persistence = new InternalSharedLinkService(new DocumentsFake(new Document { DocumentId = documentId, Status = DocumentStatus.Active }, version), failing, approver);
+        var persistence = new InternalSharedLinkService(new DocumentsFake(new Document { DocumentId = documentId, Status = DocumentStatus.Active }, version), failing, approver, policy: policy, baseUrl: baseUrl, workflow: new WorkflowFake());
         await Assert.ThrowsAsync<InvalidOperationException>(() => persistence.GenerateAsync(documentId, versionId, new InternalSharedLinkConfiguration()));
         Assert.Empty(failing.Items);
     }
@@ -78,5 +80,16 @@ public sealed class InternalSharedLinkServiceTests
         public bool IsAuthenticated => CurrentUser is not null;
         public void SignIn(AuthenticatedUser value) => CurrentUser = value;
         public void SignOut() => CurrentUser = null;
+    }
+
+    private sealed class WorkflowFake : IWorkflowRepository
+    {
+        public Task<WorkflowState?> GetStateAsync(Guid packageId, CancellationToken cancellationToken = default) => Task.FromResult<WorkflowState?>(new WorkflowState { PackageId = packageId, Status = WorkflowStatus.FinallyApproved, Revision = 1 });
+        public Task<ReviewSubmission?> GetSubmissionAsync(Guid submissionId, CancellationToken cancellationToken = default) => Task.FromResult<ReviewSubmission?>(null);
+        public Task<IReadOnlyList<ReviewSubmission>> GetSubmissionsAsync(Guid packageId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ReviewSubmission>>(Array.Empty<ReviewSubmission>());
+        public Task<IReadOnlyList<WorkflowQueueItem>> GetCheckerQueueAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<WorkflowQueueItem>>(Array.Empty<WorkflowQueueItem>());
+        public Task<ReviewSubmission> SubmitAtomicallyAsync(WorkflowState expectedState, ReviewSubmission submission, AuditEntry auditEntry, CancellationToken cancellationToken = default) => Task.FromResult(submission);
+        public Task RecordAuditAsync(AuditEntry auditEntry, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task MarkSupersededAsync(Guid submissionId, AuditEntry auditEntry, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

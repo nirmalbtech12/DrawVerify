@@ -19,11 +19,36 @@ public sealed class ApprovedDocumentService : IApprovedDocumentService
     private readonly IDxfUploadFileStore _dxfFiles;
     private readonly ViewerDocumentConfiguration _configuration;
     private readonly IViewerAccessRepository? _viewerAccess;
+    private readonly IInternalSharedLinkRepository? _sharedLinks;
 
-    public ApprovedDocumentService(ISharedDocumentRepository documents, ISessionAuthenticationService session, RoleAuthorization authorization, IAuditLogger audit, ICentralizedLogger logger, IStepUploadFileStore stepFiles, IDxfUploadFileStore dxfFiles, ViewerDocumentConfiguration? configuration = null, IViewerAccessRepository? viewerAccess = null)
-        => (_documents, _session, _authorization, _audit, _logger, _stepFiles, _dxfFiles, _configuration, _viewerAccess) = (documents, session, authorization, audit, logger, stepFiles, dxfFiles, configuration ?? new(), viewerAccess);
+    public ApprovedDocumentService(ISharedDocumentRepository documents, ISessionAuthenticationService session, RoleAuthorization authorization, IAuditLogger audit, ICentralizedLogger logger, IStepUploadFileStore stepFiles, IDxfUploadFileStore dxfFiles, ViewerDocumentConfiguration? configuration = null, IViewerAccessRepository? viewerAccess = null, IInternalSharedLinkRepository? sharedLinks = null)
+        => (_documents, _session, _authorization, _audit, _logger, _stepFiles, _dxfFiles, _configuration, _viewerAccess, _sharedLinks) = (documents, session, authorization, audit, logger, stepFiles, dxfFiles, configuration ?? new(), viewerAccess, sharedLinks);
 
     public bool AllowDownload => _configuration.AllowDownload;
+    public async Task<SharedDocument?> GetSharedLinkDocumentAsync(Guid documentId, Guid versionId, CancellationToken token = default)
+        => await _documents.GetAsync("__shared_link__", documentId, versionId, token).ConfigureAwait(false);
+
+    public async Task<SharedDocumentAccess> OpenSharedLinkAsync(SharedLinkViewerContext context, CancellationToken token = default)
+    {
+        var user = _session.CurrentUser ?? throw new UnauthorizedAccessException("Authentication is required to access this shared link.");
+        var document = await GetSharedLinkDocumentAsync(context.DocumentId, context.VersionId, token).ConfigureAwait(false) ?? throw new UnauthorizedAccessException(UnsharedMessage);
+        if (_sharedLinks is not null)
+        {
+            var link = await _sharedLinks.GetByIdAsync(context.LinkId, token).ConfigureAwait(false);
+            if (link is null || link.DocumentId != context.DocumentId || link.VersionId != context.VersionId || link.Status(DateTime.UtcNow) != SharedLinkStatus.Active) throw new UnauthorizedAccessException(RevokedMessage);
+        }
+        LogApprovalMetadata(document); EnsureSupportedFormat(document);
+        var content = await OpenContentAsync(document, token).ConfigureAwait(false);
+        await WriteAuditAsync(document, user, DocumentAuditAction.DocumentViewed, token).ConfigureAwait(false);
+        return new SharedDocumentAccess(document, content);
+    }
+
+    public async Task<bool> ValidateSharedLinkAccessAsync(SharedLinkViewerContext context, CancellationToken token = default)
+    {
+        if (!_session.IsAuthenticated || _sharedLinks is null) return false;
+        var link = await _sharedLinks.GetByIdAsync(context.LinkId, token).ConfigureAwait(false);
+        return link is not null && link.DocumentId == context.DocumentId && link.VersionId == context.VersionId && link.Status(DateTime.UtcNow) == SharedLinkStatus.Active;
+    }
     public async Task<bool> ValidateAccessAsync(Guid documentId, Guid versionId, CancellationToken token = default)
     {
         var user = RequireViewer();
