@@ -25,9 +25,9 @@ public sealed class PdfToWordConverter : IPdfToWordConverter
             using var pdf = PdfReader.Open(input, PdfDocumentOpenMode.Import);
             if (pdf.Pages.Count == 0) throw new InvalidDataException("The PDF contains no pages.");
             var text = ExtractText(source.PdfBytes);
-            var hasImages = Encoding.ASCII.GetString(source.PdfBytes).Contains("/Subtype /Image", StringComparison.Ordinal);
-            var content = CreateDocx(text, pdf.Pages.Count, hasImages);
-            return Task.FromResult(new PdfToWordConversionResult { Content = content, PageCount = pdf.Pages.Count, HasImages = hasImages });
+            var images = ExtractImages(source.PdfBytes);
+            var content = CreateDocx(text, pdf.Pages.Count, images);
+            return Task.FromResult(new PdfToWordConversionResult { Content = content, PageCount = pdf.Pages.Count, HasImages = images.Count > 0 });
         }
         catch (Exception ex) when (ex is not InvalidDataException)
         {
@@ -46,7 +46,99 @@ public sealed class PdfToWordConverter : IPdfToWordConverter
 
     private static string DecodePdfString(string value) => value.Replace(@"\(", "(").Replace(@"\)", ")").Replace(@"\\", "\\").Replace(@"\n", "\n").Replace(@"\r", "\r");
 
-    private static byte[] CreateDocx(string text, int pageCount, bool hasImages)
+    private static IReadOnlyList<PdfImage> ExtractImages(byte[] bytes)
+    {
+        var raw = Encoding.Latin1.GetString(bytes);
+        var images = new List<PdfImage>();
+        foreach (Match match in Regex.Matches(raw, @"(?s)<<(?<dictionary>.*?/Subtype\s*/Image\b.*?)>>\s*stream\s*(?<data>.*?)\s*endstream", RegexOptions.CultureInvariant))
+        {
+            var dictionary = match.Groups["dictionary"].Value;
+            var dataStart = match.Groups["data"].Index;
+            var dataLength = match.Groups["data"].Length;
+            var imageBytes = bytes.AsSpan(dataStart, dataLength).ToArray();
+            var filter = Regex.Match(dictionary, @"/Filter\s*/(?<filter>[A-Za-z0-9]+)", RegexOptions.CultureInvariant).Groups["filter"].Value;
+            var width = ReadPositiveInt(dictionary, "Width");
+            var height = ReadPositiveInt(dictionary, "Height");
+            var bits = ReadPositiveInt(dictionary, "BitsPerComponent");
+            var colorSpace = Regex.Match(dictionary, @"/ColorSpace\s*/(?<space>[A-Za-z0-9]+)", RegexOptions.CultureInvariant).Groups["space"].Value;
+
+            if (string.Equals(filter, "DCTDecode", StringComparison.Ordinal))
+            {
+                images.Add(new PdfImage(imageBytes, IsJpeg: true));
+                continue;
+            }
+
+            if (!string.IsNullOrEmpty(filter) && !string.Equals(filter, "FlateDecode", StringComparison.Ordinal))
+                throw new InvalidDataException($"The PDF image encoding '{filter}' is not supported.");
+            if (bits != 8 || (colorSpace is not ("DeviceRGB" or "DeviceGray")))
+                throw new InvalidDataException("The PDF image color space or bit depth is not supported.");
+            if (string.Equals(filter, "FlateDecode", StringComparison.Ordinal))
+            {
+                using var compressed = new MemoryStream(imageBytes, writable: false);
+                using var decompressor = new DeflateStream(compressed, CompressionMode.Decompress);
+                using var decoded = new MemoryStream();
+                decompressor.CopyTo(decoded);
+                imageBytes = decoded.ToArray();
+            }
+            var channels = colorSpace == "DeviceRGB" ? 3 : 1;
+            if (imageBytes.Length != width * height * channels)
+                throw new InvalidDataException("The PDF image data length does not match its dimensions.");
+            images.Add(new PdfImage(CreatePng(imageBytes, width, height, channels), IsJpeg: false));
+        }
+        return images;
+    }
+
+    private static int ReadPositiveInt(string dictionary, string name)
+    {
+        var match = Regex.Match(dictionary, $@"/{name}\s+(?<value>\d+)", RegexOptions.CultureInvariant);
+        return match.Success && int.TryParse(match.Groups["value"].Value, out var value) && value > 0
+            ? value
+            : throw new InvalidDataException($"The PDF image is missing a valid {name}.");
+    }
+
+    private static byte[] CreatePng(byte[] pixels, int width, int height, int channels)
+    {
+        using var output = new MemoryStream();
+        output.Write([137, 80, 78, 71, 13, 10, 26, 10]);
+        var header = new byte[13];
+        WriteBigEndian(header, 0, width); WriteBigEndian(header, 4, height); header[8] = 8; header[9] = channels == 3 ? (byte)2 : (byte)0;
+        WritePngChunk(output, "IHDR", header);
+        var scanlines = new byte[height * (width * channels + 1)];
+        for (var row = 0; row < height; row++) { Buffer.BlockCopy(pixels, row * width * channels, scanlines, row * (width * channels + 1) + 1, width * channels); }
+        using (var compressed = new MemoryStream())
+        {
+            using (var compressor = new ZLibStream(compressed, CompressionMode.Compress, leaveOpen: true)) compressor.Write(scanlines);
+            WritePngChunk(output, "IDAT", compressed.ToArray());
+        }
+        WritePngChunk(output, "IEND", []);
+        return output.ToArray();
+    }
+
+    private static void WriteBigEndian(byte[] buffer, int offset, int value)
+    {
+        buffer[offset] = (byte)(value >> 24); buffer[offset + 1] = (byte)(value >> 16); buffer[offset + 2] = (byte)(value >> 8); buffer[offset + 3] = (byte)value;
+    }
+
+    private static void WritePngChunk(Stream output, string name, byte[] data)
+    {
+        var type = Encoding.ASCII.GetBytes(name); var length = new byte[4]; WriteBigEndian(length, 0, data.Length); output.Write(length); output.Write(type); output.Write(data);
+        var checksum = new byte[4]; WriteBigEndian(checksum, 0, unchecked((int)Crc32(type, data))); output.Write(checksum);
+    }
+
+    private static uint Crc32(byte[] type, byte[] data)
+    {
+        uint crc = 0xFFFFFFFF;
+        foreach (var value in type.Concat(data))
+        {
+            crc ^= value;
+            for (var bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ (0xEDB88320u & (uint)-(int)(crc & 1));
+        }
+        return ~crc;
+    }
+
+    private sealed record PdfImage(byte[] Content, bool IsJpeg);
+
+    private static byte[] CreateDocx(string text, int pageCount, IReadOnlyList<PdfImage> images)
     {
         using var output = new MemoryStream();
         using (var package = WordprocessingDocument.Create(output, WordprocessingDocumentType.Document, true))
@@ -55,10 +147,10 @@ public sealed class PdfToWordConverter : IPdfToWordConverter
             var body = main.Document.Body!;
             foreach (var page in text.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)) body.Append(new Paragraph(new Run(new Text(page))));
             body.Append(new Paragraph(new Run(new Text($"Pages: {pageCount}"))));
-            if (hasImages)
+            foreach (var pdfImage in images)
             {
-                var imagePart = main.AddNewPart<ImagePart>("image/png", "rIdPdfImage");
-                using var image = new MemoryStream(Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="));
+                var imagePart = main.AddImagePart(pdfImage.IsJpeg ? ImagePartType.Jpeg : ImagePartType.Png);
+                using var image = new MemoryStream(pdfImage.Content, writable: false);
                 imagePart.FeedData(image);
                 var relationshipId = main.GetIdOfPart(imagePart);
                 var drawing = new Drawing(
@@ -83,10 +175,9 @@ public sealed class PdfToWordConverter : IPdfToWordConverter
         }
         using (var archive = new ZipArchive(output, ZipArchiveMode.Update, leaveOpen: true))
         {
-            var rootImage = archive.GetEntry("media/image.png");
-            if (rootImage is not null)
+            foreach (var rootImage in archive.Entries.Where(x => x.FullName.StartsWith("media/", StringComparison.Ordinal)).ToArray())
             {
-                var documentImage = archive.CreateEntry("word/media/image.png");
+                var documentImage = archive.CreateEntry($"word/{rootImage.FullName}");
                 using (var source = rootImage.Open())
                 using (var target = documentImage.Open())
                 {
@@ -99,13 +190,13 @@ public sealed class PdfToWordConverter : IPdfToWordConverter
                     string content;
                     using (var reader = new StreamReader(relationships.Open(), Encoding.UTF8, detectEncodingFromByteOrderMarks: true, leaveOpen: false))
                     {
-                        content = reader.ReadToEnd();
+                    content = reader.ReadToEnd();
                     }
 
                     relationships.Delete();
                     var replacement = archive.CreateEntry("word/_rels/document.xml.rels");
                     using var writer = new StreamWriter(replacement.Open(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-                    writer.Write(content.Replace("Target=\"/media/image.png\"", "Target=\"media/image.png\"", StringComparison.Ordinal));
+                    writer.Write(content.Replace("Target=\"/media/", "Target=\"media/", StringComparison.Ordinal));
                 }
             }
         }

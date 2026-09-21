@@ -28,8 +28,9 @@ public sealed class ReportTemplateConversionService : IReportTemplateConversionS
             var converted = await _converter.ConvertAsync(source, cancellationToken);
             ValidateDocx(converted.Content);
             var template = new ReportTemplate { Name = Path.GetFileNameWithoutExtension(source.FileName), Source = source };
-            var saved = await _templates.SaveAsync(template, 0, new ReportTemplateAuditEntry { TemplateId = template.Id, ActorId = actor, Action = "Converted", Summary = source.FileName }, cancellationToken);
-            await _documents.SaveAsync(new ReportTemplateDocument { TemplateId = saved.Id, Version = saved.Version, SourceId = source.SourceId, SourceFileName = source.FileName, Content = converted.Content }, cancellationToken: cancellationToken);
+            var document = new ReportTemplateDocument { TemplateId = template.Id, Version = 1, SourceId = source.SourceId, SourceFileName = source.FileName, Content = converted.Content };
+            var templateAudit = new ReportTemplateAuditEntry { TemplateId = template.Id, ActorId = actor, Action = "Converted", Summary = source.FileName };
+            var saved = await PublishAsync(template, document, templateAudit, cancellationToken);
             await RecordAuditAsync(new TemplateConversionAuditEntry { SourceId = source.SourceId, SourceFileName = source.FileName, TemplateId = saved.Id, Version = saved.Version, ActorId = actor, Status = "Success" }, cancellationToken);
             return saved;
         }
@@ -53,8 +54,9 @@ public sealed class ReportTemplateConversionService : IReportTemplateConversionS
             var converted = await _converter.ConvertAsync(source, cancellationToken);
             ValidateDocx(converted.Content);
             var replacement = current with { Version = current.Version + 1, EffectiveDate = DateTimeOffset.UtcNow };
-            var saved = await _templates.SaveAsync(replacement, expectedVersion, new ReportTemplateAuditEntry { TemplateId = templateId, Version = replacement.Version, ActorId = actor, Action = "Reconverted", Summary = source.FileName }, cancellationToken);
-            await _documents.SaveAsync(new ReportTemplateDocument { TemplateId = templateId, Version = saved.Version, SourceId = document.SourceId, SourceFileName = document.SourceFileName, Content = converted.Content }, expectedVersion, cancellationToken);
+            var replacementDocument = new ReportTemplateDocument { TemplateId = templateId, Version = replacement.Version, SourceId = document.SourceId, SourceFileName = document.SourceFileName, Content = converted.Content };
+            var templateAudit = new ReportTemplateAuditEntry { TemplateId = templateId, Version = replacement.Version, ActorId = actor, Action = "Reconverted", Summary = source.FileName };
+            var saved = await PublishAsync(replacement, replacementDocument, templateAudit, cancellationToken, expectedVersion);
             await RecordAuditAsync(new TemplateConversionAuditEntry { SourceId = source.SourceId, SourceFileName = source.FileName, TemplateId = templateId, Version = saved.Version, ActorId = actor, Status = "Success" }, cancellationToken);
             return saved;
         }
@@ -73,6 +75,21 @@ public sealed class ReportTemplateConversionService : IReportTemplateConversionS
     private static void ValidateSource(ReportTemplateSource source) { if (source.PdfBytes.Length == 0) throw new InvalidOperationException("The PDF source is empty."); if (!source.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("The template source must be a PDF file."); }
     private static void ValidateDocx(byte[] bytes) { if (bytes.Length < 4 || bytes[0] != 0x50 || bytes[1] != 0x4B) throw new InvalidOperationException("The conversion did not produce a valid Word document."); }
     private static string BoundError(Exception ex) => ex.ToString().Length > 1024 ? ex.ToString()[..1024] : ex.ToString();
+    private async Task<ReportTemplate> PublishAsync(ReportTemplate template, ReportTemplateDocument document, ReportTemplateAuditEntry audit, CancellationToken token, int expectedVersion = 0)
+    {
+        var publisher = _templates.GetType().GetMethod("PublishAsync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public, binder: null, new[] { typeof(ReportTemplate), typeof(int), typeof(ReportTemplateAuditEntry), typeof(ReportTemplateDocument), typeof(CancellationToken) }, modifiers: null);
+        if (publisher is not null)
+        {
+            var task = (Task<ReportTemplate>)publisher.Invoke(_templates, new object[] { template, expectedVersion, audit, document, token })!;
+            return await task;
+        }
+        return await PublishFallbackAsync(template, document, audit, token, expectedVersion == 0 ? null : expectedVersion);
+    }
+    private async Task<ReportTemplate> PublishFallbackAsync(ReportTemplate template, ReportTemplateDocument document, ReportTemplateAuditEntry audit, CancellationToken token, int? expectedDocumentVersion = null)
+    {
+        await _documents.SaveAsync(document, expectedDocumentVersion, token);
+        return await _templates.SaveAsync(template, expectedDocumentVersion ?? 0, audit, token);
+    }
     private async Task RecordAuditAsync(TemplateConversionAuditEntry entry, CancellationToken token) { try { await _documents.RecordConversionAuditAsync(entry, token); } catch (Exception ex) { _logger?.Log(ex, "PDF to Word audit", $"sourceId={entry.SourceId}; templateId={entry.TemplateId}; actorId={entry.ActorId}"); throw new InvalidOperationException("Conversion completed but its audit record could not be stored.", ex); } }
     private async Task RecordAuditSafelyAsync(TemplateConversionAuditEntry entry, CancellationToken token) { try { await _documents.RecordConversionAuditAsync(entry, token); } catch (Exception auditException) { _logger?.Log(auditException, "PDF to Word failed audit", $"sourceId={entry.SourceId}; templateId={entry.TemplateId}; actorId={entry.ActorId}"); } }
 }
