@@ -227,7 +227,9 @@ public static class CompositionRoot
         var logger = new CentralizedLogger();
         var database = DatabasePath();
         var repository = new SqliteReportTemplateRepository(database);
-        return new ReportTemplateConfigurationViewModel(new ReportTemplateService(repository, Session, Authorization, logger), Session, Authorization, logger, new ReportTemplatePreviewService(new DrawVerify.Infrastructure.Pdf.PdfReportGenerator(), Session, Authorization, logger), new ReportTemplateExchangeService(Session, Authorization, repository, logger));
+        var documents = new SqliteReportTemplateDocumentRepository(database);
+        var conversion = new ReportTemplateConversionService(repository, documents, new DrawVerify.Infrastructure.Pdf.PdfToWordConverter(), Session, Authorization, logger);
+        return new ReportTemplateConfigurationViewModel(new ReportTemplateService(repository, Session, Authorization, logger), Session, Authorization, logger, new ReportTemplatePreviewService(new DrawVerify.Infrastructure.Pdf.PdfReportGenerator(), Session, Authorization, logger), new ReportTemplateExchangeService(Session, Authorization, repository, logger), conversion);
     }
     public static MissingDimensionReviewService CreateMissingDimensionReviewService()
     {
