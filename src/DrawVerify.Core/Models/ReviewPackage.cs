@@ -17,6 +17,7 @@ public sealed record ReviewPackage
     public string? Note { get; init; }
     public Guid StepDocumentVersionId { get; init; }
     public Guid DxfDocumentVersionId { get; init; }
+    public DrawVerify.Core.Enums.DocumentType DocumentType { get; init; } = DrawVerify.Core.Enums.DocumentType.Unknown;
     public string ExtractionEvidenceJson { get; init; } = "{}";
     public string VerificationEvidenceJson { get; init; } = "{}";
     public string SnapshotReference { get; init; } = string.Empty;
@@ -28,7 +29,10 @@ public sealed record ReviewPackage
     public string? RejectionReason => PriorDecision?.OverallReason ?? PriorDecision?.Comments;
     public string? CorrectionAction => PriorDecision?.CorrectionAction;
     public IReadOnlyList<ReviewComment> PriorComments => Comments.Where(x => x.PriorCommentId is null).ToArray();
-    public static ReviewPackage FromSubmission(ReviewSubmission submission, ReviewDecision? priorDecision = null, IReadOnlyList<ReviewComment>? comments = null)
+    public IReadOnlyList<DocumentMarkup> Markups { get; init; } = Array.Empty<DocumentMarkup>();
+    public string StatusLabel => DocumentType is DrawVerify.Core.Enums.DocumentType.PdfDrawing or DrawVerify.Core.Enums.DocumentType.ImageDrawing ? Status switch { WorkflowStatus.Draft => "Draft", WorkflowStatus.InPreparation => "In Preparation", WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview => "In Review", WorkflowStatus.Approved or WorkflowStatus.FinallyApproved or WorkflowStatus.Released => "Approved", _ => throw new InvalidOperationException($"No neutral status label is configured for '{Status}'.") } : Status.ToString();
+    public int StatusProgress => DocumentType is DrawVerify.Core.Enums.DocumentType.PdfDrawing or DrawVerify.Core.Enums.DocumentType.ImageDrawing ? Status switch { WorkflowStatus.Draft or WorkflowStatus.InPreparation => 0, WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview => 1, WorkflowStatus.Approved or WorkflowStatus.FinallyApproved or WorkflowStatus.Released => 2, _ => throw new InvalidOperationException($"No neutral status progress is configured for '{Status}'.") } : (int)Status;
+    public static ReviewPackage FromSubmission(ReviewSubmission submission, ReviewDecision? priorDecision = null, IReadOnlyList<ReviewComment>? comments = null, IReadOnlyList<DocumentMarkup>? markups = null)
     {
         ArgumentNullException.ThrowIfNull(submission);
         var stepDocumentId = submission.PackageId;
@@ -48,7 +52,7 @@ public sealed record ReviewPackage
         Note = submission.Note, StepDocumentVersionId = submission.StepDocumentVersionId, DxfDocumentVersionId = submission.DxfDocumentVersionId,
         ExtractionEvidenceJson = submission.ExtractionEvidenceJson, VerificationEvidenceJson = submission.VerificationEvidenceJson,
         SnapshotReference = submission.SubmissionId.ToString(), Submission = submission, PriorDecision = priorDecision,
-        Comments = comments ?? Array.Empty<ReviewComment>(), VerificationFindings = findings
+        Comments = comments ?? Array.Empty<ReviewComment>(), Markups = markups ?? Array.Empty<DocumentMarkup>(), VerificationFindings = findings
         };
     }
 }

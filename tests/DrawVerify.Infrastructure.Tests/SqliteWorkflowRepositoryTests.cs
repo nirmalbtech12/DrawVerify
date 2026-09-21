@@ -953,6 +953,17 @@ public sealed class SqliteWorkflowRepositoryTests
             Assert.Equal("page-1", saved.ReferenceId);
             Assert.Equal("x=10,y=20", saved.Location);
             Assert.Empty(otherRevision);
+
+            var version = Guid.NewGuid();
+            var markup = new DocumentMarkup { DocumentId = package, DocumentVersionId = version, PackageId = package, Revision = 2, AuthorUserId = "checker-1", AuthorDisplayName = "Checker", MarkupType = "highlight", DataJson = "{\"color\":\"yellow\"}", PageNumber = 2, Location = "x=10,y=20" };
+            await repository.SaveDocumentMarkupAsync(markup, Audit(DocumentAuditAction.ReviewCommentDraftSaved, package, "markup"));
+            var markups = await repository.GetDocumentMarkupsAsync(package, version);
+            var reloadedMarkup = Assert.Single(markups);
+            Assert.Equal(package, reloadedMarkup.DocumentId);
+            Assert.Equal(version, reloadedMarkup.DocumentVersionId);
+            Assert.Equal(2, reloadedMarkup.PageNumber);
+            Assert.Equal(markup.DataJson, reloadedMarkup.DataJson);
+            Assert.Throws<ArgumentException>(() => (markup with { DataJson = string.Empty }).Validate());
         }
         finally { Delete(path); }
     }

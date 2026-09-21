@@ -5,6 +5,8 @@ using DrawVerify.Core.Models;
 using DrawVerify.Core.Authorization;
 using DrawVerify.Core.Enums;
 using DrawVerify.Application.Services;
+using DrawVerify.Core.Configuration;
+using System.Reflection;
 
 namespace DrawVerify.App.ViewModels;
 
@@ -38,10 +40,16 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     private SignatureData? _checkerSignature;
     private SignatureData? _approverSignature;
     private string _signatureError = string.Empty;
-    public WorkflowViewModel() { SubmitCommand = new Command(async _ => await SubmitAsync(), _ => false); CancelCommand = new Command(async _ => await CancelAsync(true), _ => IsConfirmationVisible); InitializeReviewCommands(); }
-    public WorkflowViewModel(IWorkflowService service, ISessionAuthenticationService? authentication = null, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null)
+    private readonly WorkflowConfiguration _workflowConfiguration;
+    private string _markupType = "annotation";
+    private string _markupData = string.Empty;
+    private string _markupLocation = string.Empty;
+    private int _markupPageNumber = 1;
+    public ObservableCollection<DocumentMarkup> DocumentMarkups { get; } = new();
+    public WorkflowViewModel() { _workflowConfiguration = new WorkflowConfiguration(); SubmitCommand = new Command(async _ => await SubmitAsync(), _ => false); CancelCommand = new Command(async _ => await CancelAsync(true), _ => IsConfirmationVisible); InitializeReviewCommands(); }
+    public WorkflowViewModel(IWorkflowService service, ISessionAuthenticationService? authentication = null, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null, WorkflowConfiguration? workflowConfiguration = null)
     {
-        _service = service ?? throw new ArgumentNullException(nameof(service)); _logger = logger; _authentication = authentication; _authorization = authorization;
+        _service = service ?? throw new ArgumentNullException(nameof(service)); _logger = logger; _authentication = authentication; _authorization = authorization; _workflowConfiguration = workflowConfiguration ?? new WorkflowConfiguration();
         _canSubmit = authorization?.IsAllowed(authentication?.CurrentUser, RolePermission.SubmitForReview) ?? authentication?.CurrentUser?.HasRole(SystemRoles.Maker) == true;
         SubmitCommand = new Command(async _ => await SubmitAsync(), _ => _canSubmit && IsConfirmationVisible); CancelCommand = new Command(async _ => await CancelAsync(true), _ => IsConfirmationVisible);
         InitializeReviewCommands();
@@ -73,12 +81,14 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     public string Message { get => _message; private set { _message = value; RaisePropertyChanged(nameof(Message)); } }
     public long FingerprintProgress { get => _fingerprintProgress; private set { _fingerprintProgress = value; RaisePropertyChanged(nameof(FingerprintProgress)); RaisePropertyChanged(nameof(FingerprintProgressText)); } }
     public string FingerprintProgressText => FingerprintProgress > 0 ? $"Fingerprinting: {FingerprintProgress:n0} bytes processed." : string.Empty;
-    public WorkflowStatus? CurrentStatus { get => _currentStatus; private set { _currentStatus = value; RaisePropertyChanged(nameof(CurrentStatus)); } }
+    public WorkflowStatus? CurrentStatus { get => _currentStatus; private set { _currentStatus = value; RaisePropertyChanged(nameof(CurrentStatus)); RaisePropertyChanged(nameof(CurrentStatusLabel)); RaisePropertyChanged(nameof(CurrentStatusProgress)); } }
+    public string CurrentStatusLabel => ReviewPackage?.StatusLabel ?? (CurrentStatus is null ? "Unknown workflow status" : _workflowConfiguration.StatusLabels.TryGetValue(CurrentStatus.Value, out var label) ? label : throw new InvalidOperationException($"No workflow status label is configured for '{CurrentStatus.Value}'."));
+    public int CurrentStatusProgress => ReviewPackage?.StatusProgress ?? (CurrentStatus is null ? 0 : _workflowConfiguration.StatusProgress.TryGetValue(CurrentStatus.Value, out var progress) ? progress : throw new InvalidOperationException($"No workflow status progress is configured for '{CurrentStatus.Value}'."));
     public ObservableCollection<WorkflowQueueItem> Queue { get; } = new();
     public ObservableCollection<ReviewPackage> MakerPackages { get; } = new();
     public ObservableCollection<ReviewComment> MakerReviewComments { get; } = new();
     public ObservableCollection<ReviewDecision> ApprovalHistory { get; } = new();
-    public ReviewPackage? ReviewPackage { get => _reviewPackage; private set { _reviewPackage = value; RaisePropertyChanged(nameof(ReviewPackage)); RaiseReviewCommands(); } }
+    public ReviewPackage? ReviewPackage { get => _reviewPackage; private set { _reviewPackage = value; RaisePropertyChanged(nameof(ReviewPackage)); RaisePropertyChanged(nameof(CurrentStatusLabel)); RaisePropertyChanged(nameof(CurrentStatusProgress)); RaiseReviewCommands(); } }
     public ReviewPackage? SelectedMakerPackage { get => _selectedMakerPackage; private set { _selectedMakerPackage = value; RaisePropertyChanged(nameof(SelectedMakerPackage)); } }
     public string ReviewComment { get => _reviewComment; set { _reviewComment = value ?? string.Empty; RaisePropertyChanged(nameof(ReviewComment)); RaiseReviewCommands(); } }
     public string CorrectionAction { get => _correctionAction; set { _correctionAction = value ?? string.Empty; RaisePropertyChanged(nameof(CorrectionAction)); RaiseReviewCommands(); } }
@@ -86,6 +96,10 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     public string ReferenceId { get => _referenceId; set { _referenceId = value ?? string.Empty; RaisePropertyChanged(nameof(ReferenceId)); } }
     public string ReferenceLocation { get => _referenceLocation; set { _referenceLocation = value ?? string.Empty; RaisePropertyChanged(nameof(ReferenceLocation)); } }
     public string ReviewError { get => _reviewError; private set { _reviewError = value; RaisePropertyChanged(nameof(ReviewError)); } }
+    public string MarkupType { get => _markupType; set { _markupType = value ?? string.Empty; RaiseReviewCommands(); RaisePropertyChanged(nameof(MarkupType)); } }
+    public string MarkupData { get => _markupData; set { _markupData = value ?? string.Empty; RaiseReviewCommands(); RaisePropertyChanged(nameof(MarkupData)); } }
+    public string MarkupLocation { get => _markupLocation; set { _markupLocation = value ?? string.Empty; RaisePropertyChanged(nameof(MarkupLocation)); } }
+    public int MarkupPageNumber { get => _markupPageNumber; set { _markupPageNumber = value; RaisePropertyChanged(nameof(MarkupPageNumber)); } }
     public string ApproverRejectionReason { get => _approverRejectionReason; set { _approverRejectionReason = value ?? string.Empty; RaisePropertyChanged(nameof(ApproverRejectionReason)); RaiseReviewCommands(); } }
     public bool IsApproverReview => _authorization?.IsAllowed(_authentication?.CurrentUser, RolePermission.FinalApproval) == true;
     public bool IsReviewMode => _reviewPackage is not null;
@@ -127,6 +141,7 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     public ICommand EditReviewCommentCommand { get; private set; } = null!;
     public ICommand DiscardReviewCommentCommand { get; private set; } = null!;
     public ICommand CancelReviewCommand { get; private set; } = null!;
+    public ICommand SaveDocumentMarkupCommand { get; private set; } = null!;
     public ICommand MarkDocumentsViewedCommand { get; private set; } = null!;
     public ICommand MarkVerificationViewedCommand { get; private set; } = null!;
     private void InitializeReviewCommands()
@@ -140,10 +155,11 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
         EditReviewCommentCommand = new Command(async _ => await EditReviewCommentAsync(), _ => SelectedReviewComment is not null && !string.IsNullOrWhiteSpace(ReviewComment));
         DiscardReviewCommentCommand = new Command(async _ => await DiscardReviewCommentAsync(), _ => SelectedReviewComment is not null);
         CancelReviewCommand = new Command(_ => CancelReviewEditing(), _ => ReviewPackage is not null && (!string.IsNullOrWhiteSpace(ReviewComment) || !string.IsNullOrWhiteSpace(CorrectionAction) || SelectedReviewComment is not null));
+        SaveDocumentMarkupCommand = new Command(async _ => await SaveDocumentMarkupAsync(), _ => ReviewPackage is not null && !string.IsNullOrWhiteSpace(MarkupData));
         MarkDocumentsViewedCommand = new Command(_ => MarkSectionViewed("Documents"), _ => ReviewPackage is not null);
         MarkVerificationViewedCommand = new Command(_ => MarkSectionViewed("Verification"), _ => ReviewPackage is not null);
     }
-    private void RaiseReviewCommands() { ((Command)ApproveCommand).Raise(); ((Command)RejectCommand).Raise(); ((Command)RequestChangesCommand).Raise(); ((Command)ReturnForReworkCommand).Raise(); ((Command)RejectToCheckerCommand).Raise(); ((Command)SaveReviewCommentCommand).Raise(); ((Command)EditReviewCommentCommand).Raise(); ((Command)DiscardReviewCommentCommand).Raise(); ((Command)CancelReviewCommand).Raise(); }
+    private void RaiseReviewCommands() { ((Command)ApproveCommand).Raise(); ((Command)RejectCommand).Raise(); ((Command)RequestChangesCommand).Raise(); ((Command)ReturnForReworkCommand).Raise(); ((Command)RejectToCheckerCommand).Raise(); ((Command)SaveReviewCommentCommand).Raise(); ((Command)EditReviewCommentCommand).Raise(); ((Command)DiscardReviewCommentCommand).Raise(); ((Command)CancelReviewCommand).Raise(); ((Command)SaveDocumentMarkupCommand).Raise(); }
     private async Task RejectToCheckerAsync()
     {
         if (ReviewPackage is null || _service is null) return;
@@ -161,6 +177,8 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
         try
         {
             ReviewPackage = await _service!.OpenReviewPackageAsync(item.PackageId, item.Revision);
+            DocumentMarkups.Clear();
+            if (ReviewPackage is not null) foreach (var markup in ReviewPackage.Markups) DocumentMarkups.Add(markup);
             CheckerSignature = ReviewPackage?.Submission.CheckerSignature;
             ApproverSignature = ReviewPackage?.Submission.ApproverSignature;
             ApprovalHistory.Clear();
@@ -172,6 +190,23 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
             ReviewError = ReviewPackage is null ? "The review package was not found or is no longer available." : string.Empty;
         }
         catch (Exception exception) { _logger?.Log(exception, "WPF review open", $"Unable to open packageId={item.PackageId}, revision={item.Revision}."); ReviewError = exception is UnauthorizedAccessException ? "You are not authorized to review this package." : "Unable to open the review package."; }
+    }
+    private async Task SaveDocumentMarkupAsync()
+    {
+        if (ReviewPackage is null || _service is null) return;
+        try
+        {
+            var documentId = ReviewPackage.StepDocumentId == Guid.Empty ? ReviewPackage.PackageId : ReviewPackage.StepDocumentId;
+            var versionId = ReviewPackage.StepDocumentVersionId;
+            var markup = new DocumentMarkup { DocumentId = documentId, DocumentVersionId = versionId, PackageId = ReviewPackage.PackageId, Revision = ReviewPackage.Revision, MarkupType = MarkupType.Trim(), DataJson = MarkupData.Trim(), PageNumber = MarkupPageNumber, Location = string.IsNullOrWhiteSpace(MarkupLocation) ? null : MarkupLocation.Trim() };
+            var method = _service.GetType().GetMethod("AddDocumentMarkupAsync", new[] { typeof(DocumentMarkup), typeof(CancellationToken) }) ?? throw new NotSupportedException("Document markup persistence is not configured.");
+            var operation = method.Invoke(_service, new object[] { markup, CancellationToken.None }) as Task<DocumentMarkup> ?? throw new InvalidOperationException("Document markup persistence returned no result.");
+            var saved = await operation.ConfigureAwait(true);
+            DocumentMarkups.Add(saved);
+            ReviewPackage = ReviewPackage with { Markups = ReviewPackage.Markups.Append(saved).ToArray() };
+            MarkupData = string.Empty; MarkupLocation = string.Empty; ReviewError = string.Empty;
+        }
+        catch (Exception exception) { _logger?.Log(exception, "WPF document markup", $"Unable to save markup for packageId={ReviewPackage.PackageId}, revision={ReviewPackage.Revision}."); ReviewError = exception.InnerException?.Message ?? exception.Message; }
     }
     private async Task DecideAsync(ReviewDecisionType type)
     {

@@ -28,6 +28,10 @@ public interface IWorkflowRepository
         => SaveReviewCommentAsync(comment, auditEntry, cancellationToken);
     Task DiscardReviewCommentAsync(Guid commentId, AuditEntry auditEntry, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
+    Task<IReadOnlyList<DocumentMarkup>> GetDocumentMarkupsAsync(Guid documentId, Guid documentVersionId, CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<DocumentMarkup>>(Array.Empty<DocumentMarkup>());
+    Task SaveDocumentMarkupAsync(DocumentMarkup markup, AuditEntry auditEntry, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
     Task<ReviewDecision> SaveReviewDecisionAsync(ReviewPackage package, ReviewDecision decision, WorkflowStatus resultingStatus, AuditEntry auditEntry, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("Review decisions are not supported by this workflow repository.");
     Task<ReviewDecision> SaveReviewDecisionAsync(ReviewPackage package, ReviewDecision decision, WorkflowStatus resultingStatus, AuditEntry auditEntry, InternalApprovalStamp stamp, CancellationToken cancellationToken = default)

@@ -692,6 +692,11 @@ public sealed class WorkflowService : IWorkflowService
                 ?? throw new KeyNotFoundException($"Verification session '{package.VerificationSessionId}' was not found for review package '{packageId}'.");
             package = package with { StepDocumentId = session.StepDocumentId, DxfDocumentId = session.DxfDocumentId };
         }
+        if (_documents is not null)
+        {
+            var document = await _documents.GetAsync(packageId, cancellationToken).ConfigureAwait(false);
+            if (document is not null) package = package with { DocumentType = document.DocumentType };
+        }
         var returnedFromApprover = package.Status == WorkflowStatus.ReturnedForRework
             && package.PriorDecision?.IsFinalApproval == true
             && package.PriorDecision.Route == ReviewDecisionRoute.ToChecker;
@@ -704,6 +709,26 @@ public sealed class WorkflowService : IWorkflowService
             await _workflow.RecordReviewStartedAsync(package, CreateAudit(packageId, revision, DocumentAuditAction.ReviewStarted, "ReviewStarted", now, user, snapshotReference: package.SnapshotReference, documentVersionId: package.StepDocumentVersionId, previousWorkflowStatus: package.Status, workflowStatus: WorkflowStatus.UnderReview), cancellationToken).ConfigureAwait(false);
         return package;
     }
+
+    public async Task<DocumentMarkup> AddDocumentMarkupAsync(DocumentMarkup markup, CancellationToken cancellationToken = default)
+    {
+        RequireReviewPermission();
+        await RequireCurrentRevisionAsync(markup.PackageId, markup.Revision, cancellationToken).ConfigureAwait(false);
+        var package = await _workflow.GetReviewPackageAsync(markup.PackageId, markup.Revision, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException("The review package was not found.");
+        if (_documents is null) throw new InvalidOperationException("Document persistence is not configured.");
+        var document = await _documents.GetAsync(markup.DocumentId, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException("The annotated document was not found.");
+        if (document.DocumentType is not (CoreDocumentType.PdfDrawing or CoreDocumentType.ImageDrawing)) throw new InvalidOperationException("Markup is supported only for PDF/image documents.");
+        if (document.Version is null || document.Version.VersionId != markup.DocumentVersionId) throw new InvalidOperationException("Markup must reference the current document version.");
+        if (package.Status is not (WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview)) throw new ReviewDecisionConflictException(markup.PackageId, markup.Revision, package.Status, markup.Revision, package.PriorDecision);
+        var user = _authentication.CurrentUser!;
+        var saved = markup with { AuthorUserId = user.UserId, AuthorDisplayName = user.DisplayName, CreatedUtc = _clock().ToUniversalTime() };
+        saved.Validate();
+        await _workflow.SaveDocumentMarkupAsync(saved, CreateAudit(markup.PackageId, markup.Revision, DocumentAuditAction.ReviewCommentDraftSaved, "DocumentMarkupSaved", saved.CreatedUtc, user, workflowStatus: package.Status), cancellationToken).ConfigureAwait(false);
+        return saved;
+    }
+
+    public Task<IReadOnlyList<DocumentMarkup>> GetDocumentMarkupsAsync(Guid documentId, Guid documentVersionId, CancellationToken cancellationToken = default)
+        => _workflow.GetDocumentMarkupsAsync(documentId, documentVersionId, cancellationToken);
 
     public async Task<ReviewDecision> DecideAsync(Guid packageId, int revision, ReviewDecisionType decisionType, string? comments, CancellationToken cancellationToken = default)
         => await DecideCoreAsync(packageId, revision, decisionType, comments, null, false, cancellationToken).ConfigureAwait(false);

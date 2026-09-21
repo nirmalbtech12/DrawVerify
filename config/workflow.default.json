@@ -2,6 +2,8 @@
   "PermittedInitialStates": [ "Draft", "InPreparation" ],
   "SubmittedForReviewState": "SubmittedForReview",
   "DuplicateSubmissionStates": [ "SubmittedForReview", "UnderReview", "Approved" ],
+  "StatusLabels": { "Draft": "Draft", "InPreparation": "In Preparation", "SubmittedForReview": "In Review", "UnderReview": "In Review", "Approved": "Approved", "FinallyApproved": "Approved", "Released": "Approved" },
+  "StatusProgress": { "Draft": 0, "InPreparation": 0, "SubmittedForReview": 1, "UnderReview": 1, "Approved": 2, "FinallyApproved": 2, "Released": 2 },
   "MarkChangedPackagesSuperseded": true,
   "workflow": {
     "version": 1,

@@ -16,6 +16,7 @@ public sealed record WorkflowConfiguration
     public Models.WorkflowRevisionPolicy RevisionPolicy { get; init; } = new();
     public WorkflowRolloutPolicy RolloutPolicy { get; init; } = WorkflowRolloutPolicy.CaptureAtWorkflowStart;
     public IReadOnlyDictionary<WorkflowStatus, string> StatusLabels { get; init; } = new Dictionary<WorkflowStatus, string>();
+    public IReadOnlyDictionary<WorkflowStatus, int> StatusProgress { get; init; } = new Dictionary<WorkflowStatus, int>();
     public IReadOnlyList<Models.WorkflowStatusTransition> StatusTransitions { get; init; } = Array.Empty<Models.WorkflowStatusTransition>();
     public IReadOnlyList<WorkflowStatus> PermittedInitialStates { get; init; } = Array.Empty<WorkflowStatus>();
     public WorkflowStatus SubmittedForReviewState { get; init; } = WorkflowStatus.SubmittedForReview;
@@ -38,6 +39,8 @@ public sealed record WorkflowConfiguration
             throw new InvalidOperationException("Workflow configuration cannot permit a duplicate-submission state as an initial state.");
         if (PermittedInitialStates.Contains(SubmittedForReviewState))
             throw new InvalidOperationException("Workflow configuration cannot permit its submission target as an initial state.");
+        foreach (var label in StatusLabels) if (string.IsNullOrWhiteSpace(label.Value)) throw new InvalidOperationException($"Workflow status label for '{label.Key}' cannot be empty.");
+        foreach (var progress in StatusProgress) if (progress.Value < 0) throw new InvalidOperationException($"Workflow status progress for '{progress.Key}' cannot be negative.");
         var errors = ApplicationValidation();
         if (errors.Count > 0) throw new InvalidOperationException(string.Join(" ", errors));
     }
