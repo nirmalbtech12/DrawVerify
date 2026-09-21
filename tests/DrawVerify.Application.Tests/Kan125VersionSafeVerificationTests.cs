@@ -10,6 +10,18 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class Kan125VersionSafeVerificationTests
 {
+    [Fact(DisplayName = "TSD-AC04-VERSION-HISTORY version-scoped history keeps distinct version identifiers")]
+    public void Version_scoped_history_does_not_reuse_prior_version_identifier()
+    {
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        var history = new[] { new PriorVersionReview { Revision = 1, StepDocumentVersionId = first }, new PriorVersionReview { Revision = 2, StepDocumentVersionId = second } };
+
+        Assert.NotEqual(history[0].StepDocumentVersionId, history[1].StepDocumentVersionId);
+        Assert.Equal(first, history.Single(x => x.Revision == 1).StepDocumentVersionId);
+        Assert.Equal(second, history.Single(x => x.Revision == 2).StepDocumentVersionId);
+    }
+
     [Fact(DisplayName = "TD-09 passes explicit selected version IDs to matching")]
     public void Matching_uses_selected_versions_and_returns_explicit_classifications()
     {

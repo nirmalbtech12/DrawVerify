@@ -4,11 +4,31 @@ using DrawVerify.Core.Models;
 using DrawVerify.Infrastructure.Persistence;
 using Microsoft.Data.Sqlite;
 using Xunit;
+using CoreDocumentType = DrawVerify.Core.Enums.DocumentType;
 
 namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteDocumentRepositoryTests
 {
+    [Fact(DisplayName = "TSD-AC01-UPLOAD SQLite persists an accepted PDF document version")]
+    public async Task Accepted_pdf_document_version_round_trips()
+    {
+        var path = TempPath();
+        try
+        {
+            var repository = new SqliteDocumentRepository(path);
+            var id = Guid.NewGuid();
+            var version = new DocumentVersion { DocumentId = id, VersionId = Guid.NewGuid(), VersionNumber = 1, StoredRelativePath = "uploads/drawing.pdf", FileSizeBytes = 8 };
+            var document = new Document { DocumentId = id, DocumentType = CoreDocumentType.PdfDrawing, OriginalFileName = "drawing.pdf", FileSizeBytes = 8, Version = version, Versions = new[] { version } };
+            await repository.CreateWithVersionAsync(document, version);
+
+            var loaded = await repository.GetAsync(id);
+            Assert.Equal(CoreDocumentType.PdfDrawing, loaded!.DocumentType);
+            Assert.Equal(version.VersionId, loaded.Version!.VersionId);
+        }
+        finally { Cleanup(path); }
+    }
+
     [Fact(DisplayName = "TD-04 legacy document versions remain readable without a fingerprint")]
     public void Legacy_document_version_has_nullable_fingerprint()
     {
@@ -58,6 +78,29 @@ public sealed class SqliteDocumentRepositoryTests
         var document = new Document { DocumentId = Guid.NewGuid(), Version = current, Versions = new[] { prior, current } };
         Assert.Equal(prior.StoredRelativePath, document.Versions.Single(x => x.VersionId == prior.VersionId).StoredRelativePath);
         Assert.NotEqual(current.VersionId, prior.VersionId);
+    }
+
+    [Fact(DisplayName = "TSD-AC04-VERSION-HISTORY SQLite retains successive PDF/image versions")]
+    public async Task Pdf_versions_keep_numbering_and_prior_content()
+    {
+        var path = TempPath();
+        try
+        {
+            var repository = new SqliteDocumentRepository(path);
+            var documentId = Guid.NewGuid();
+            var first = new DocumentVersion { DocumentId = documentId, VersionId = Guid.NewGuid(), VersionNumber = 1, StoredRelativePath = "drawing-v1.pdf", FileSizeBytes = 8 };
+            var second = new DocumentVersion { DocumentId = documentId, VersionId = Guid.NewGuid(), VersionNumber = 2, StoredRelativePath = "drawing-v2.pdf", FileSizeBytes = 9 };
+            var document = new Document { DocumentId = documentId, DocumentType = CoreDocumentType.PdfDrawing, OriginalFileName = "drawing.pdf", FileSizeBytes = 8, CurrentVersion = 1, Version = first, Versions = new[] { first } };
+
+            await repository.CreateWithVersionAsync(document, first);
+            await repository.AddVersionAsync(documentId, second);
+            var loaded = await repository.GetAsync(documentId);
+
+            Assert.Equal(2, loaded!.CurrentVersion);
+            Assert.Equal(first.StoredRelativePath, loaded.Versions.Single(x => x.VersionId == first.VersionId).StoredRelativePath);
+            Assert.Equal(second.StoredRelativePath, loaded.Versions.Single(x => x.VersionId == second.VersionId).StoredRelativePath);
+        }
+        finally { Cleanup(path); }
     }
 
     private static string TempPath() => Path.Combine(Path.GetTempPath(), $"drawverify-invalid-audit-{Guid.NewGuid():N}.db");

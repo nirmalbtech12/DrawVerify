@@ -933,6 +933,56 @@ public sealed class SqliteWorkflowRepositoryTests
         Assert.Equal("Fix DIM-4", comment.Text); Assert.Equal(4, comment.Revision); Assert.Equal("DIM-4", comment.ReferenceId); Assert.NotEqual(comment, snapshot);
     }
 
+    [Fact(DisplayName = "TSD-AC05-FEEDBACK SQLite persists and reloads version-scoped reviewer feedback")]
+    public async Task Reviewer_comments_reload_for_the_requested_revision_only()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-feedback-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteWorkflowRepository(path);
+            var package = Guid.NewGuid();
+            var document = Guid.NewGuid();
+            var version = Guid.NewGuid();
+            var submission = Snapshot(package) with
+            {
+                Revision = 2,
+                DxfDocumentId = Guid.Empty,
+                DxfDocumentVersionId = Guid.Empty,
+                VerificationSessionId = Guid.Empty,
+                StepDocumentVersionId = version,
+                Status = WorkflowStatus.SubmittedForReview
+            };
+            await repository.SubmitAtomicallyAsync(new WorkflowState { PackageId = package, Status = WorkflowStatus.Draft, Revision = 2 }, submission, Audit(DocumentAuditAction.SubmissionSucceeded, package, "submitted"));
+            var comment = new ReviewComment { PackageId = package, Revision = 2, AuthorUserId = "checker-1", AuthorDisplayName = "Checker", Text = "Review page 1", ReferenceType = "drawing", ReferenceId = "page-1", Location = "x=10,y=20", IsDraft = false };
+            await repository.SaveReviewCommentAsync(comment, Audit(DocumentAuditAction.ReviewCommentDraftSaved, package, "saved"));
+
+            var current = await repository.GetReviewCommentsAsync(package, 2);
+            var otherRevision = await repository.GetReviewCommentsAsync(package, 1);
+
+            var saved = Assert.Single(current);
+            Assert.Equal(package, saved.PackageId);
+            Assert.Equal(2, saved.Revision);
+            Assert.Equal("page-1", saved.ReferenceId);
+            Assert.Equal("x=10,y=20", saved.Location);
+            Assert.Empty(otherRevision);
+
+            var markup = new DocumentMarkup { DocumentId = document, DocumentVersionId = version, PackageId = package, Revision = 2, AuthorUserId = "checker-1", AuthorDisplayName = "Checker", MarkupType = "highlight", DataJson = "{\"color\":\"yellow\"}", PageNumber = 2, Location = "x=10,y=20" };
+            await repository.SaveDocumentMarkupAsync(markup, Audit(DocumentAuditAction.ReviewCommentDraftSaved, package, "markup"));
+            var markups = await repository.GetDocumentMarkupsAsync(document, version);
+            var reloadedMarkup = Assert.Single(markups);
+            Assert.Equal(document, reloadedMarkup.DocumentId);
+            Assert.Equal(version, reloadedMarkup.DocumentVersionId);
+            Assert.Equal(2, reloadedMarkup.PageNumber);
+            Assert.Equal(markup.DataJson, reloadedMarkup.DataJson);
+            var reopened = await repository.GetReviewPackageAsync(package, 2);
+            var reopenedMarkup = Assert.Single(reopened!.Markups);
+            Assert.Equal(document, reopenedMarkup.DocumentId);
+            Assert.Equal(version, reopenedMarkup.DocumentVersionId);
+            Assert.Throws<ArgumentException>(() => (markup with { DataJson = string.Empty }).Validate());
+        }
+        finally { Delete(path); }
+    }
+
     private static ReviewSubmission Snapshot(Guid package) => new() { SubmissionId = Guid.NewGuid(), PackageId = package, DxfDocumentId = Guid.Parse("00000000-0000-0000-0000-000000000010"), StepDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000011"), DxfDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000012"), VerificationSessionId = Guid.Parse("00000000-0000-0000-0000-000000000013"), ExtractionEvidenceJson = "{\"extracted\":true}", VerificationEvidenceJson = "{\"verified\":true}", MakerUserId = "maker-001", MakerDisplayName = "Maker One", SubmittedUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), Note = "Please review hole tolerances", Revision = 1, Fingerprint = new DocumentFingerprint { Value = new string('a', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 } };
     private static ReviewSubmission NotificationSubmission() => new()
     {
