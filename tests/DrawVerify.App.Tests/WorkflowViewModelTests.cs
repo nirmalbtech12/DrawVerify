@@ -3,6 +3,7 @@ using DrawVerify.Core.Enums;
 using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
 using DrawVerify.Core.Authorization;
+using DrawVerify.Core.Configuration;
 using Xunit;
 
 namespace DrawVerify.App.Tests;
@@ -16,12 +17,12 @@ public sealed class WorkflowViewModelTests
     public async Task Pdf_only_status_is_not_a_3d_pending_state(WorkflowStatus status)
     {
         var package = ReviewFixture() with { DocumentType = DrawVerify.Core.Enums.DocumentType.PdfDrawing, Status = status };
-        var model = new WorkflowViewModel(new FakeWorkflowService { ReviewPackage = package });
+        var model = new WorkflowViewModel(new FakeWorkflowService { ReviewPackage = package }, workflowConfiguration: StatusConfiguration());
         await model.OpenReviewAsync(new WorkflowQueueItem(package.PackageId, package.Revision, "Maker", DateTime.UtcNow, status, string.Empty));
 
         Assert.Equal(status, model.ReviewPackage!.Status);
-        Assert.Equal(status switch { WorkflowStatus.Draft => "Draft", WorkflowStatus.SubmittedForReview => "In Review", WorkflowStatus.Approved => "Approved", _ => throw new InvalidOperationException() }, model.CurrentStatusLabel);
-        Assert.Equal(status switch { WorkflowStatus.Draft => 0, WorkflowStatus.SubmittedForReview => 1, WorkflowStatus.Approved => 2, _ => -1 }, model.CurrentStatusProgress);
+        Assert.Equal(status switch { WorkflowStatus.Draft => "PDF Intake", WorkflowStatus.SubmittedForReview => "Reviewer Queue", WorkflowStatus.Approved => "PDF Accepted", _ => throw new InvalidOperationException() }, model.CurrentStatusLabel);
+        Assert.Equal(status switch { WorkflowStatus.Draft => 11, WorkflowStatus.SubmittedForReview => 47, WorkflowStatus.Approved => 93, _ => -1 }, model.CurrentStatusProgress);
         Assert.DoesNotContain("3D", model.CurrentStatusLabel, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -35,7 +36,7 @@ public sealed class WorkflowViewModelTests
         Assert.Equal((int)WorkflowStatus.UnderReview, threeDimensionalModel.CurrentStatusProgress);
 
         var unknown = ReviewFixture() with { DocumentType = DrawVerify.Core.Enums.DocumentType.PdfDrawing, Status = WorkflowStatus.Rejected };
-        var unknownModel = new WorkflowViewModel(new FakeWorkflowService { ReviewPackage = unknown });
+        var unknownModel = new WorkflowViewModel(new FakeWorkflowService { ReviewPackage = unknown }, workflowConfiguration: StatusConfiguration());
         await unknownModel.OpenReviewAsync(new WorkflowQueueItem(unknown.PackageId, unknown.Revision, "Maker", DateTime.UtcNow, unknown.Status, string.Empty));
         Assert.Throws<InvalidOperationException>(() => _ = unknownModel.CurrentStatusLabel);
         Assert.Throws<InvalidOperationException>(() => _ = unknownModel.CurrentStatusProgress);
@@ -65,7 +66,8 @@ public sealed class WorkflowViewModelTests
     [Fact(DisplayName = "TSD-AC05-FEEDBACK reviewer markup command persists identity and exposes failure")]
     public async Task Reviewer_markup_command_persists_pdf_annotation_and_reports_failure()
     {
-        var package = ReviewFixture() with { DocumentType = DrawVerify.Core.Enums.DocumentType.PdfDrawing, Status = WorkflowStatus.SubmittedForReview };
+        var documentId = Guid.NewGuid();
+        var package = ReviewFixture() with { DocumentType = DrawVerify.Core.Enums.DocumentType.PdfDrawing, Status = WorkflowStatus.SubmittedForReview, StepDocumentId = documentId, StepDocumentVersionId = Guid.NewGuid() };
         var service = new FakeWorkflowService { ReviewPackage = package };
         var model = new WorkflowViewModel(service, new FakeAuthentication(new AuthenticatedUser("checker", new[] { SystemRoles.Checker })));
         await model.OpenReviewAsync(new WorkflowQueueItem(package.PackageId, package.Revision, "Maker", DateTime.UtcNow, package.Status, string.Empty));
@@ -79,6 +81,7 @@ public sealed class WorkflowViewModelTests
 
         var saved = Assert.Single(model.DocumentMarkups);
         Assert.Equal(package.PackageId, saved.PackageId);
+        Assert.Equal(documentId, saved.DocumentId);
         Assert.Equal(package.StepDocumentVersionId, saved.DocumentVersionId);
         Assert.Equal(2, saved.PageNumber);
         Assert.Equal(0, service.ViewerInvocations);
@@ -89,6 +92,12 @@ public sealed class WorkflowViewModelTests
         await WaitForAsync(() => model.ReviewError.Contains("persist", StringComparison.OrdinalIgnoreCase), TimeSpan.FromSeconds(5));
         Assert.Contains("persist", model.ReviewError, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(0, service.ViewerInvocations);
+
+        var reopened = new WorkflowViewModel(service, new FakeAuthentication(new AuthenticatedUser("checker", new[] { SystemRoles.Checker })));
+        await reopened.OpenReviewAsync(new WorkflowQueueItem(package.PackageId, package.Revision, "Maker", DateTime.UtcNow, package.Status, string.Empty));
+        var reloaded = Assert.Single(reopened.DocumentMarkups);
+        Assert.Equal(documentId, reloaded.DocumentId);
+        Assert.Equal(package.StepDocumentVersionId, reloaded.DocumentVersionId);
     }
 
     [Fact(DisplayName = "TD-12 authorized history renders ordered Checker and Approver rejection context")]
@@ -435,6 +444,22 @@ public sealed class WorkflowViewModelTests
         ExtractionEvidenceJson = "{\"dimensions\":[10]}", VerificationEvidenceJson = "{\"missing\":[\"D1\"],\"findings\":[{\"identifier\":\"D1\",\"category\":\"Missing dimension\",\"highlightTarget\":\"D1\"}]}", MakerUserId = "maker-1", MakerDisplayName = "Maker One", SubmittedUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
     });
 
+    private static WorkflowConfiguration StatusConfiguration() => new()
+    {
+        StatusLabels = new Dictionary<WorkflowStatus, string>
+        {
+            [WorkflowStatus.Draft] = "PDF Intake",
+            [WorkflowStatus.SubmittedForReview] = "Reviewer Queue",
+            [WorkflowStatus.Approved] = "PDF Accepted"
+        },
+        StatusProgress = new Dictionary<WorkflowStatus, int>
+        {
+            [WorkflowStatus.Draft] = 11,
+            [WorkflowStatus.SubmittedForReview] = 47,
+            [WorkflowStatus.Approved] = 93
+        }
+    };
+
     private static async Task WaitForAsync(Func<bool> condition, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;
@@ -486,7 +511,7 @@ sealed class FakeWorkflowService : IWorkflowService
     public Task<ReviewDecision> DecideAsync(Guid packageId, int revision, ReviewDecisionType decisionType, string? comments, CancellationToken cancellationToken = default) { DecisionCalls++; if (DecideException is not null) return Task.FromException<ReviewDecision>(DecideException); LastDecisionType = decisionType; LastComments = comments?.Trim(); return Task.FromResult(new ReviewDecision { PackageId = packageId, Revision = revision, DecisionType = decisionType, CheckerUserId = "checker-1" }); }
     public Task<ReviewComment> AddReviewCommentAsync(Guid packageId, int revision, string text, CancellationToken cancellationToken = default) { CommentCalls++; return Task.FromResult(new ReviewComment { PackageId = packageId, Revision = revision, AuthorUserId = "checker-1", Text = text.Trim() }); }
     public Task<ReviewComment> SaveReviewCommentDraftAsync(Guid packageId, int revision, string text, string? referenceType = null, string? referenceId = null, string? location = null, CancellationToken cancellationToken = default) { DraftCalls++; LastPackageId = packageId; LastRevision = revision; LastDraftText = text.Trim(); LastReferenceType = referenceType; LastReferenceId = referenceId; LastReferenceLocation = location; return Task.FromResult(new ReviewComment { PackageId = packageId, Revision = revision, AuthorUserId = "checker-1", Text = LastDraftText, ReferenceType = referenceType, ReferenceId = referenceId, Location = location }); }
-    public Task<DocumentMarkup> AddDocumentMarkupAsync(DocumentMarkup markup, CancellationToken cancellationToken = default) { MarkupCalls++; if (ThrowOnMarkup) return Task.FromException<DocumentMarkup>(new InvalidOperationException("markup persistence failed")); return Task.FromResult(markup with { AuthorUserId = "checker-1", AuthorDisplayName = "Checker" }); }
+    public Task<DocumentMarkup> AddDocumentMarkupAsync(DocumentMarkup markup, CancellationToken cancellationToken = default) { MarkupCalls++; if (ThrowOnMarkup) return Task.FromException<DocumentMarkup>(new InvalidOperationException("markup persistence failed")); var saved = markup with { AuthorUserId = "checker-1", AuthorDisplayName = "Checker" }; if (ReviewPackage is not null) ReviewPackage = ReviewPackage with { Markups = ReviewPackage.Markups.Append(saved).ToArray() }; return Task.FromResult(saved); }
 }
 
 file sealed class RecordingNotificationService(InAppNotification notification) : INotificationService

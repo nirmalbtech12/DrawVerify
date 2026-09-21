@@ -1,4 +1,5 @@
 using DrawVerify.Core.Enums;
+using DrawVerify.Core.Configuration;
 using System.Text.Json;
 
 namespace DrawVerify.Core.Models;
@@ -30,8 +31,23 @@ public sealed record ReviewPackage
     public string? CorrectionAction => PriorDecision?.CorrectionAction;
     public IReadOnlyList<ReviewComment> PriorComments => Comments.Where(x => x.PriorCommentId is null).ToArray();
     public IReadOnlyList<DocumentMarkup> Markups { get; init; } = Array.Empty<DocumentMarkup>();
-    public string StatusLabel => DocumentType is DrawVerify.Core.Enums.DocumentType.PdfDrawing or DrawVerify.Core.Enums.DocumentType.ImageDrawing ? Status switch { WorkflowStatus.Draft => "Draft", WorkflowStatus.InPreparation => "In Preparation", WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview => "In Review", WorkflowStatus.Approved or WorkflowStatus.FinallyApproved or WorkflowStatus.Released => "Approved", _ => throw new InvalidOperationException($"No neutral status label is configured for '{Status}'.") } : Status.ToString();
-    public int StatusProgress => DocumentType is DrawVerify.Core.Enums.DocumentType.PdfDrawing or DrawVerify.Core.Enums.DocumentType.ImageDrawing ? Status switch { WorkflowStatus.Draft or WorkflowStatus.InPreparation => 0, WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview => 1, WorkflowStatus.Approved or WorkflowStatus.FinallyApproved or WorkflowStatus.Released => 2, _ => throw new InvalidOperationException($"No neutral status progress is configured for '{Status}'.") } : (int)Status;
+    public IReadOnlyDictionary<WorkflowStatus, string>? ConfiguredStatusLabels { get; init; }
+    public IReadOnlyDictionary<WorkflowStatus, int>? ConfiguredStatusProgress { get; init; }
+    public string StatusLabel => DocumentType is DrawVerify.Core.Enums.DocumentType.PdfDrawing or DrawVerify.Core.Enums.DocumentType.ImageDrawing
+        ? ConfiguredStatusLabels is not null
+            ? ConfiguredStatusLabels.TryGetValue(Status, out var configuredLabel) ? configuredLabel : throw new InvalidOperationException($"No neutral status label is configured for '{Status}'.")
+            : Status switch { WorkflowStatus.Draft => "Draft", WorkflowStatus.InPreparation => "In Preparation", WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview => "In Review", WorkflowStatus.Approved or WorkflowStatus.FinallyApproved or WorkflowStatus.Released => "Approved", _ => throw new InvalidOperationException($"No neutral status label is configured for '{Status}'.") }
+        : Status.ToString();
+    public int StatusProgress => DocumentType is DrawVerify.Core.Enums.DocumentType.PdfDrawing or DrawVerify.Core.Enums.DocumentType.ImageDrawing
+        ? ConfiguredStatusProgress is not null
+            ? ConfiguredStatusProgress.TryGetValue(Status, out var configuredProgress) ? configuredProgress : throw new InvalidOperationException($"No neutral status progress is configured for '{Status}'.")
+            : Status switch { WorkflowStatus.Draft or WorkflowStatus.InPreparation => 0, WorkflowStatus.SubmittedForReview or WorkflowStatus.UnderReview => 1, WorkflowStatus.Approved or WorkflowStatus.FinallyApproved or WorkflowStatus.Released => 2, _ => throw new InvalidOperationException($"No neutral status progress is configured for '{Status}'.") }
+        : (int)Status;
+    public ReviewPackage WithWorkflowConfiguration(WorkflowConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        return this with { ConfiguredStatusLabels = configuration.StatusLabels, ConfiguredStatusProgress = configuration.StatusProgress };
+    }
     public static ReviewPackage FromSubmission(ReviewSubmission submission, ReviewDecision? priorDecision = null, IReadOnlyList<ReviewComment>? comments = null, IReadOnlyList<DocumentMarkup>? markups = null)
     {
         ArgumentNullException.ThrowIfNull(submission);

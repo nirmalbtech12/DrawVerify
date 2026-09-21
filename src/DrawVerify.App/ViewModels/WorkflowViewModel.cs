@@ -88,7 +88,7 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     public ObservableCollection<ReviewPackage> MakerPackages { get; } = new();
     public ObservableCollection<ReviewComment> MakerReviewComments { get; } = new();
     public ObservableCollection<ReviewDecision> ApprovalHistory { get; } = new();
-    public ReviewPackage? ReviewPackage { get => _reviewPackage; private set { _reviewPackage = value; RaisePropertyChanged(nameof(ReviewPackage)); RaisePropertyChanged(nameof(CurrentStatusLabel)); RaisePropertyChanged(nameof(CurrentStatusProgress)); RaiseReviewCommands(); } }
+    public ReviewPackage? ReviewPackage { get => _reviewPackage; private set { _reviewPackage = value?.WithWorkflowConfiguration(_workflowConfiguration); _currentStatus = _reviewPackage?.Status; RaisePropertyChanged(nameof(ReviewPackage)); RaisePropertyChanged(nameof(CurrentStatus)); RaisePropertyChanged(nameof(CurrentStatusLabel)); RaisePropertyChanged(nameof(CurrentStatusProgress)); RaiseReviewCommands(); } }
     public ReviewPackage? SelectedMakerPackage { get => _selectedMakerPackage; private set { _selectedMakerPackage = value; RaisePropertyChanged(nameof(SelectedMakerPackage)); } }
     public string ReviewComment { get => _reviewComment; set { _reviewComment = value ?? string.Empty; RaisePropertyChanged(nameof(ReviewComment)); RaiseReviewCommands(); } }
     public string CorrectionAction { get => _correctionAction; set { _correctionAction = value ?? string.Empty; RaisePropertyChanged(nameof(CorrectionAction)); RaiseReviewCommands(); } }

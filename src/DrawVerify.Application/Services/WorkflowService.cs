@@ -694,8 +694,13 @@ public sealed class WorkflowService : IWorkflowService
         }
         if (_documents is not null)
         {
-            var document = await _documents.GetAsync(packageId, cancellationToken).ConfigureAwait(false);
+            var document = await _documents.GetAsync(package.StepDocumentId, cancellationToken).ConfigureAwait(false);
             if (document is not null) package = package with { DocumentType = document.DocumentType };
+        }
+        if (package.StepDocumentId != Guid.Empty)
+        {
+            var markups = await _workflow.GetDocumentMarkupsAsync(package.StepDocumentId, package.StepDocumentVersionId, cancellationToken).ConfigureAwait(false);
+            package = package with { Markups = markups };
         }
         var returnedFromApprover = package.Status == WorkflowStatus.ReturnedForRework
             && package.PriorDecision?.IsFinalApproval == true
@@ -727,8 +732,14 @@ public sealed class WorkflowService : IWorkflowService
         return saved;
     }
 
-    public Task<IReadOnlyList<DocumentMarkup>> GetDocumentMarkupsAsync(Guid documentId, Guid documentVersionId, CancellationToken cancellationToken = default)
-        => _workflow.GetDocumentMarkupsAsync(documentId, documentVersionId, cancellationToken);
+    public async Task<IReadOnlyList<DocumentMarkup>> GetDocumentMarkupsAsync(Guid documentId, Guid documentVersionId, CancellationToken cancellationToken = default)
+    {
+        var markups = await _workflow.GetDocumentMarkupsAsync(documentId, documentVersionId, cancellationToken).ConfigureAwait(false);
+        if (markups.Count > 0 || _documents is null) return markups;
+        var document = await _documents.GetAsync(documentId, cancellationToken).ConfigureAwait(false);
+        if (document is null || document.DocumentId == documentId) return markups;
+        return await _workflow.GetDocumentMarkupsAsync(document.DocumentId, documentVersionId, cancellationToken).ConfigureAwait(false);
+    }
 
     public async Task<ReviewDecision> DecideAsync(Guid packageId, int revision, ReviewDecisionType decisionType, string? comments, CancellationToken cancellationToken = default)
         => await DecideCoreAsync(packageId, revision, decisionType, comments, null, false, cancellationToken).ConfigureAwait(false);
