@@ -9,6 +9,36 @@ namespace DrawVerify.App.Tests;
 
 public sealed class ReportTemplateConfigurationViewModelTests
 {
+    [Fact(DisplayName = "TSD-01 authorized ViewModel upload starts conversion without premature publication")]
+    public async Task Authorized_upload_uses_conversion_service_and_publishes_result()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-{Guid.NewGuid():N}.pdf");
+        try { await File.WriteAllBytesAsync(path, [1, 2]); var conversion = new ConversionFake { Result = Template("Converted") }; var model = new ReportTemplateConfigurationViewModel(new ServiceFake(), Admin(), new RoleAuthorization(), conversion: conversion); await model.UploadPdfAsync(path); Assert.Equal(Path.GetFileName(path), conversion.Source!.FileName); Assert.Contains(model.Templates, x => x.Name == "Converted"); }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-02 invalid ViewModel upload is visibly rejected")]
+    public async Task Invalid_upload_is_rejected_without_conversion()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-{Guid.NewGuid():N}.txt");
+        try { await File.WriteAllBytesAsync(path, [1]); var conversion = new ConversionFake(); var model = new ReportTemplateConfigurationViewModel(new ServiceFake(), Admin(), new RoleAuthorization(), conversion: conversion); await model.UploadPdfAsync(path); Assert.Equal(0, conversion.Calls); Assert.NotEmpty(model.ValidationErrors); Assert.Empty(model.Templates); }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-06 source-linked template remains available to editor")]
+    public async Task Source_linked_template_is_loaded_for_editing()
+    {
+        var source = new ReportTemplateSource { FileName = "source.pdf", PdfBytes = [1] }; var template = Template("Converted") with { Source = source }; var model = new ReportTemplateConfigurationViewModel(new ServiceFake { Items = new[] { template } }, Admin(), new RoleAuthorization());
+        Assert.True(SpinWait.SpinUntil(() => model.SelectedTemplate?.Source?.SourceId == source.SourceId, TimeSpan.FromSeconds(2))); Assert.Equal(source.FileName, model.SelectedTemplate!.Source!.FileName);
+    }
+
+    [Fact(DisplayName = "TSD-07 reconvert command refreshes the selected editor template")]
+    public async Task Reconvert_refreshes_selected_template()
+    {
+        var original = Template("Old") with { Source = new ReportTemplateSource { FileName = "source.pdf", PdfBytes = [1] } }; var replacement = original with { Name = "New", Version = 2 }; var conversion = new ConversionFake { Result = replacement }; var model = new ReportTemplateConfigurationViewModel(new ServiceFake { Items = new[] { original } }, Admin(), new RoleAuthorization(), conversion: conversion);
+        Assert.True(SpinWait.SpinUntil(() => model.SelectedTemplate is not null, TimeSpan.FromSeconds(2))); await model.ReconvertAsync(); Assert.Equal("New", model.SelectedTemplate!.Name); Assert.Equal(2, model.SelectedTemplate.Version);
+    }
+
     [Fact(DisplayName = "TSD-AC12 ViewModel permits editing only for Admin configuration permission")]
     public void View_model_command_state_is_read_only_for_non_admin()
     {
@@ -47,6 +77,14 @@ public sealed class ReportTemplateConfigurationViewModelTests
     }
 
     private static ReportTemplate Template(string name) => new() { Id = Guid.NewGuid(), Name = name };
+    private static SessionAuthenticationService Admin() { var s = new SessionAuthenticationService(); s.SignIn(new AuthenticatedUser("admin", new[] { SystemRoles.Admin })); return s; }
+
+    private sealed class ConversionFake : IReportTemplateConversionService
+    {
+        public int Calls { get; private set; } public ReportTemplateSource? Source { get; private set; } public ReportTemplate Result { get; init; } = Template("Converted");
+        public Task<ReportTemplate> ConvertAsync(ReportTemplateSource source, CancellationToken cancellationToken = default) { Calls++; Source = source; return Task.FromResult(Result); }
+        public Task<ReportTemplate> ReconvertAsync(Guid templateId, int expectedVersion, CancellationToken cancellationToken = default) { Calls++; return Task.FromResult(Result); }
+    }
 
     private sealed class ServiceFake : IReportTemplateService
     {

@@ -17,6 +17,7 @@ public sealed record ReportTemplate
     public ReportTemplateStyle Style { get; init; } = new();
     public string? ProjectId { get; init; }
     public string? WorkflowId { get; init; }
+    public ReportTemplateSource? Source { get; init; }
     public void Validate() => ApplicationValidation.Validate(this);
 }
 
