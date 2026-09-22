@@ -13,6 +13,7 @@ public static class ScreenRegistry
     public const string UserAdministration = "UserAdministration";
     public const string WorkflowConfiguration = "WorkflowConfiguration";
     public const string ReportTemplateConfiguration = "ReportTemplateConfiguration";
+    public const string TemplateEditor = "TemplateEditor";
     public const string AuditLog = "AuditLog";
     public const string Report = "Report";
     public const string Help = "Help";
@@ -28,9 +29,9 @@ public static class ScreenRegistry
         new MenuDefinition("_Workflow", "Workflow", Children: new[] { new MenuDefinition("_My Submissions", Workflow, RequiredRole: SystemRoles.Maker), new MenuDefinition("_To Review", Workflow, RequiredRole: SystemRoles.Checker), new MenuDefinition("_To Approve", Workflow, RequiredRole: SystemRoles.Approver) }),
         new MenuDefinition("_Shared Documents", SharedDocuments, RolePermission.ReadApprovedDocuments),
         new MenuDefinition("_Shared Link Management", SharedLinkManagement, RolePermission.FinalApproval),
-        new MenuDefinition("_Admin", "Admin", RolePermission.ManageGlobalConfiguration, Children: new[] { new MenuDefinition("_User Management", UserAdministration, RolePermission.ManageUsersAndRoles), new MenuDefinition("_Role Assignment", UserAdministration, RolePermission.ManageUsersAndRoles), new MenuDefinition("_Workflow Configuration", WorkflowConfiguration, RolePermission.ManageGlobalConfiguration), new MenuDefinition("_Report Template Configuration", ReportTemplateConfiguration, RolePermission.ManageGlobalConfiguration) }),
+        new MenuDefinition("_Admin", "Admin", RolePermission.ManageGlobalConfiguration, Children: new[] { new MenuDefinition("_User Management", UserAdministration, RolePermission.ManageUsersAndRoles), new MenuDefinition("_Role Assignment", UserAdministration, RolePermission.ManageUsersAndRoles), new MenuDefinition("_Workflow Configuration", WorkflowConfiguration, RolePermission.ManageGlobalConfiguration), new MenuDefinition("_Report Template Configuration", ReportTemplateConfiguration, RolePermission.ManageGlobalConfiguration), new MenuDefinition("_Template Editor", TemplateEditor, RolePermission.ManageGlobalConfiguration) }),
         new MenuDefinition("_Help", Help)
     };
 
-    public static string Title(string target) => target switch { UploadVerify => "Upload & Verify", StepUpload => "Upload Model", DxfUpload => "Upload Drawing", Verification => "Verification", Workflow => "Workflow", NotificationCenter => "Notifications", SharedDocuments => "Shared Documents", SharedLinkManagement => "Shared Link Management", UserAdministration => "Administration", WorkflowConfiguration => "Workflow Configuration", ReportTemplateConfiguration => "Report Template Configuration", AuditLog => "Audit Log", Report => "Report", Help => "Help", _ => "Dashboard" };
+    public static string Title(string target) => target switch { UploadVerify => "Upload & Verify", StepUpload => "Upload Model", DxfUpload => "Upload Drawing", Verification => "Verification", Workflow => "Workflow", NotificationCenter => "Notifications", SharedDocuments => "Shared Documents", SharedLinkManagement => "Shared Link Management", UserAdministration => "Administration", WorkflowConfiguration => "Workflow Configuration", ReportTemplateConfiguration => "Report Template Configuration", TemplateEditor => "Template Editor", AuditLog => "Audit Log", Report => "Report", Help => "Help", _ => "Dashboard" };
 }

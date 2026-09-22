@@ -21,6 +21,7 @@ public sealed class ScreenAccessGuard(ISessionAuthenticationService session, Rol
             ScreenRegistry.UserAdministration => authorization.IsAllowed(user, RolePermission.ManageUsersAndRoles),
             ScreenRegistry.WorkflowConfiguration => authorization.IsAllowed(user, RolePermission.ManageGlobalConfiguration),
             ScreenRegistry.ReportTemplateConfiguration => authorization.IsAllowed(user, RolePermission.ManageGlobalConfiguration),
+            ScreenRegistry.TemplateEditor => authorization.IsAllowed(user, RolePermission.ManageGlobalConfiguration),
             ScreenRegistry.AuditLog => authorization.IsAllowed(user, RolePermission.ViewAuditLog),
             ScreenRegistry.Report => authorization.IsAllowed(user, RolePermission.ViewDimensionMatchResults),
             _ => false

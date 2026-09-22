@@ -90,7 +90,7 @@ public sealed class RoleMenuTests
         {
             var menus = new RoleMenuBuilder(new TestSession(SystemRoles.Admin), new RoleAuthorization()).Build(_ => { }, () => Task.CompletedTask, _ => { });
             var admin = Assert.Single(menus, x => x.Header?.ToString() == "_Admin");
-            Assert.Equal(new[] { "_User Management", "_Role Assignment", "_Workflow Configuration", "_Report Template Configuration" }, admin.Items.Cast<MenuItem>().Select(x => x.Header?.ToString()));
+            Assert.Equal(new[] { "_User Management", "_Role Assignment", "_Workflow Configuration", "_Report Template Configuration", "_Template Editor" }, admin.Items.Cast<MenuItem>().Select(x => x.Header?.ToString()));
         });
     }
 

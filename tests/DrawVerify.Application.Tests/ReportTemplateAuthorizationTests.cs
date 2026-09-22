@@ -8,6 +8,18 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class ReportTemplateAuthorizationTests
 {
+    [Fact(DisplayName = "TSD-08 editor service denies unauthenticated and unauthorized access")]
+    public async Task Editor_service_enforces_access_boundary()
+    {
+        foreach (var user in new AuthenticatedUser?[] { null, new("viewer", [SystemRoles.Viewer]) })
+        {
+            var session = new SessionAuthenticationService();
+            if (user is not null) session.SignIn(user);
+            var editor = new ReportTemplateEditorService(null!, null!, null!, null!, session, new RoleAuthorization());
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => editor.OpenAsync(Guid.NewGuid()));
+        }
+    }
+
     [Theory(DisplayName = "TSD-AC12 only authenticated Admins can mutate templates")]
     [InlineData(null)] [InlineData(SystemRoles.Viewer)] [InlineData(SystemRoles.Maker)] [InlineData(SystemRoles.Checker)] [InlineData(SystemRoles.Approver)]
     public async Task Unauthorized_roles_are_denied(string? role)

@@ -18,6 +18,7 @@ public sealed record ReportTemplate
     public string? ProjectId { get; init; }
     public string? WorkflowId { get; init; }
     public ReportTemplateSource? Source { get; init; }
+    public IReadOnlyList<TemplatePlaceholder> Placeholders { get; init; } = [];
     public void Validate() => ApplicationValidation.Validate(this);
 }
 
