@@ -31,6 +31,8 @@ public sealed class ReportTemplateEditorService : IReportTemplateEditorService
     public async Task<ReportTemplate> SaveAsync(ReportTemplate template, TemplateEditorDocument document, int expectedVersion, string actorId, CancellationToken cancellationToken = default)
     {
         EnsureAccess();
+        if (_templates is not IReportTemplatePublisher publisher)
+            throw new InvalidOperationException("Atomic template publication is unavailable; the template was not saved.");
         ReportTemplatePlaceholderValidator.Validate(document.Placeholders);
         var bytes = await _editor.SaveAsync(document, cancellationToken).ConfigureAwait(false);
         var updated = template with { Placeholders = document.Placeholders };
@@ -40,11 +42,7 @@ public sealed class ReportTemplateEditorService : IReportTemplateEditorService
         var stored = new ReportTemplateDocument { TemplateId = template.Id, Version = expectedVersion + 1, SourceId = source?.SourceId ?? Guid.NewGuid(), SourceFileName = source?.SourceFileName ?? "template.docx", Content = bytes };
         try
         {
-            if (_templates is IReportTemplatePublisher publisher)
-                return await publisher.PublishAsync(updated, expectedVersion, audit, stored, cancellationToken).ConfigureAwait(false);
-            var saved = await _templates.SaveAsync(updated, expectedVersion, audit, cancellationToken).ConfigureAwait(false);
-            await _documents.SaveAsync(stored, expectedVersion, cancellationToken).ConfigureAwait(false);
-            return saved;
+            return await publisher.PublishAsync(updated, expectedVersion, audit, stored, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) { _logger?.Log(ex, "Save Word template editor", $"Unable to save templateId={template.Id}, expectedVersion={expectedVersion}."); throw; }
     }

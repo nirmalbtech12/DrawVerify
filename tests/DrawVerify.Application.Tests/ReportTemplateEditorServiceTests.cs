@@ -35,6 +35,22 @@ public sealed class ReportTemplateEditorServiceTests
         Assert.Null(repository.PublishedDocument);
     }
 
+    [Fact(DisplayName = "TSD-02 and TSD-03 supported placeholder metadata survives editor insertion")]
+    public async Task Supported_roles_and_dynamic_types_are_retained()
+    {
+        var id = Guid.NewGuid(); var session = new SessionAuthenticationService(); session.SignIn(new AuthenticatedUser("admin", [SystemRoles.Admin]));
+        var service = CreateService(new FakePublisher(), new FakeDocuments(id, [1]), new FakeEditor(), session);
+        var document = new TemplateEditorDocument { DocxBytes = [1] };
+        foreach (var role in new[] { "Maker", "Checker", "Approver", "Custom Role" })
+            document = await service.InsertPlaceholderAsync(document, new TemplatePlaceholder { Type = TemplatePlaceholderType.Signature, Role = role, Label = $"{role} Signature", IsRequired = role != "Custom Role" });
+        foreach (var type in new[] { TemplatePlaceholderType.Date, TemplatePlaceholderType.DocumentNumber, TemplatePlaceholderType.Revision, TemplatePlaceholderType.ProjectName, TemplatePlaceholderType.CustomText })
+            document = await service.InsertPlaceholderAsync(document, new TemplatePlaceholder { Type = type, Label = type == TemplatePlaceholderType.CustomText ? "Custom text" : type.ToString() });
+
+        Assert.Equal(9, document.Placeholders.Count);
+        Assert.Equal(new[] { "Maker", "Checker", "Approver", "Custom Role" }, document.Placeholders.Take(4).Select(x => x.Role));
+        Assert.Equal(new[] { TemplatePlaceholderType.Date, TemplatePlaceholderType.DocumentNumber, TemplatePlaceholderType.Revision, TemplatePlaceholderType.ProjectName, TemplatePlaceholderType.CustomText }, document.Placeholders.Skip(4).Select(x => x.Type));
+    }
+
     private static ReportTemplateEditorService CreateService(FakePublisher repository, FakeDocuments documents, FakeEditor editor, SessionAuthenticationService session) => new(repository, documents, editor, new FakePreview(), session, new RoleAuthorization());
 
     private sealed class FakeEditor : IWordTemplateEditor

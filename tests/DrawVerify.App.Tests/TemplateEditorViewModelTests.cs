@@ -35,6 +35,19 @@ public sealed class TemplateEditorViewModelTests
         Assert.Empty(vm.Placeholders);
     }
 
+    [Fact(DisplayName = "TSD-04 invalid geometry retains the last valid position")]
+    public async Task Invalid_geometry_does_not_replace_last_valid_position()
+    {
+        var session = new DrawVerify.Application.Services.SessionAuthenticationService(); session.SignIn(new AuthenticatedUser("admin", [SystemRoles.Admin]));
+        var vm = new TemplateEditorViewModel(new FakeEditorService(), session, new RoleAuthorization());
+        await vm.OpenAsync(Guid.NewGuid());
+        await vm.InsertAsync(TemplatePlaceholderType.ProjectName, "Project");
+        var placeholder = vm.Placeholders[0]; vm.SetPosition(placeholder, new TemplatePlaceholderPosition { X = .2, Y = .2, Width = .3, Height = .1 });
+        Assert.Throws<InvalidOperationException>(() => vm.SetPosition(vm.Placeholders[0], new TemplatePlaceholderPosition { X = .9, Y = .2, Width = .3, Height = .1 }));
+        Assert.Equal(.2, vm.Placeholders[0].Position.X);
+        Assert.Equal(.3, vm.Placeholders[0].Position.Width);
+    }
+
     private sealed class FakeEditorService : IReportTemplateEditorService
     {
         public Task<TemplateEditorDocument> OpenAsync(Guid templateId, int? version = null, CancellationToken cancellationToken = default) => Task.FromResult(new TemplateEditorDocument { DocxBytes = [1] });

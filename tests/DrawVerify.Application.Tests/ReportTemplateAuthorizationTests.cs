@@ -20,6 +20,18 @@ public sealed class ReportTemplateAuthorizationTests
         }
     }
 
+    [Fact(DisplayName = "TSD-08 direct save and preview calls are denied without edit access")]
+    public async Task Direct_mutating_editor_calls_are_denied()
+    {
+        var session = new SessionAuthenticationService();
+        var editor = new ReportTemplateEditorService(null!, null!, null!, null!, session, new RoleAuthorization());
+        var document = new TemplateEditorDocument { DocxBytes = [1] };
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => editor.InsertPlaceholderAsync(document, new TemplatePlaceholder { Type = TemplatePlaceholderType.Date, Label = "Date" }));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => editor.SaveAsync(new ReportTemplate(), document, 1, "anonymous"));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => editor.PreviewAsync(document));
+    }
+
     [Theory(DisplayName = "TSD-AC12 only authenticated Admins can mutate templates")]
     [InlineData(null)] [InlineData(SystemRoles.Viewer)] [InlineData(SystemRoles.Maker)] [InlineData(SystemRoles.Checker)] [InlineData(SystemRoles.Approver)]
     public async Task Unauthorized_roles_are_denied(string? role)

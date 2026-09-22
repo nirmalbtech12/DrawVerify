@@ -33,11 +33,22 @@ public sealed class OpenXmlWordTemplateEditorTests
     {
         var editor = new OpenXmlWordTemplateEditor();
         var document = await editor.OpenAsync(CreateDocx("Body"));
-        document = await editor.InsertPlaceholderAsync(document, new TemplatePlaceholder { Type = TemplatePlaceholderType.Signature, Role = "Maker", Label = "Maker Signature" });
-        document = await editor.InsertPlaceholderAsync(document, new TemplatePlaceholder { Type = TemplatePlaceholderType.ProjectName, Label = "Project name" });
+        foreach (var role in new[] { "Maker", "Checker", "Approver", "Custom Role" })
+            document = await editor.InsertPlaceholderAsync(document, new TemplatePlaceholder { Type = TemplatePlaceholderType.Signature, Role = role, Label = $"{role} Signature", IsRequired = true });
+        foreach (var type in new[] { TemplatePlaceholderType.Date, TemplatePlaceholderType.DocumentNumber, TemplatePlaceholderType.Revision, TemplatePlaceholderType.ProjectName, TemplatePlaceholderType.CustomText })
+            document = await editor.InsertPlaceholderAsync(document, new TemplatePlaceholder { Type = type, Label = type == TemplatePlaceholderType.CustomText ? "Custom text" : type.ToString() });
         var bytes = await editor.SaveAsync(document);
         var reopened = await editor.OpenAsync(bytes);
         Assert.Equal(document.Placeholders, reopened.Placeholders);
+    }
+
+    [Fact(DisplayName = "TSD-02 and TSD-03 invalid placeholder metadata fails without conversion")]
+    public async Task Invalid_placeholder_metadata_is_rejected()
+    {
+        var editor = new OpenXmlWordTemplateEditor();
+        var document = await editor.OpenAsync(CreateDocx("Body"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => editor.InsertPlaceholderAsync(document, new TemplatePlaceholder { Type = TemplatePlaceholderType.Signature, Label = "Missing role" }));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => editor.InsertPlaceholderAsync(document, new TemplatePlaceholder { Type = TemplatePlaceholderType.CustomText, Label = "" }));
     }
 
     private static byte[] CreateDocx(string text)

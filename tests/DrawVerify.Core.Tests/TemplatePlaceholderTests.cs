@@ -38,4 +38,12 @@ public sealed class TemplatePlaceholderTests
         Assert.NotEqual(first.LogicalBlock, second.LogicalBlock);
         Assert.True(allowed.AllowDuplicateRole);
     }
+
+    [Fact(DisplayName = "TSD-05 duplicate identifiers and required metadata are rejected")]
+    public void Invalid_placeholder_metadata_is_rejected()
+    {
+        var placeholder = new TemplatePlaceholder { Type = TemplatePlaceholderType.ProjectName, Label = "Project" };
+        Assert.Throws<InvalidOperationException>(() => (placeholder with { Label = "" }).Validate());
+        Assert.Throws<InvalidOperationException>(() => new TemplatePlaceholder { Type = TemplatePlaceholderType.Signature, Label = "Signature" }.Validate());
+    }
 }
