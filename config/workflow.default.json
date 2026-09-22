@@ -5,6 +5,7 @@
   "StatusLabels": { "Draft": "Draft", "InPreparation": "In Preparation", "SubmittedForReview": "In Review", "UnderReview": "In Review", "Approved": "Approved", "FinallyApproved": "Approved", "Released": "Approved" },
   "StatusProgress": { "Draft": 0, "InPreparation": 0, "SubmittedForReview": 1, "UnderReview": 1, "Approved": 2, "FinallyApproved": 2, "Released": 2 },
   "MarkChangedPackagesSuperseded": true,
+  "UnmappedSignaturePlaceholderPolicy": "Block",
   "workflow": {
     "version": 1,
     "comment": "Workflow rules are configuration-driven and never hard-coded in code. Copy to workflow.json to customize.",

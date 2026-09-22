@@ -31,6 +31,9 @@ public sealed record ReviewSubmission
     public SignatureData? CheckerSignature { get; init; }
     public SignatureData? ApproverSignature { get; init; }
     public InternalApprovalStamp? InternalApprovalStamp { get; init; }
+    public TemplateMappingSnapshot? TemplateMapping { get; init; }
+    public IReadOnlyList<SignaturePlaceholderAssignment> PlaceholderAssignments { get; init; } = Array.Empty<SignaturePlaceholderAssignment>();
+    public IReadOnlyList<SignaturePlaceholderAssignment> EligiblePlaceholders(string userId, IEnumerable<string> roles) => PlaceholderAssignments.Where(x => !x.IsSigned && x.IsEligible(userId, roles)).ToArray();
 }
 
 public sealed record SubmissionReadiness(bool IsReady, IReadOnlyList<string> Failures)
@@ -40,6 +43,8 @@ public sealed record SubmissionReadiness(bool IsReady, IReadOnlyList<string> Fai
 
 public sealed record SubmissionRequest(Guid PackageId, string? Note = null)
 {
+    public Guid? TemplateId { get; init; }
+    public int? TemplateVersion { get; init; }
     public Guid DxfDocumentId { get; init; }
     public Guid StepDocumentVersionId { get; init; }
     public Guid DxfDocumentVersionId { get; init; }
@@ -54,6 +59,8 @@ public sealed record SubmissionRequest(Guid PackageId, string? Note = null)
     public string? VerificationError { get; init; }
     public IProgress<long>? FingerprintProgress { get; init; }
     public SignatureData? MakerSignature { get; init; }
+    public TemplateMappingSnapshot? TemplateMapping { get; init; }
+    public IReadOnlyList<SignaturePlaceholderAssignment> PlaceholderAssignments { get; init; } = Array.Empty<SignaturePlaceholderAssignment>();
     public string? AssignedCheckerUserId { get; init; }
     public IReadOnlyList<string> AssignedCheckerUserIds { get; init; } = Array.Empty<string>();
     public string? AssignedApproverUserId { get; init; }

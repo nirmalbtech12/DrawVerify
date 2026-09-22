@@ -11,6 +11,160 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class WorkflowConfigurationEnforcementTests
 {
+    [Fact(DisplayName = "TSD-06 workflow evaluation logs, notifies, and enforces invalid mapping policy")]
+    public async Task Invalid_mapping_policy_is_enforced_with_warning_notification_and_state_preservation()
+    {
+        var validPlaceholderId = Guid.NewGuid();
+        var invalidPlaceholderId = Guid.NewGuid();
+        var templateId = Guid.NewGuid();
+        var mapping = new TemplateMappingSnapshot
+        {
+            TemplateId = templateId,
+            TemplateVersion = 3,
+            Assignments = new[]
+            {
+                new SignaturePlaceholderAssignment { PlaceholderId = validPlaceholderId, Role = SystemRoles.Approver, AssignedSignerUserId = "approver-1" },
+                new SignaturePlaceholderAssignment { PlaceholderId = invalidPlaceholderId, Role = "UnknownRole", AssignedSignerUserId = "approver-2" }
+            },
+            PlaceholderLabels = new Dictionary<string, string> { [invalidPlaceholderId.ToString("D")] = "Unmapped Approver" }
+        };
+
+        var blocked = await RunInvalidMappingScenarioAsync(UnmappedSignaturePlaceholderPolicy.Block, mapping, notificationFails: false);
+        var blockedError = Assert.IsType<InvalidOperationException>(blocked.Exception);
+        Assert.Contains("blocked", blockedError.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(blocked.Workflow.Submissions);
+        Assert.Equal(WorkflowStatus.Draft, blocked.Workflow.State.Status);
+        AssertNotification(blocked, templateId, invalidPlaceholderId, "Unmapped Approver");
+
+        var skipped = await RunInvalidMappingScenarioAsync(UnmappedSignaturePlaceholderPolicy.Skip, mapping, notificationFails: false);
+        Assert.Null(skipped.Exception);
+        Assert.True(skipped.Result!.Succeeded);
+        var saved = Assert.Single(skipped.Workflow.Submissions);
+        Assert.Equal(validPlaceholderId, Assert.Single(saved.PlaceholderAssignments).PlaceholderId);
+        Assert.Equal(WorkflowStatus.SubmittedForReview, skipped.Workflow.State.Status);
+        AssertNotification(skipped, templateId, invalidPlaceholderId, "Unmapped Approver");
+
+        var unsupported = await RunInvalidMappingScenarioAsync((UnmappedSignaturePlaceholderPolicy)999, mapping, notificationFails: false);
+        var unsupportedError = Assert.IsType<InvalidOperationException>(unsupported.Exception);
+        Assert.Contains(nameof(UnmappedSignaturePlaceholderPolicy), unsupportedError.Message, StringComparison.Ordinal);
+        Assert.Contains("Block or Skip", unsupportedError.Message, StringComparison.Ordinal);
+        Assert.Empty(unsupported.Workflow.Submissions);
+        Assert.Empty(unsupported.Notifications.Calls);
+
+        var notificationFailure = await RunInvalidMappingScenarioAsync(UnmappedSignaturePlaceholderPolicy.Block, mapping, notificationFails: true);
+        var notificationError = Assert.IsType<InvalidOperationException>(notificationFailure.Exception);
+        Assert.Contains("notification failed", notificationError.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(notificationFailure.Workflow.Submissions);
+        Assert.Equal(WorkflowStatus.Draft, notificationFailure.Workflow.State.Status);
+        Assert.Contains(notificationFailure.Logger.Entries, entry => entry.Operation == "Invalid signature placeholder notification" && entry.Context.Contains(invalidPlaceholderId.ToString(), StringComparison.Ordinal));
+    }
+
+    private static void AssertNotification(InvalidMappingScenario scenario, Guid templateId, Guid placeholderId, string label)
+    {
+        var notification = Assert.Single(scenario.Notifications.Calls);
+        Assert.Equal(templateId, notification.TemplateId);
+        Assert.Equal(3, notification.TemplateVersion);
+        Assert.Equal(scenario.Workflow.PackageId, notification.PackageId);
+        Assert.Equal(1, notification.Revision);
+        Assert.Equal(placeholderId, notification.PlaceholderId);
+        Assert.Equal(label, notification.PlaceholderLabel);
+        Assert.Contains("role", notification.Reason, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(scenario.Logger.Entries, entry => entry.Operation == "Invalid signature placeholder mapping" && entry.Context.Contains(label, StringComparison.Ordinal));
+    }
+
+    private static async Task<InvalidMappingScenario> RunInvalidMappingScenarioAsync(UnmappedSignaturePlaceholderPolicy policy, TemplateMappingSnapshot mapping, bool notificationFails)
+    {
+        var packageId = Guid.NewGuid();
+        var timestamp = new DateTime(2026, 9, 22, 12, 0, 0, DateTimeKind.Utc);
+        var workflow = new MappingWorkflowRepository(packageId);
+        var logger = new MappingLogger();
+        var notifications = new MappingNotifications(notificationFails);
+        var authentication = new SessionAuthenticationService();
+        authentication.SignIn(new AuthenticatedUser("maker-1", new[] { SystemRoles.Maker }) { UserId = "maker-1", DisplayName = "Maker One" });
+        var configuration = BaselineConfiguration() with { UnmappedSignaturePlaceholderPolicy = policy };
+        var documents = new MappingDocumentRepository(packageId);
+        var request = new SubmissionRequest(packageId)
+        {
+            StepDocumentVersionId = Guid.NewGuid(),
+            DxfDocumentVersionId = Guid.NewGuid(),
+            DxfDocumentId = Guid.NewGuid(),
+            VerificationSessionId = Guid.NewGuid(),
+            ExtractionEvidenceJson = "{\"extraction\":\"complete\"}",
+            VerificationEvidenceJson = "{\"verification\":\"complete\"}",
+            MakerSignature = SignatureData.Create(SignatureMethod.Typed, "maker-signature", "maker-1", "Maker One", packageId, 1, timestamp),
+            TemplateMapping = mapping
+        };
+
+        try
+        {
+            var service = new WorkflowService(workflow, authentication, configuration, new RoleAuthorization(), logger, documents, clock: () => timestamp, notifications: notifications);
+            var result = await service.SubmitForReviewAsync(request);
+            return new(workflow, logger, notifications, result, null);
+        }
+        catch (Exception exception)
+        {
+            return new(workflow, logger, notifications, null, exception);
+        }
+    }
+
+    private sealed record InvalidMappingScenario(MappingWorkflowRepository Workflow, MappingLogger Logger, MappingNotifications Notifications, SubmissionResult? Result, Exception? Exception);
+
+    private sealed class MappingWorkflowRepository(Guid packageId) : IWorkflowRepository
+    {
+        public Guid PackageId { get; } = packageId;
+        public WorkflowState State { get; private set; } = new() { PackageId = packageId, Status = WorkflowStatus.Draft, Revision = 1 };
+        public List<ReviewSubmission> Submissions { get; } = [];
+        public Task<WorkflowState?> GetStateAsync(Guid requestedPackageId, CancellationToken cancellationToken = default) => Task.FromResult<WorkflowState?>(requestedPackageId == PackageId ? State : null);
+        public Task<ReviewSubmission?> GetSubmissionAsync(Guid submissionId, CancellationToken cancellationToken = default) => Task.FromResult<ReviewSubmission?>(Submissions.SingleOrDefault(x => x.SubmissionId == submissionId));
+        public Task<IReadOnlyList<ReviewSubmission>> GetSubmissionsAsync(Guid requestedPackageId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ReviewSubmission>>(Submissions.Where(x => x.PackageId == requestedPackageId).ToArray());
+        public Task<IReadOnlyList<WorkflowQueueItem>> GetCheckerQueueAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<WorkflowQueueItem>>(Array.Empty<WorkflowQueueItem>());
+        public Task<ReviewSubmission> SubmitAtomicallyAsync(WorkflowState expectedState, ReviewSubmission submission, AuditEntry auditEntry, CancellationToken cancellationToken = default)
+        {
+            Submissions.Add(submission);
+            State = expectedState with { Status = WorkflowStatus.SubmittedForReview, UpdatedUtc = auditEntry.TimestampUtc };
+            return Task.FromResult(submission);
+        }
+        public Task RecordAuditAsync(AuditEntry auditEntry, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task MarkSupersededAsync(Guid submissionId, AuditEntry auditEntry, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class MappingDocumentRepository(Guid packageId) : IDocumentRepository
+    {
+        private readonly Document _document = new() { DocumentId = packageId, DocumentType = DrawVerify.Core.Enums.DocumentType.PdfDrawing, Version = new DocumentVersion { DocumentId = packageId, VersionNumber = 1 } };
+        public Task<Document?> GetAsync(Guid documentId, CancellationToken cancellationToken = default) => Task.FromResult<Document?>(documentId == _document.DocumentId ? _document : null);
+    }
+
+    private sealed class MappingLogger : ICentralizedLogger
+    {
+        public List<(Exception Exception, string Operation, string Context)> Entries { get; } = [];
+        public void Log(Exception exception, string operation, string context) => Entries.Add((exception, operation, context));
+    }
+
+    private sealed class MappingNotifications(bool shouldFail) : INotificationService
+    {
+        public List<AdminNotification> Calls { get; } = [];
+        public Task NotifyAdministratorAsync(Guid templateId, int templateVersion, Guid packageId, int revision, Guid placeholderId, string placeholderLabel, string reason, CancellationToken cancellationToken = default)
+        {
+            if (shouldFail) throw new InvalidOperationException("notification unavailable");
+            Calls.Add(new(templateId, templateVersion, packageId, revision, placeholderId, placeholderLabel, reason));
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed record AdminNotification(Guid TemplateId, int TemplateVersion, Guid PackageId, int Revision, Guid PlaceholderId, string PlaceholderLabel, string Reason);
+
+    [Fact(DisplayName = "TSD-06 missing or unsupported unmapped-placeholder policy is rejected")]
+    public void Invalid_unmapped_placeholder_policy_is_visible_in_application_validation()
+    {
+        var configuration = BaselineConfiguration() with { UnmappedSignaturePlaceholderPolicy = (UnmappedSignaturePlaceholderPolicy)999 };
+        Assert.Contains(configuration.ApplicationValidation(), error => error.Contains("UnmappedSignaturePlaceholderPolicy", StringComparison.Ordinal));
+    }
+
+    private static WorkflowConfiguration BaselineConfiguration() => new()
+    {
+        PermittedInitialStates = new[] { WorkflowStatus.Draft, WorkflowStatus.InPreparation },
+        DuplicateSubmissionStates = new[] { WorkflowStatus.SubmittedForReview, WorkflowStatus.UnderReview, WorkflowStatus.Approved }
+    };
     [Fact(DisplayName = "TD-APP-004 preview matches triggers and has no persistence or delivery side effects")]
     public async Task Preview_is_pure()
     {

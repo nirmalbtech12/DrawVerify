@@ -24,11 +24,26 @@ public sealed record SignatureData
     public Guid DocumentId { get; init; }
     public int Revision { get; init; }
     public bool IsFinalized { get; init; }
-    public string CanonicalRepresentation => string.Join("|", Method, Payload, SignerUserId, SignerDisplayName, Role, TimestampUtc.UtcDateTime.ToString("O"), Title ?? "", Department ?? "", DocumentId, Revision);
+    public Guid? PlaceholderId { get; init; }
+    public IReadOnlyDictionary<string, string> CustomFields { get; init; } = new Dictionary<string, string>();
+    public string CanonicalRepresentation => string.Join("|", Method, Payload, SignerUserId, SignerDisplayName, Role, TimestampUtc.UtcDateTime.ToString("O"), Title ?? "", Department ?? "", DocumentId, Revision, PlaceholderId?.ToString("D") ?? "", string.Join(";", CustomFields.OrderBy(x => x.Key).Select(x => $"{x.Key}={x.Value}")));
     public bool IsChecker => string.Equals(Role, SystemRoles.Checker, StringComparison.OrdinalIgnoreCase);
     public bool IsApprover => string.Equals(Role, SystemRoles.Approver, StringComparison.OrdinalIgnoreCase);
     public string SignerUserId => IsChecker ? CheckerUserId : IsApprover ? ApproverUserId : MakerUserId;
     public string SignerDisplayName => IsChecker ? CheckerDisplayName : IsApprover ? ApproverDisplayName : MakerDisplayName;
+    public bool Equals(SignatureData? other)
+    {
+        if (ReferenceEquals(this, other)) return true;
+        if (other is null) return false;
+        return Method == other.Method && Payload == other.Payload && PayloadHash == other.PayloadHash && MakerUserId == other.MakerUserId && MakerDisplayName == other.MakerDisplayName && Role == other.Role && TimestampUtc == other.TimestampUtc && Title == other.Title && Department == other.Department && CheckerUserId == other.CheckerUserId && CheckerDisplayName == other.CheckerDisplayName && ApproverUserId == other.ApproverUserId && ApproverDisplayName == other.ApproverDisplayName && IntegrityHash == other.IntegrityHash && DocumentId == other.DocumentId && Revision == other.Revision && IsFinalized == other.IsFinalized && PlaceholderId == other.PlaceholderId && CustomFields.OrderBy(x => x.Key, StringComparer.Ordinal).SequenceEqual(other.CustomFields.OrderBy(x => x.Key, StringComparer.Ordinal));
+    }
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Method); hash.Add(Payload); hash.Add(PayloadHash); hash.Add(MakerUserId); hash.Add(MakerDisplayName); hash.Add(Role); hash.Add(TimestampUtc); hash.Add(Title); hash.Add(Department); hash.Add(CheckerUserId); hash.Add(CheckerDisplayName); hash.Add(ApproverUserId); hash.Add(ApproverDisplayName); hash.Add(IntegrityHash); hash.Add(DocumentId); hash.Add(Revision); hash.Add(IsFinalized); hash.Add(PlaceholderId);
+        foreach (var field in CustomFields.OrderBy(x => x.Key, StringComparer.Ordinal)) { hash.Add(field.Key); hash.Add(field.Value); }
+        return hash.ToHashCode();
+    }
     public bool IsTamperEvident => IsFinalized && ((IsChecker || IsApprover) ? string.Equals(IntegrityHash, ComputePayloadHash(CanonicalRepresentation), StringComparison.OrdinalIgnoreCase) : string.Equals(PayloadHash, ComputePayloadHash(Payload), StringComparison.OrdinalIgnoreCase));
     public void Validate(bool requireFinalized = true)
     {
@@ -64,20 +79,20 @@ public sealed record SignatureData
     private static bool IsPng(byte[] bytes) => bytes.Length >= 8 && bytes.AsSpan(0, 8).SequenceEqual(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A });
     private static bool IsJpeg(byte[] bytes) => bytes.Length >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF;
     private static bool IsBmp(byte[] bytes) => bytes.Length >= 2 && bytes[0] == (byte)'B' && bytes[1] == (byte)'M';
-    public static SignatureData Create(SignatureMethod method, string payload, string makerUserId, string makerDisplayName, Guid documentId, int revision, DateTimeOffset timestampUtc, string? title = null, string? department = null)
+    public static SignatureData Create(SignatureMethod method, string payload, string makerUserId, string makerDisplayName, Guid documentId, int revision, DateTimeOffset timestampUtc, string? title = null, string? department = null, Guid? placeholderId = null, IReadOnlyDictionary<string, string>? customFields = null)
     {
-        var value = new SignatureData { Method = method, Payload = payload.Trim(), PayloadHash = ComputePayloadHash(payload.Trim()), MakerUserId = makerUserId.Trim(), MakerDisplayName = makerDisplayName.Trim(), TimestampUtc = timestampUtc.ToUniversalTime(), Title = string.IsNullOrWhiteSpace(title) ? null : title.Trim(), Department = string.IsNullOrWhiteSpace(department) ? null : department.Trim(), DocumentId = documentId, Revision = revision, IsFinalized = true };
+        var value = new SignatureData { Method = method, Payload = payload.Trim(), PayloadHash = ComputePayloadHash(payload.Trim()), MakerUserId = makerUserId.Trim(), MakerDisplayName = makerDisplayName.Trim(), TimestampUtc = timestampUtc.ToUniversalTime(), Title = string.IsNullOrWhiteSpace(title) ? null : title.Trim(), Department = string.IsNullOrWhiteSpace(department) ? null : department.Trim(), DocumentId = documentId, Revision = revision, PlaceholderId = placeholderId, CustomFields = customFields ?? new Dictionary<string, string>(), IsFinalized = true };
         value.Validate(); return value;
     }
-    public static SignatureData CreateChecker(SignatureMethod method, string payload, string checkerUserId, string checkerDisplayName, Guid documentId, int revision, DateTimeOffset timestampUtc, string? title = null, string? department = null)
+    public static SignatureData CreateChecker(SignatureMethod method, string payload, string checkerUserId, string checkerDisplayName, Guid documentId, int revision, DateTimeOffset timestampUtc, string? title = null, string? department = null, Guid? placeholderId = null, IReadOnlyDictionary<string, string>? customFields = null)
     {
-        var value = new SignatureData { Method = method, Payload = payload.Trim(), CheckerUserId = checkerUserId.Trim(), CheckerDisplayName = checkerDisplayName.Trim(), Role = SystemRoles.Checker, TimestampUtc = timestampUtc.ToUniversalTime(), Title = string.IsNullOrWhiteSpace(title) ? null : title.Trim(), Department = string.IsNullOrWhiteSpace(department) ? null : department.Trim(), DocumentId = documentId, Revision = revision, IsFinalized = true };
+        var value = new SignatureData { Method = method, Payload = payload.Trim(), CheckerUserId = checkerUserId.Trim(), CheckerDisplayName = checkerDisplayName.Trim(), Role = SystemRoles.Checker, TimestampUtc = timestampUtc.ToUniversalTime(), Title = string.IsNullOrWhiteSpace(title) ? null : title.Trim(), Department = string.IsNullOrWhiteSpace(department) ? null : department.Trim(), DocumentId = documentId, Revision = revision, PlaceholderId = placeholderId, CustomFields = customFields ?? new Dictionary<string, string>(), IsFinalized = true };
         value = value with { IntegrityHash = ComputePayloadHash(value.CanonicalRepresentation) };
         value.Validate(); return value;
     }
-    public static SignatureData CreateApprover(SignatureMethod method, string payload, string approverUserId, string approverDisplayName, Guid documentId, int revision, DateTimeOffset timestampUtc, string? title = null, string? department = null)
+    public static SignatureData CreateApprover(SignatureMethod method, string payload, string approverUserId, string approverDisplayName, Guid documentId, int revision, DateTimeOffset timestampUtc, string? title = null, string? department = null, Guid? placeholderId = null, IReadOnlyDictionary<string, string>? customFields = null)
     {
-        var value = new SignatureData { Method = method, Payload = payload.Trim(), ApproverUserId = approverUserId.Trim(), ApproverDisplayName = approverDisplayName.Trim(), Role = SystemRoles.Approver, TimestampUtc = timestampUtc.ToUniversalTime(), Title = string.IsNullOrWhiteSpace(title) ? null : title.Trim(), Department = string.IsNullOrWhiteSpace(department) ? null : department.Trim(), DocumentId = documentId, Revision = revision, IsFinalized = true };
+        var value = new SignatureData { Method = method, Payload = payload.Trim(), ApproverUserId = approverUserId.Trim(), ApproverDisplayName = approverDisplayName.Trim(), Role = SystemRoles.Approver, TimestampUtc = timestampUtc.ToUniversalTime(), Title = string.IsNullOrWhiteSpace(title) ? null : title.Trim(), Department = string.IsNullOrWhiteSpace(department) ? null : department.Trim(), DocumentId = documentId, Revision = revision, PlaceholderId = placeholderId, CustomFields = customFields ?? new Dictionary<string, string>(), IsFinalized = true };
         value = value with { IntegrityHash = ComputePayloadHash(value.CanonicalRepresentation) };
         value.Validate(); return value;
     }

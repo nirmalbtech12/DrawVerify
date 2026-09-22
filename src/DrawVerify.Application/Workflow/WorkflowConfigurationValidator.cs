@@ -11,6 +11,7 @@ public sealed class WorkflowConfigurationValidator
         var roleNames = configuration.Roles.Count == 0 ? SystemRoles.Catalog.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase) : configuration.Roles.Select(x => x.DisplayName).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var stageNames = configuration.Stages.Select(x => x.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         if (!Enum.IsDefined(configuration.RolloutPolicy)) errors.Add($"RolloutPolicy '{configuration.RolloutPolicy}' is unsupported.");
+        if (!Enum.IsDefined(configuration.UnmappedSignaturePlaceholderPolicy)) errors.Add($"UnmappedSignaturePlaceholderPolicy '{configuration.UnmappedSignaturePlaceholderPolicy}' is unsupported; workflow progression must block until an explicit Block or Skip policy is configured.");
         if (string.IsNullOrWhiteSpace(configuration.RevisionPolicy.NumberFormat) || !new[] { "Sequential", "Major.Minor" }.Contains(configuration.RevisionPolicy.NumberFormat, StringComparer.OrdinalIgnoreCase)) errors.Add("RevisionPolicy.NumberFormat must be Sequential or Major.Minor.");
         foreach (var role in configuration.Roles)
         {

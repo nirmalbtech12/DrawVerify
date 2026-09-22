@@ -4,12 +4,118 @@ using DrawVerify.Core.Interfaces;
 using DrawVerify.Core.Models;
 using DrawVerify.Core.Authorization;
 using DrawVerify.Core.Configuration;
+using DrawVerify.App.Controls;
+using DrawVerify.App.Views;
+using System.Reflection;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
 using Xunit;
 
 namespace DrawVerify.App.Tests;
 
 public sealed class WorkflowViewModelTests
 {
+    [Fact(DisplayName = "TSD-03 review view binds eligible target and propagates its placeholder ID")]
+    public void Review_view_binds_target_eligibility_and_forwards_selected_placeholder()
+    {
+        RunOnSta(() =>
+        {
+            var placeholderId = Guid.NewGuid();
+            var package = ReviewFixture() with
+            {
+                Status = WorkflowStatus.SubmittedForReview,
+                Submission = ReviewFixture().Submission with
+                {
+                    PlaceholderAssignments = new[]
+                    {
+                        new SignaturePlaceholderAssignment { PlaceholderId = placeholderId, Role = SystemRoles.Checker, AssignedSignerUserId = "checker-1" },
+                        new SignaturePlaceholderAssignment { PlaceholderId = Guid.NewGuid(), Role = SystemRoles.Approver, AssignedSignerUserId = "approver-1" }
+                    }
+                }
+            };
+            var service = new FakeWorkflowService { ReviewPackage = package };
+            var model = new WorkflowViewModel(service, new FakeAuthentication(new AuthenticatedUser("checker", new[] { SystemRoles.Checker }) { UserId = "checker-1", DisplayName = "Checker One" }));
+            var view = new WorkflowView { DataContext = model };
+            model.OpenReviewAsync(new WorkflowQueueItem(package.PackageId, package.Revision, package.MakerDisplayName, package.SubmittedUtc, package.Status, "verified")).GetAwaiter().GetResult();
+
+            var window = new Window { Content = view, Width = 900, Height = 700, ShowInTaskbar = false };
+            try
+            {
+                window.Show();
+                view.ApplyTemplate();
+                view.UpdateLayout();
+                window.UpdateLayout();
+                var controls = FindVisualChildren<SignatureStampControl>(window).ToArray();
+                var checker = Assert.Single(controls.Where(x => x.TargetEligible && x.PlaceholderId == placeholderId));
+                Assert.Equal(placeholderId, checker.PlaceholderId);
+                Assert.True(checker.TargetEligible);
+                Assert.True(checker.CanEdit);
+                var foreignTargets = controls.Where(x => !x.TargetEligible && x.PlaceholderId is null).ToArray();
+                Assert.NotEmpty(foreignTargets);
+                Assert.All(foreignTargets, target => Assert.False(target.CanEdit));
+
+                var pending = SignatureData.CreateChecker(SignatureMethod.Typed, "checker", "checker-1", "Checker One", package.PackageId, package.Revision, DateTimeOffset.UtcNow, placeholderId: placeholderId);
+                typeof(SignatureStampControl).GetProperty(nameof(SignatureStampControl.PendingSignature), BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!.SetValue(checker, pending);
+                typeof(WorkflowView).GetMethod("CheckerSignatureFinalizationRequested", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(view, new object[] { checker, EventArgs.Empty });
+                Assert.Equal(placeholderId, service.LastCheckerPlaceholderId);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    private static IEnumerable<T> FindLogicalChildren<T>(DependencyObject root) where T : DependencyObject
+    {
+        foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
+        {
+            if (child is T match) yield return match;
+            foreach (var nested in FindLogicalChildren<T>(child)) yield return nested;
+        }
+    }
+
+    private static IEnumerable<T> FindVisualChildren<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match) yield return match;
+            foreach (var nested in FindVisualChildren<T>(child)) yield return nested;
+        }
+    }
+
+    private static void RunOnSta(Action action)
+    {
+        Exception? failure = null;
+        var thread = new Thread(() => { try { action(); } catch (Exception exception) { failure = exception; } });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        if (!thread.Join(TimeSpan.FromSeconds(10))) throw new TimeoutException("WPF integration test exceeded its bounded execution time.");
+        if (failure is not null) throw new Xunit.Sdk.XunitException(failure.ToString());
+    }
+
+    [Fact(DisplayName = "TSD-01 workflow package retains captured placeholder targets")]
+    public void Workflow_package_projection_uses_captured_assignments()
+    {
+        var makerId = Guid.NewGuid();
+        var package = ReviewFixture() with
+        {
+            Submission = ReviewFixture().Submission with
+            {
+                PlaceholderAssignments = new[]
+                {
+                    new SignaturePlaceholderAssignment { PlaceholderId = makerId, Role = "Maker", AssignedSignerUserId = "maker-1" },
+                    new SignaturePlaceholderAssignment { PlaceholderId = Guid.NewGuid(), Role = "Checker", AssignedSignerUserId = "checker-1" }
+                }
+            }
+        };
+
+        var targets = package.Submission.EligiblePlaceholders("maker-1", new[] { "Maker" });
+        Assert.Equal(new[] { makerId }, targets.Select(x => x.PlaceholderId));
+    }
+
     [Theory(DisplayName = "TSD-AC03-STATUS PDF/image workflow queue exposes actual neutral status")]
     [InlineData(WorkflowStatus.Draft)]
     [InlineData(WorkflowStatus.SubmittedForReview)]
@@ -473,6 +579,12 @@ public sealed class WorkflowViewModelTests
 
 sealed class FakeWorkflowService : IWorkflowService
 {
+    public Guid? LastCheckerPlaceholderId { get; private set; }
+    public Task<SignatureData> ApplyCheckerSignatureAsync(Guid packageId, int revision, SignatureMethod method, string payload, string? title = null, string? department = null, CancellationToken cancellationToken = default, Guid? placeholderId = null)
+    {
+        LastCheckerPlaceholderId = placeholderId;
+        return Task.FromResult(SignatureData.CreateChecker(method, payload, "checker-1", "Checker One", packageId, revision, DateTimeOffset.UtcNow, title, department, placeholderId));
+    }
     public IReadOnlyList<ReviewDecision> ApprovalHistory { get; set; } = Array.Empty<ReviewDecision>();
     public int CancellationCalls { get; private set; }
     public int SubmissionCalls { get; private set; }

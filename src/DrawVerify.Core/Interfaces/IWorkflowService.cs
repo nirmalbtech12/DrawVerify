@@ -23,9 +23,9 @@ public interface IWorkflowService
         => throw new NotSupportedException("Final approval is not supported by this workflow service.");
     Task<ReviewDecision> FinalDecideAsync(Guid packageId, int revision, ReviewDecisionType decisionType, string? comments, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("Final approval is not supported by this workflow service.");
-    Task<SignatureData> ApplyCheckerSignatureAsync(Guid packageId, int revision, SignatureMethod method, string payload, string? title = null, string? department = null, CancellationToken cancellationToken = default)
+    Task<SignatureData> ApplyCheckerSignatureAsync(Guid packageId, int revision, SignatureMethod method, string payload, string? title = null, string? department = null, CancellationToken cancellationToken = default, Guid? placeholderId = null)
         => throw new NotSupportedException("Checker signatures are not supported by this workflow service.");
-    Task<SignatureData> ApplyApproverSignatureAsync(Guid packageId, int revision, SignatureMethod method, string payload, string? title = null, string? department = null, CancellationToken cancellationToken = default)
+    Task<SignatureData> ApplyApproverSignatureAsync(Guid packageId, int revision, SignatureMethod method, string payload, string? title = null, string? department = null, CancellationToken cancellationToken = default, Guid? placeholderId = null)
         => throw new NotSupportedException("Approver signatures are not supported by this workflow service.");
     Task<InternalApprovalStampVerificationStatus> VerifyInternalApprovalStampAsync(Guid packageId, int revision, CancellationToken cancellationToken = default)
         => Task.FromException<InternalApprovalStampVerificationStatus>(new NotSupportedException("Internal approval stamp verification is not configured."));

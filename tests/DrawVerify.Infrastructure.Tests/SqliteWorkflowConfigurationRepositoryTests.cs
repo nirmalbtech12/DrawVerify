@@ -3,6 +3,7 @@ using DrawVerify.Core.Configuration;
 using DrawVerify.Core.Enums;
 using DrawVerify.Core.Models;
 using DrawVerify.Infrastructure.Persistence;
+using DrawVerify.Infrastructure.Notifications;
 using Microsoft.Data.Sqlite;
 using Xunit;
 
@@ -10,6 +11,45 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteWorkflowConfigurationRepositoryTests
 {
+    [Fact(DisplayName = "TSD-06 administrator notification persists actionable invalid-mapping context")]
+    public async Task Administrator_notification_round_trips_invalid_mapping_context()
+    {
+        var path = TempPath();
+        var templateId = Guid.NewGuid();
+        var packageId = Guid.NewGuid();
+        var placeholderId = Guid.NewGuid();
+        try
+        {
+            _ = new SqliteWorkflowRepository(path, configuration: Baseline());
+            var notifications = new InAppNotificationService(path);
+            await notifications.NotifyAdministratorAsync(templateId, 3, packageId, 2, placeholderId, "Unmapped Approver", "role is invalid");
+            var stored = Assert.Single(await notifications.GetForUserAsync("Admin"));
+            Assert.Contains(templateId.ToString(), stored.Message, StringComparison.Ordinal);
+            Assert.Contains("version 3", stored.Message, StringComparison.Ordinal);
+            Assert.Contains(packageId.ToString(), stored.Message, StringComparison.Ordinal);
+            Assert.Contains("revision 2", stored.Message, StringComparison.Ordinal);
+            Assert.Contains(placeholderId.ToString(), stored.Message, StringComparison.Ordinal);
+            Assert.Contains("Unmapped Approver", stored.Message, StringComparison.Ordinal);
+            Assert.Contains("role is invalid", stored.Message, StringComparison.Ordinal);
+        }
+        finally { Cleanup(path); }
+    }
+
+    [Fact(DisplayName = "TSD-06 explicit unmapped-placeholder policy persists and reloads")]
+    public async Task Unmapped_placeholder_policy_round_trips_explicitly()
+    {
+        var path = TempPath();
+        try
+        {
+            var configuration = Baseline() with { UnmappedSignaturePlaceholderPolicy = UnmappedSignaturePlaceholderPolicy.Skip };
+            var repository = new SqliteWorkflowConfigurationRepository(path);
+            await repository.SaveAsync(configuration, Audit(1), null);
+            var restored = await repository.GetCurrentAsync();
+            Assert.NotNull(restored);
+            Assert.Equal(UnmappedSignaturePlaceholderPolicy.Skip, restored!.UnmappedSignaturePlaceholderPolicy);
+        }
+        finally { Cleanup(path); }
+    }
     [Fact(DisplayName = "TSD-CHANNEL-DISPATCH configuration persists supported InApp channel")]
     public async Task TSD_CHANNEL_DISPATCH_round_trips_inapp_preference()
     {

@@ -7,6 +7,33 @@ namespace DrawVerify.App.Tests;
 
 public sealed class SignatureStampControlTests
 {
+    [Fact(DisplayName = "TSD-03 foreign signature targets are not editable")]
+    public void Foreign_target_is_disabled_while_eligible_target_is_editable()
+    {
+        RunOnSta(() =>
+        {
+            var control = new SignatureStampControl { IsChecker = true, TargetEligible = false };
+            Assert.False(control.CanEdit);
+
+            control.TargetEligible = true;
+            Assert.True(control.CanEdit);
+
+            control.TargetEligible = false;
+            Assert.False(control.CanEdit);
+        });
+    }
+
+    [Fact(DisplayName = "TSD-04 signature stamp control carries placeholder identity")]
+    public void Stamp_control_exposes_target_placeholder_identity()
+    {
+        RunOnSta(() =>
+        {
+            var placeholderId = Guid.NewGuid();
+            var control = new SignatureStampControl { PlaceholderId = placeholderId };
+            Assert.Equal(placeholderId, control.PlaceholderId);
+        });
+    }
+
     [Fact(DisplayName = "TSD-CROSS-CLIENT signature and stamp control exposes the same finalized read-only metadata contract")]
     public void Finalized_signature_contract_is_consistent_for_viewers()
     {
@@ -218,5 +245,25 @@ public sealed class SignatureStampControlTests
             if (File.Exists(candidate)) return candidate;
         }
         throw new FileNotFoundException($"Could not locate repository file '{relativePath}'.");
+    }
+
+    private static void RunOnSta(Action action)
+    {
+        if (Thread.CurrentThread.GetApartmentState() == ApartmentState.STA)
+        {
+            action();
+            return;
+        }
+
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try { action(); }
+            catch (Exception exception) { failure = exception; }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        if (!thread.Join(TimeSpan.FromSeconds(5))) throw new Xunit.Sdk.XunitException("STA WPF test exceeded the five-second bound.");
+        if (failure is not null) throw new Xunit.Sdk.XunitException("STA WPF test failed.", failure);
     }
 }
