@@ -365,7 +365,9 @@ public sealed class WorkflowService : IWorkflowService
             if (assignedCheckerUserIds.Length == 0 && !string.IsNullOrWhiteSpace(request.AssignedCheckerUserId)) assignedCheckerUserIds = new[] { request.AssignedCheckerUserId.Trim() };
             var assignedApproverUserIds = request.AssignedApproverUserIds.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
             if (assignedApproverUserIds.Length == 0 && !string.IsNullOrWhiteSpace(request.AssignedApproverUserId)) assignedApproverUserIds = new[] { request.AssignedApproverUserId.Trim() };
-            var submission = new ReviewSubmission { PackageId = request.PackageId, DxfDocumentId = request.DxfDocumentId, Revision = state.Revision, MakerUserId = user.UserId, MakerDisplayName = user.DisplayName, MakerAuthorized = true, SubmittedUtc = now, Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim(), StepDocumentVersionId = request.StepDocumentVersionId, DxfDocumentVersionId = request.DxfDocumentVersionId, VerificationSessionId = request.VerificationSessionId, ExtractionEvidenceJson = request.ExtractionEvidenceJson, VerificationEvidenceJson = request.VerificationEvidenceJson, Fingerprint = fingerprint, MakerSignature = signature, AssignedCheckerUserId = assignedCheckerUserIds.FirstOrDefault(), AssignedCheckerUserIds = assignedCheckerUserIds, AssignedApproverUserId = assignedApproverUserIds.FirstOrDefault(), AssignedApproverUserIds = assignedApproverUserIds };
+            var mapping = request.TemplateMapping;
+            mapping?.Validate();
+            var submission = new ReviewSubmission { PackageId = request.PackageId, DxfDocumentId = request.DxfDocumentId, Revision = state.Revision, MakerUserId = user.UserId, MakerDisplayName = user.DisplayName, MakerAuthorized = true, SubmittedUtc = now, Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim(), StepDocumentVersionId = request.StepDocumentVersionId, DxfDocumentVersionId = request.DxfDocumentVersionId, VerificationSessionId = request.VerificationSessionId, ExtractionEvidenceJson = request.ExtractionEvidenceJson, VerificationEvidenceJson = request.VerificationEvidenceJson, Fingerprint = fingerprint, MakerSignature = signature, AssignedCheckerUserId = assignedCheckerUserIds.FirstOrDefault(), AssignedCheckerUserIds = assignedCheckerUserIds, AssignedApproverUserId = assignedApproverUserIds.FirstOrDefault(), AssignedApproverUserIds = assignedApproverUserIds, TemplateMapping = mapping, PlaceholderAssignments = mapping?.Assignments ?? Array.Empty<SignaturePlaceholderAssignment>() };
             // Establish the durable version reference before the workflow transaction
             // can commit. A capture failure therefore cannot leave a submitted package
             // without the configuration version that governs it.
@@ -492,19 +494,20 @@ public sealed class WorkflowService : IWorkflowService
     public async Task<ReviewDecision> FinalDecideAsync(Guid packageId, int revision, ReviewDecisionType decisionType, string? comments, CancellationToken cancellationToken = default)
         => await FinalDecideCoreAsync(packageId, revision, decisionType, null, comments, ReviewDecisionRoute.None, cancellationToken).ConfigureAwait(false);
 
-    public async Task<SignatureData> ApplyCheckerSignatureAsync(Guid packageId, int revision, SignatureMethod method, string payload, string? title = null, string? department = null, CancellationToken cancellationToken = default)
+    public async Task<SignatureData> ApplyCheckerSignatureAsync(Guid packageId, int revision, SignatureMethod method, string payload, string? title = null, string? department = null, CancellationToken cancellationToken = default, Guid? placeholderId = null)
     {
         RequireReviewPermission();
         var user = _authentication.CurrentUser!;
         if (!user.HasRole(SystemRoles.Checker)) throw new UnauthorizedAccessException("Only a Checker can apply a Checker signature.");
         var package = await _workflow.GetReviewPackageAsync(packageId, revision, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException($"Review package '{packageId}' revision {revision} was not found.");
+        var assignment = ResolveAssignment(package.Submission, placeholderId, user, SystemRoles.Checker);
         if (package.Status is not (WorkflowStatus.ApprovedByChecker or WorkflowStatus.PendingFinalApproval) || package.PriorDecision?.Revision != revision || package.PriorDecision.DecisionType != ReviewDecisionType.Approve || package.PriorDecision.IsFinalApproval) throw new InvalidOperationException("A Checker signature can only be applied after the current revision has been approved by the Checker.");
         if (package.Submission.MakerSignature is null) throw new InvalidOperationException("Maker signature required before Checker signature.");
         var makerSignature = package.Submission.MakerSignature;
         makerSignature.Validate();
         if (makerSignature.DocumentId != packageId || makerSignature.Revision != revision || !string.Equals(makerSignature.MakerUserId, package.MakerUserId, StringComparison.Ordinal) || !string.Equals(makerSignature.MakerDisplayName, package.MakerDisplayName, StringComparison.Ordinal)) throw new InvalidOperationException("The current revision Maker signature does not match the package.");
         if (package.Submission.CheckerSignature is not null) throw new InvalidOperationException("A Checker signature already exists for this document version.");
-        var signature = SignatureData.CreateChecker(method, payload, user.UserId, user.DisplayName, packageId, revision, _clock().ToUniversalTime(), title, department);
+        var signature = SignatureData.CreateChecker(method, payload, user.UserId, user.DisplayName, packageId, revision, _clock().ToUniversalTime(), title, department, assignment?.PlaceholderId);
         var fingerprint = package.Fingerprint ?? throw new InvalidOperationException("A document fingerprint is required before Checker signing.");
         var signedFingerprint = CreateSignedStateFingerprint(fingerprint, signature);
         var audit = CreateAudit(packageId, revision, DocumentAuditAction.CheckerSignatureApplied, "CheckerSignatureApplied", signature.TimestampUtc.UtcDateTime, user, snapshotReference: package.SnapshotReference, documentVersionId: package.StepDocumentVersionId, fingerprint: signedFingerprint, signature: signature);
@@ -512,12 +515,13 @@ public sealed class WorkflowService : IWorkflowService
         catch (Exception exception) { _logger?.Log(exception, "Checker signature", $"Unable to persist Checker signature for packageId={packageId}, revision={revision}."); throw; }
     }
 
-    public async Task<SignatureData> ApplyApproverSignatureAsync(Guid packageId, int revision, SignatureMethod method, string payload, string? title = null, string? department = null, CancellationToken cancellationToken = default)
+    public async Task<SignatureData> ApplyApproverSignatureAsync(Guid packageId, int revision, SignatureMethod method, string payload, string? title = null, string? department = null, CancellationToken cancellationToken = default, Guid? placeholderId = null)
     {
         RequireFinalApprovalPermission();
         var user = _authentication.CurrentUser!;
         if (!user.HasRole(SystemRoles.Approver)) throw new UnauthorizedAccessException("Only an Approver can apply an Approver signature.");
         var package = await _workflow.GetReviewPackageAsync(packageId, revision, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException($"Review package '{packageId}' revision {revision} was not found.");
+        var assignment = ResolveAssignment(package.Submission, placeholderId, user, SystemRoles.Approver);
         if (package.Status is not (WorkflowStatus.ApprovedByChecker or WorkflowStatus.PendingFinalApproval) || package.PriorDecision?.Revision != revision || package.PriorDecision.DecisionType != ReviewDecisionType.Approve || package.PriorDecision.IsFinalApproval)
             throw new InvalidOperationException("Approver signature can only be applied in the current final-approval state.");
         if (package.Submission.MakerSignature is null) throw new InvalidOperationException("Maker signature required before Approver signature.");
@@ -525,7 +529,7 @@ public sealed class WorkflowService : IWorkflowService
         if (package.Submission.ApproverSignature is not null) throw new InvalidOperationException("An Approver signature already exists for this document version.");
         package.Submission.MakerSignature.Validate(); package.Submission.CheckerSignature.Validate();
         if (package.Submission.MakerSignature.Revision != revision || package.Submission.CheckerSignature.Revision != revision) throw new InvalidOperationException("Maker and Checker signatures must belong to the current document version.");
-        var signature = SignatureData.CreateApprover(method, payload, user.UserId, user.DisplayName, packageId, revision, _clock().ToUniversalTime(), title, department);
+        var signature = SignatureData.CreateApprover(method, payload, user.UserId, user.DisplayName, packageId, revision, _clock().ToUniversalTime(), title, department, assignment?.PlaceholderId);
         var fingerprint = package.Fingerprint ?? throw new InvalidOperationException("A document fingerprint is required before Approver signing.");
         var signedFingerprint = CreateSignedStateFingerprint(fingerprint, signature);
         var audit = CreateAudit(packageId, revision, DocumentAuditAction.ApproverSignatureApplied, "ApproverSignatureApplied", signature.TimestampUtc.UtcDateTime, user, snapshotReference: package.SnapshotReference, documentVersionId: package.StepDocumentVersionId, fingerprint: signedFingerprint, signature: signature);
@@ -1079,6 +1083,24 @@ public sealed class WorkflowService : IWorkflowService
         catch (Exception exception) { _logger?.Log(exception, "Workflow audit", $"Unable to record unauthenticated submission rejection for packageId={packageId}, revision={revision}."); throw; }
     }
     private static DocumentFingerprint CreateSignedStateFingerprint(DocumentFingerprint baseFingerprint, SignatureData checkerSignature) => baseFingerprint with { Value = SignatureData.ComputePayloadHash($"{baseFingerprint.Value}|{checkerSignature.CanonicalRepresentation}") };
+
+    private SignaturePlaceholderAssignment? ResolveAssignment(ReviewSubmission submission, Guid? placeholderId, AuthenticatedUser user, string role)
+    {
+        if (submission.PlaceholderAssignments.Count == 0)
+        {
+            if (placeholderId.HasValue) throw new UnauthorizedAccessException("The requested signature placeholder is not assigned to this document.");
+            return null;
+        }
+
+        if (!placeholderId.HasValue) throw new ArgumentException("A signature placeholder must be selected for this document.", nameof(placeholderId));
+        var assignment = submission.PlaceholderAssignments.SingleOrDefault(x => x.PlaceholderId == placeholderId.Value)
+            ?? throw new UnauthorizedAccessException("The requested signature placeholder is not assigned to this document.");
+        assignment.Validate();
+        if (!string.Equals(assignment.Role, role, StringComparison.OrdinalIgnoreCase) || !assignment.IsEligible(user.UserId, user.Roles))
+            throw new UnauthorizedAccessException("You are not authorized to sign this placeholder.");
+        if (assignment.IsSigned) throw new InvalidOperationException("This signature placeholder has already been signed.");
+        return assignment;
+    }
     private static DocumentFingerprint CreateStampedFingerprint(DocumentFingerprint baseFingerprint, InternalApprovalStamp stamp) => baseFingerprint with { Value = SignatureData.ComputePayloadHash($"{baseFingerprint.Value}|{stamp.CanonicalRepresentation}") };
     private static Dictionary<string, string> SignatureMetadata(SignatureData signature, string extractionEvidence, string verificationEvidence) => new() { ["makerUserId"] = signature.MakerUserId, ["makerDisplayName"] = signature.MakerDisplayName, ["makerRole"] = signature.Role, ["signatureMethod"] = signature.Method.ToString(), ["signatureTimestampUtc"] = signature.TimestampUtc.ToString("O"), ["signaturePayloadHash"] = signature.PayloadHash, ["signatureCanonical"] = signature.CanonicalRepresentation, ["signatureDocumentId"] = signature.DocumentId.ToString("D"), ["signatureRevision"] = signature.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture), ["signatureTitle"] = signature.Title ?? string.Empty, ["signatureDepartment"] = signature.Department ?? string.Empty, ["extractionEvidence"] = extractionEvidence, ["verificationEvidence"] = verificationEvidence };
     private static bool IsPdfOrImage(CoreDocumentType type) => type is CoreDocumentType.PdfDrawing or CoreDocumentType.ImageDrawing;

@@ -11,6 +11,18 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class WorkflowConfigurationEnforcementTests
 {
+    [Fact(DisplayName = "TSD-06 missing or unsupported unmapped-placeholder policy is rejected")]
+    public void Invalid_unmapped_placeholder_policy_is_visible_in_application_validation()
+    {
+        var configuration = BaselineConfiguration() with { UnmappedSignaturePlaceholderPolicy = (UnmappedSignaturePlaceholderPolicy)999 };
+        Assert.Contains(configuration.ApplicationValidation(), error => error.Contains("UnmappedSignaturePlaceholderPolicy", StringComparison.Ordinal));
+    }
+
+    private static WorkflowConfiguration BaselineConfiguration() => new()
+    {
+        PermittedInitialStates = new[] { WorkflowStatus.Draft, WorkflowStatus.InPreparation },
+        DuplicateSubmissionStates = new[] { WorkflowStatus.SubmittedForReview, WorkflowStatus.UnderReview, WorkflowStatus.Approved }
+    };
     [Fact(DisplayName = "TD-APP-004 preview matches triggers and has no persistence or delivery side effects")]
     public async Task Preview_is_pure()
     {

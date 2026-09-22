@@ -25,6 +25,8 @@ public partial class SignatureStampControl : UserControl, INotifyPropertyChanged
     public static readonly DependencyProperty LoggerProperty = DependencyProperty.Register(nameof(Logger), typeof(ICentralizedLogger), typeof(SignatureStampControl), new PropertyMetadata(null));
     public static readonly DependencyProperty DocumentIdProperty = DependencyProperty.Register(nameof(DocumentId), typeof(Guid), typeof(SignatureStampControl), new PropertyMetadata(Guid.Empty));
     public static readonly DependencyProperty RevisionProperty = DependencyProperty.Register(nameof(Revision), typeof(int), typeof(SignatureStampControl), new PropertyMetadata(0));
+    public static readonly DependencyProperty PlaceholderIdProperty = DependencyProperty.Register(nameof(PlaceholderId), typeof(Guid?), typeof(SignatureStampControl), new PropertyMetadata(null));
+    public static readonly DependencyProperty TargetEligibleProperty = DependencyProperty.Register(nameof(TargetEligible), typeof(bool), typeof(SignatureStampControl), new PropertyMetadata(true, OnIsMakerChanged));
     public bool IsMaker { get => (bool)GetValue(IsMakerProperty); set => SetValue(IsMakerProperty, value); }
     public bool IsChecker { get => (bool)GetValue(IsCheckerProperty); set => SetValue(IsCheckerProperty, value); }
     public bool IsApprover { get => (bool)GetValue(IsApproverProperty); set => SetValue(IsApproverProperty, value); }
@@ -39,8 +41,10 @@ public partial class SignatureStampControl : UserControl, INotifyPropertyChanged
     public ICentralizedLogger? Logger { get => (ICentralizedLogger?)GetValue(LoggerProperty); set => SetValue(LoggerProperty, value); }
     public Guid DocumentId { get => (Guid)GetValue(DocumentIdProperty); set => SetValue(DocumentIdProperty, value); }
     public int Revision { get => (int)GetValue(RevisionProperty); set => SetValue(RevisionProperty, value); }
+    public Guid? PlaceholderId { get => (Guid?)GetValue(PlaceholderIdProperty); set => SetValue(PlaceholderIdProperty, value); }
+    public bool TargetEligible { get => (bool)GetValue(TargetEligibleProperty); set => SetValue(TargetEligibleProperty, value); }
     public bool IsFinalized => FinalizedSignature is not null;
-    public bool CanEdit => (IsMaker || IsChecker || IsApprover) && !IsFinalized;
+    public bool CanEdit => TargetEligible && (IsMaker || IsChecker || IsApprover) && !IsFinalized;
     public bool HasPreview => !string.IsNullOrWhiteSpace(PreviewText);
     public bool IsPreviewVisible => HasPreview;
     public string PreviewText { get; private set; } = string.Empty;
@@ -89,7 +93,7 @@ public partial class SignatureStampControl : UserControl, INotifyPropertyChanged
             var separator = PreviewText.IndexOf(": ", StringComparison.Ordinal);
             var method = Enum.Parse<SignatureMethod>(PreviewText[..separator]);
             var payload = PreviewText[(separator + 2)..];
-            var signature = IsApprover ? SignatureData.CreateApprover(method, payload, MakerUserId, MakerDisplayName, DocumentId, Revision, DateTimeOffset.UtcNow, Title, Department) : IsChecker ? SignatureData.CreateChecker(method, payload, MakerUserId, MakerDisplayName, DocumentId, Revision, DateTimeOffset.UtcNow, Title, Department) : SignatureData.Create(method, payload, MakerUserId, MakerDisplayName, DocumentId, Revision, DateTimeOffset.UtcNow, Title, Department);
+            var signature = IsApprover ? SignatureData.CreateApprover(method, payload, MakerUserId, MakerDisplayName, DocumentId, Revision, DateTimeOffset.UtcNow, Title, Department, PlaceholderId) : IsChecker ? SignatureData.CreateChecker(method, payload, MakerUserId, MakerDisplayName, DocumentId, Revision, DateTimeOffset.UtcNow, Title, Department, PlaceholderId) : SignatureData.Create(method, payload, MakerUserId, MakerDisplayName, DocumentId, Revision, DateTimeOffset.UtcNow, Title, Department, PlaceholderId);
             if (IsApprover) { PendingSignature = signature; ApproverSignatureFinalizationRequested?.Invoke(this, EventArgs.Empty); }
             else if (IsChecker) { PendingSignature = signature; SignatureFinalizationRequested?.Invoke(this, EventArgs.Empty); }
             else FinalizedSignature = signature;

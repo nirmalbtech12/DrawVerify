@@ -12,6 +12,24 @@ public sealed class SqliteMakerSignaturePersistenceTests
 {
     private const string ValidPngPayload = "iVBORw0KGgo=";
 
+    [Fact(DisplayName = "TSD-02 per-placeholder signer state round-trips in JSON")]
+    public void Multiple_signer_assignment_state_round_trips()
+    {
+        var timestamp = new DateTimeOffset(2026, 9, 22, 12, 0, 0, TimeSpan.Zero);
+        var assignments = new[]
+        {
+            new SignaturePlaceholderAssignment { PlaceholderId = Guid.NewGuid(), Role = "Approver", AssignedSignerUserId = "approver-1", IsSigned = true, SignedByUserId = "approver-1", SignedUtc = timestamp },
+            new SignaturePlaceholderAssignment { PlaceholderId = Guid.NewGuid(), Role = "Approver", AssignedSignerUserId = "approver-2" }
+        };
+
+        var restored = JsonSerializer.Deserialize<SignaturePlaceholderAssignment[]>(JsonSerializer.Serialize(assignments));
+        Assert.NotNull(restored);
+        Assert.Equal(assignments, restored);
+        Assert.False(restored![1].IsSigned);
+        Assert.Equal("approver-1", restored[0].SignedByUserId);
+        Assert.Equal(timestamp, restored[0].SignedUtc);
+    }
+
     [Fact(DisplayName = "TD-KAN64-INFRA-001 audit persistence records MakerSignatureApplied with integrity")]
     public async Task Maker_signature_audit_round_trips_and_is_append_only()
     {

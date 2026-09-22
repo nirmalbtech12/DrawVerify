@@ -10,6 +10,26 @@ namespace DrawVerify.App.Tests;
 
 public sealed class WorkflowViewModelTests
 {
+    [Fact(DisplayName = "TSD-01 workflow package retains captured placeholder targets")]
+    public void Workflow_package_projection_uses_captured_assignments()
+    {
+        var makerId = Guid.NewGuid();
+        var package = ReviewFixture() with
+        {
+            Submission = ReviewFixture().Submission with
+            {
+                PlaceholderAssignments = new[]
+                {
+                    new SignaturePlaceholderAssignment { PlaceholderId = makerId, Role = "Maker", AssignedSignerUserId = "maker-1" },
+                    new SignaturePlaceholderAssignment { PlaceholderId = Guid.NewGuid(), Role = "Checker", AssignedSignerUserId = "checker-1" }
+                }
+            }
+        };
+
+        var targets = package.Submission.EligiblePlaceholders("maker-1", new[] { "Maker" });
+        Assert.Equal(new[] { makerId }, targets.Select(x => x.PlaceholderId));
+    }
+
     [Theory(DisplayName = "TSD-AC03-STATUS PDF/image workflow queue exposes actual neutral status")]
     [InlineData(WorkflowStatus.Draft)]
     [InlineData(WorkflowStatus.SubmittedForReview)]

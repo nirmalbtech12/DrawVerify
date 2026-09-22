@@ -22,6 +22,7 @@ public sealed record WorkflowConfiguration
     public WorkflowStatus SubmittedForReviewState { get; init; } = WorkflowStatus.SubmittedForReview;
     public IReadOnlyList<WorkflowStatus> DuplicateSubmissionStates { get; init; } = Array.Empty<WorkflowStatus>();
     public bool MarkChangedPackagesSuperseded { get; init; } = true;
+    public UnmappedSignaturePlaceholderPolicy UnmappedSignaturePlaceholderPolicy { get; init; } = UnmappedSignaturePlaceholderPolicy.Block;
     public WorkflowStatus ApprovedReviewState { get; init; } = WorkflowStatus.Approved;
     public WorkflowStatus RejectedReviewState { get; init; } = WorkflowStatus.Rejected;
     public WorkflowStatus ChangesRequestedReviewState { get; init; } = WorkflowStatus.ChangesRequested;
@@ -47,6 +48,7 @@ public sealed record WorkflowConfiguration
     public IReadOnlyList<string> ApplicationValidation()
     {
         var errors = new List<string>();
+        if (!Enum.IsDefined(UnmappedSignaturePlaceholderPolicy)) errors.Add("UnmappedSignaturePlaceholderPolicy must be Block or Skip.");
         if (Version < 1) errors.Add("Version must be at least 1.");
         var roleNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var role in Roles)

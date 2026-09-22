@@ -5,6 +5,18 @@ namespace DrawVerify.Core.Tests;
 
 public sealed class TemplatePlaceholderTests
 {
+    [Fact(DisplayName = "TSD-01 captured assignments resolve only the current role and user")]
+    public void Captured_assignments_filter_by_role_and_user_without_current_template_lookup()
+    {
+        var maker = new SignaturePlaceholderAssignment { PlaceholderId = Guid.NewGuid(), Role = "Maker", AssignedSignerUserId = "maker-1" };
+        var checker = new SignaturePlaceholderAssignment { PlaceholderId = Guid.NewGuid(), Role = "Checker", AssignedSignerUserId = "checker-1" };
+        var submission = new ReviewSubmission { PlaceholderAssignments = new[] { maker, checker } };
+
+        Assert.Equal(new[] { maker.PlaceholderId }, submission.EligiblePlaceholders("maker-1", new[] { "Maker" }).Select(x => x.PlaceholderId));
+        Assert.Empty(submission.EligiblePlaceholders("maker-1", new[] { "Checker" }));
+        Assert.Empty(new ReviewSubmission().EligiblePlaceholders("maker-1", new[] { "Maker" }));
+    }
+
     [Fact(DisplayName = "TSD-02 signature roles and metadata validate")]
     public void Signature_roles_and_metadata_are_valid()
     {

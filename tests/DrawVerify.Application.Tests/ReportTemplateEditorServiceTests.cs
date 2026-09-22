@@ -8,6 +8,24 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class ReportTemplateEditorServiceTests
 {
+    [Fact(DisplayName = "TSD-05 mapping snapshot serializes template version and custom mappings")]
+    public void Mapping_snapshot_round_trips_as_captured_metadata()
+    {
+        var snapshot = new TemplateMappingSnapshot
+        {
+            TemplateId = Guid.NewGuid(),
+            TemplateVersion = 4,
+            Assignments = new[] { new SignaturePlaceholderAssignment { PlaceholderId = Guid.NewGuid(), Role = "Approver", AssignedSignerUserId = "approver-1" } },
+            CustomFieldMappings = new Dictionary<string, string> { ["SignerName"] = "approver-1" }
+        };
+
+        var restored = System.Text.Json.JsonSerializer.Deserialize<TemplateMappingSnapshot>(System.Text.Json.JsonSerializer.Serialize(snapshot));
+        Assert.NotNull(restored);
+        Assert.Equal(snapshot.TemplateId, restored!.TemplateId);
+        Assert.Equal(snapshot.TemplateVersion, restored.TemplateVersion);
+        Assert.Equal(snapshot.Assignments, restored.Assignments);
+        Assert.Equal("approver-1", restored.CustomFieldMappings["SignerName"]);
+    }
     [Fact(DisplayName = "TSD-01, TSD-02, and TSD-03 editor operations preserve document state")]
     public async Task Open_insert_and_save_use_editor_contract()
     {

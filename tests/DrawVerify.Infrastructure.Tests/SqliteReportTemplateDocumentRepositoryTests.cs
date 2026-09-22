@@ -7,6 +7,28 @@ namespace DrawVerify.Infrastructure.Tests;
 
 public sealed class SqliteReportTemplateDocumentRepositoryTests
 {
+    [Fact(DisplayName = "TSD-05 versioned template document metadata remains readable after source changes")]
+    public async Task Versioned_document_round_trips_without_using_a_later_version()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-template-{Guid.NewGuid():N}.db");
+        var templateId = Guid.NewGuid();
+        try
+        {
+            var repository = new SqliteReportTemplateDocumentRepository(path);
+            await repository.SaveAsync(new ReportTemplateDocument { TemplateId = templateId, Version = 1, SourceId = Guid.NewGuid(), Content = new byte[] { 1, 2, 3 } });
+            await repository.SaveAsync(new ReportTemplateDocument { TemplateId = templateId, Version = 2, SourceId = Guid.NewGuid(), Content = new byte[] { 9 } });
+
+            var captured = await repository.GetAsync(templateId, 1);
+            Assert.NotNull(captured);
+            Assert.Equal(1, captured!.Version);
+            Assert.Equal(new byte[] { 1, 2, 3 }, captured.Content);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
     [Fact(DisplayName = "TSD-05 document repository stores bytes and source linkage")]
     public async Task Document_round_trip_preserves_metadata_and_bytes()
     {
