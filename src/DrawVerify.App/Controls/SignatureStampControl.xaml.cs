@@ -27,6 +27,7 @@ public partial class SignatureStampControl : UserControl, INotifyPropertyChanged
     public static readonly DependencyProperty RevisionProperty = DependencyProperty.Register(nameof(Revision), typeof(int), typeof(SignatureStampControl), new PropertyMetadata(0));
     public static readonly DependencyProperty PlaceholderIdProperty = DependencyProperty.Register(nameof(PlaceholderId), typeof(Guid?), typeof(SignatureStampControl), new PropertyMetadata(null));
     public static readonly DependencyProperty TargetEligibleProperty = DependencyProperty.Register(nameof(TargetEligible), typeof(bool), typeof(SignatureStampControl), new PropertyMetadata(true, OnIsMakerChanged));
+    public static readonly DependencyProperty CustomFieldsProperty = DependencyProperty.Register(nameof(CustomFields), typeof(IReadOnlyDictionary<string, string>), typeof(SignatureStampControl), new PropertyMetadata(null));
     public bool IsMaker { get => (bool)GetValue(IsMakerProperty); set => SetValue(IsMakerProperty, value); }
     public bool IsChecker { get => (bool)GetValue(IsCheckerProperty); set => SetValue(IsCheckerProperty, value); }
     public bool IsApprover { get => (bool)GetValue(IsApproverProperty); set => SetValue(IsApproverProperty, value); }
@@ -43,6 +44,7 @@ public partial class SignatureStampControl : UserControl, INotifyPropertyChanged
     public int Revision { get => (int)GetValue(RevisionProperty); set => SetValue(RevisionProperty, value); }
     public Guid? PlaceholderId { get => (Guid?)GetValue(PlaceholderIdProperty); set => SetValue(PlaceholderIdProperty, value); }
     public bool TargetEligible { get => (bool)GetValue(TargetEligibleProperty); set => SetValue(TargetEligibleProperty, value); }
+    public IReadOnlyDictionary<string, string>? CustomFields { get => (IReadOnlyDictionary<string, string>?)GetValue(CustomFieldsProperty); set => SetValue(CustomFieldsProperty, value); }
     public bool IsFinalized => FinalizedSignature is not null;
     public bool CanEdit => TargetEligible && (IsMaker || IsChecker || IsApprover) && !IsFinalized;
     public bool HasPreview => !string.IsNullOrWhiteSpace(PreviewText);
@@ -93,7 +95,8 @@ public partial class SignatureStampControl : UserControl, INotifyPropertyChanged
             var separator = PreviewText.IndexOf(": ", StringComparison.Ordinal);
             var method = Enum.Parse<SignatureMethod>(PreviewText[..separator]);
             var payload = PreviewText[(separator + 2)..];
-            var signature = IsApprover ? SignatureData.CreateApprover(method, payload, MakerUserId, MakerDisplayName, DocumentId, Revision, DateTimeOffset.UtcNow, Title, Department, PlaceholderId) : IsChecker ? SignatureData.CreateChecker(method, payload, MakerUserId, MakerDisplayName, DocumentId, Revision, DateTimeOffset.UtcNow, Title, Department, PlaceholderId) : SignatureData.Create(method, payload, MakerUserId, MakerDisplayName, DocumentId, Revision, DateTimeOffset.UtcNow, Title, Department, PlaceholderId);
+            var timestamp = DateTimeOffset.UtcNow;
+            var signature = IsApprover ? SignatureData.CreateApprover(method, payload, MakerUserId, MakerDisplayName, DocumentId, Revision, timestamp, Title, Department, PlaceholderId, CustomFields) : IsChecker ? SignatureData.CreateChecker(method, payload, MakerUserId, MakerDisplayName, DocumentId, Revision, timestamp, Title, Department, PlaceholderId, CustomFields) : SignatureData.Create(method, payload, MakerUserId, MakerDisplayName, DocumentId, Revision, timestamp, Title, Department, PlaceholderId, CustomFields);
             if (IsApprover) { PendingSignature = signature; ApproverSignatureFinalizationRequested?.Invoke(this, EventArgs.Empty); }
             else if (IsChecker) { PendingSignature = signature; SignatureFinalizationRequested?.Invoke(this, EventArgs.Empty); }
             else FinalizedSignature = signature;

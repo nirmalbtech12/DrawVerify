@@ -12,6 +12,39 @@ public sealed class SqliteMakerSignaturePersistenceTests
 {
     private const string ValidPngPayload = "iVBORw0KGgo=";
 
+    [Fact(DisplayName = "TSD-04 SQLite reload preserves application-composed stamp metadata")]
+    public async Task Sqlite_reload_preserves_dynamic_stamp_metadata_and_integrity()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-stamp-metadata-{Guid.NewGuid():N}.db");
+        var packageId = Guid.NewGuid();
+        var placeholderId = Guid.NewGuid();
+        var timestamp = new DateTimeOffset(2026, 9, 22, 12, 0, 0, TimeSpan.Zero);
+        var mapping = new TemplateMappingSnapshot
+        {
+            TemplateId = Guid.NewGuid(), TemplateVersion = 2,
+            Assignments = new[] { new SignaturePlaceholderAssignment { PlaceholderId = placeholderId, Role = "Checker", AssignedSignerUserId = "checker-1" } },
+            CustomFieldMappings = new Dictionary<string, string> { ["Department"] = "Quality" }
+        };
+        try
+        {
+            var repository = new SqliteWorkflowRepository(path);
+            var maker = SignatureData.Create(SignatureMethod.Typed, "maker", "maker-1", "Maker One", packageId, 1, timestamp);
+            var submission = new ReviewSubmission { PackageId = packageId, Revision = 1, MakerUserId = "maker-1", MakerDisplayName = "Maker One", MakerSignature = maker, TemplateMapping = mapping, PlaceholderAssignments = mapping.Assignments, Fingerprint = new DocumentFingerprint { Value = new string('a', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 } };
+            await repository.SubmitAtomicallyAsync(new WorkflowState { PackageId = packageId, Status = WorkflowStatus.Draft, Revision = 1 }, submission, new AuditEntry { DocumentId = packageId, UserId = "maker-1", Action = DocumentAuditAction.SubmissionSucceeded, TimestampUtc = timestamp.UtcDateTime });
+            var package = (await repository.GetReviewPackageAsync(packageId, 1))!;
+            var signature = SignatureData.CreateChecker(SignatureMethod.Typed, "checker", "checker-1", "Checker One", packageId, 1, timestamp, placeholderId: placeholderId, customFields: new Dictionary<string, string> { ["Department"] = "Quality", ["DocumentRevision"] = "1" });
+            await repository.SaveCheckerSignatureAsync(package, signature, submission.Fingerprint!, new AuditEntry { DocumentId = packageId, UserId = "checker-1", Action = DocumentAuditAction.CheckerSignatureApplied, TimestampUtc = timestamp.UtcDateTime });
+
+            var reloaded = (await new SqliteWorkflowRepository(path).GetReviewPackageAsync(packageId, 1))!.Submission;
+            Assert.Equal(signature, reloaded.CheckerSignature);
+            Assert.Equal("Quality", reloaded.CheckerSignature!.CustomFields["Department"]);
+            Assert.Equal(placeholderId, reloaded.CheckerSignature.PlaceholderId);
+            Assert.True(reloaded.CheckerSignature.IsTamperEvident);
+            Assert.True(reloaded.PlaceholderAssignments.Single(x => x.PlaceholderId == placeholderId).IsSigned);
+        }
+        finally { Delete(path); }
+    }
+
     [Fact(DisplayName = "TSD-02 per-placeholder signer state round-trips in JSON")]
     public void Multiple_signer_assignment_state_round_trips()
     {

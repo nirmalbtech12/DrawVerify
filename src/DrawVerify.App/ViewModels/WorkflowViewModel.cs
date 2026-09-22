@@ -63,19 +63,23 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     public bool IsApprover => _authentication?.CurrentUser?.HasRole(SystemRoles.Approver) == true;
     public string MakerUserId => _authentication?.CurrentUser?.UserId ?? string.Empty;
     public string MakerDisplayName => _authentication?.CurrentUser?.DisplayName ?? string.Empty;
+    public Guid? CheckerPlaceholderId => ReviewPackage?.Submission.EligiblePlaceholders(_authentication?.CurrentUser?.UserId ?? string.Empty, _authentication?.CurrentUser?.Roles ?? Array.Empty<string>()).FirstOrDefault(x => string.Equals(x.Role, SystemRoles.Checker, StringComparison.OrdinalIgnoreCase))?.PlaceholderId;
+    public Guid? ApproverPlaceholderId => ReviewPackage?.Submission.EligiblePlaceholders(_authentication?.CurrentUser?.UserId ?? string.Empty, _authentication?.CurrentUser?.Roles ?? Array.Empty<string>()).FirstOrDefault(x => string.Equals(x.Role, SystemRoles.Approver, StringComparison.OrdinalIgnoreCase))?.PlaceholderId;
+    public bool CheckerTargetEligible => IsChecker && (ReviewPackage?.Submission.PlaceholderAssignments.Count == 0 || CheckerPlaceholderId.HasValue);
+    public bool ApproverTargetEligible => IsApprover && (ReviewPackage?.Submission.PlaceholderAssignments.Count == 0 || ApproverPlaceholderId.HasValue);
     public ICentralizedLogger? Logger => _logger;
     public string SignatureError { get => _signatureError; private set { _signatureError = value; RaisePropertyChanged(nameof(SignatureError)); } }
     public void SetMakerSignature(SignatureData signature) { if (!IsMaker) { SignatureError = "Only a Maker can finalize a Maker signature."; return; } signature.Validate(); MakerSignature = signature; }
-    public async Task SetCheckerSignatureAsync(SignatureData signature)
+    public async Task SetCheckerSignatureAsync(SignatureData signature, Guid? placeholderId = null)
     {
         if (!IsChecker || ReviewPackage is null || _service is null) { ReviewError = "Only an authorized Checker can apply a Checker signature."; return; }
-        try { CheckerSignature = await _service.ApplyCheckerSignatureAsync(ReviewPackage.PackageId, ReviewPackage.Revision, signature.Method, signature.Payload, signature.Title, signature.Department); ReviewError = string.Empty; }
+        try { CheckerSignature = await _service.ApplyCheckerSignatureAsync(ReviewPackage.PackageId, ReviewPackage.Revision, signature.Method, signature.Payload, signature.Title, signature.Department, placeholderId: placeholderId ?? signature.PlaceholderId); ReviewError = string.Empty; }
         catch (Exception exception) { _logger?.Log(exception, "WPF Checker signature", $"Unable to apply Checker signature for packageId={ReviewPackage.PackageId}, revision={ReviewPackage.Revision}."); ReviewError = exception.Message; }
     }
-    public async Task SetApproverSignatureAsync(SignatureData signature)
+    public async Task SetApproverSignatureAsync(SignatureData signature, Guid? placeholderId = null)
     {
         if (!IsApprover || ReviewPackage is null || _service is null) { ReviewError = "Only an authorized Approver can apply an Approver signature."; return; }
-        try { ApproverSignature = await _service.ApplyApproverSignatureAsync(ReviewPackage.PackageId, ReviewPackage.Revision, signature.Method, signature.Payload, signature.Title, signature.Department); ReviewError = string.Empty; }
+        try { ApproverSignature = await _service.ApplyApproverSignatureAsync(ReviewPackage.PackageId, ReviewPackage.Revision, signature.Method, signature.Payload, signature.Title, signature.Department, placeholderId: placeholderId ?? signature.PlaceholderId); ReviewError = string.Empty; }
         catch (Exception exception) { _logger?.Log(exception, "WPF Approver signature", $"Unable to apply Approver signature for packageId={ReviewPackage.PackageId}, revision={ReviewPackage.Revision}."); ReviewError = exception.Message; }
     }
     public string Message { get => _message; private set { _message = value; RaisePropertyChanged(nameof(Message)); } }
@@ -88,7 +92,7 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     public ObservableCollection<ReviewPackage> MakerPackages { get; } = new();
     public ObservableCollection<ReviewComment> MakerReviewComments { get; } = new();
     public ObservableCollection<ReviewDecision> ApprovalHistory { get; } = new();
-    public ReviewPackage? ReviewPackage { get => _reviewPackage; private set { _reviewPackage = value?.WithWorkflowConfiguration(_workflowConfiguration); _currentStatus = _reviewPackage?.Status; RaisePropertyChanged(nameof(ReviewPackage)); RaisePropertyChanged(nameof(CurrentStatus)); RaisePropertyChanged(nameof(CurrentStatusLabel)); RaisePropertyChanged(nameof(CurrentStatusProgress)); RaiseReviewCommands(); } }
+    public ReviewPackage? ReviewPackage { get => _reviewPackage; private set { _reviewPackage = value?.WithWorkflowConfiguration(_workflowConfiguration); _currentStatus = _reviewPackage?.Status; RaisePropertyChanged(nameof(ReviewPackage)); RaisePropertyChanged(nameof(CheckerPlaceholderId)); RaisePropertyChanged(nameof(ApproverPlaceholderId)); RaisePropertyChanged(nameof(CheckerTargetEligible)); RaisePropertyChanged(nameof(ApproverTargetEligible)); RaisePropertyChanged(nameof(CurrentStatus)); RaisePropertyChanged(nameof(CurrentStatusLabel)); RaisePropertyChanged(nameof(CurrentStatusProgress)); RaiseReviewCommands(); } }
     public ReviewPackage? SelectedMakerPackage { get => _selectedMakerPackage; private set { _selectedMakerPackage = value; RaisePropertyChanged(nameof(SelectedMakerPackage)); } }
     public string ReviewComment { get => _reviewComment; set { _reviewComment = value ?? string.Empty; RaisePropertyChanged(nameof(ReviewComment)); RaiseReviewCommands(); } }
     public string CorrectionAction { get => _correctionAction; set { _correctionAction = value ?? string.Empty; RaisePropertyChanged(nameof(CorrectionAction)); RaiseReviewCommands(); } }
@@ -105,7 +109,7 @@ public sealed class WorkflowViewModel : TaskScreenViewModel
     public bool IsReviewMode => _reviewPackage is not null;
     public bool RequireSectionConfirmation { get; set; }
     public bool HasViewedKeySections => _viewedSections.Contains("Verification") && _viewedSections.Contains("Documents");
-    public ReviewFinding? SelectedVerificationFinding { get => _selectedFinding; private set { _selectedFinding = value; RaisePropertyChanged(nameof(SelectedVerificationFinding)); } }
+    public ReviewFinding? SelectedVerificationFinding { get => _selectedFinding; set { _selectedFinding = value; RaisePropertyChanged(nameof(SelectedVerificationFinding)); } }
     public ReviewComment? SelectedReviewComment
     {
         get => _selectedReviewComment;

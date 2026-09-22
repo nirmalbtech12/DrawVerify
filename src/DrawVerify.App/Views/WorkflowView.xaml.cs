@@ -25,12 +25,12 @@ public partial class WorkflowView : UserControl
     private async void CheckerSignatureFinalizationRequested(object sender, EventArgs e)
     {
         if (sender is DrawVerify.App.Controls.SignatureStampControl control && control.PendingSignature is not null && DataContext is WorkflowViewModel model)
-            await model.SetCheckerSignatureAsync(control.PendingSignature);
+            await model.SetCheckerSignatureAsync(control.PendingSignature, control.PlaceholderId);
     }
     private async void ApproverSignatureFinalizationRequested(object sender, EventArgs e)
     {
         if (sender is DrawVerify.App.Controls.SignatureStampControl control && control.PendingSignature is not null && DataContext is WorkflowViewModel model)
-            await model.SetApproverSignatureAsync(control.PendingSignature);
+            await model.SetApproverSignatureAsync(control.PendingSignature, control.PlaceholderId);
     }
     private async void MakerPackageSelectionChanged(object sender, SelectionChangedEventArgs e)
     {

@@ -313,6 +313,7 @@ public sealed class WorkflowService : IWorkflowService
 
     public async Task<SubmissionResult> SubmitForReviewAsync(SubmissionRequest request, CancellationToken cancellationToken = default)
     {
+        await ResolveWorkflowConfigurationAsync(request.PackageId, cancellationToken, allowCurrentForNewSubmission: true).ConfigureAwait(false);
         TemplateMappingSnapshot? prevalidatedMapping = null;
         if (request.TemplateMapping is { } requestedMapping)
         {
@@ -551,7 +552,9 @@ public sealed class WorkflowService : IWorkflowService
         makerSignature.Validate();
         if (makerSignature.DocumentId != packageId || makerSignature.Revision != revision || !string.Equals(makerSignature.MakerUserId, package.MakerUserId, StringComparison.Ordinal) || !string.Equals(makerSignature.MakerDisplayName, package.MakerDisplayName, StringComparison.Ordinal)) throw new InvalidOperationException("The current revision Maker signature does not match the package.");
         if (package.Submission.CheckerSignature is not null) throw new InvalidOperationException("A Checker signature already exists for this document version.");
-        var signature = SignatureData.CreateChecker(method, payload, user.UserId, user.DisplayName, packageId, revision, _clock().ToUniversalTime(), title, department, assignment?.PlaceholderId);
+        var timestamp = _clock().ToUniversalTime();
+        var customFields = ResolveStampCustomFields(package.Submission, assignment, user, revision, timestamp);
+        var signature = SignatureData.CreateChecker(method, payload, user.UserId, user.DisplayName, packageId, revision, timestamp, title, department, assignment?.PlaceholderId, customFields);
         var fingerprint = package.Fingerprint ?? throw new InvalidOperationException("A document fingerprint is required before Checker signing.");
         var signedFingerprint = CreateSignedStateFingerprint(fingerprint, signature);
         var audit = CreateAudit(packageId, revision, DocumentAuditAction.CheckerSignatureApplied, "CheckerSignatureApplied", signature.TimestampUtc.UtcDateTime, user, snapshotReference: package.SnapshotReference, documentVersionId: package.StepDocumentVersionId, fingerprint: signedFingerprint, signature: signature);
@@ -573,7 +576,9 @@ public sealed class WorkflowService : IWorkflowService
         if (assignment is null && package.Submission.ApproverSignature is not null) throw new InvalidOperationException("An Approver signature already exists for this document version.");
         package.Submission.MakerSignature.Validate(); package.Submission.CheckerSignature.Validate();
         if (package.Submission.MakerSignature.Revision != revision || package.Submission.CheckerSignature.Revision != revision) throw new InvalidOperationException("Maker and Checker signatures must belong to the current document version.");
-        var signature = SignatureData.CreateApprover(method, payload, user.UserId, user.DisplayName, packageId, revision, _clock().ToUniversalTime(), title, department, assignment?.PlaceholderId);
+        var timestamp = _clock().ToUniversalTime();
+        var customFields = ResolveStampCustomFields(package.Submission, assignment, user, revision, timestamp);
+        var signature = SignatureData.CreateApprover(method, payload, user.UserId, user.DisplayName, packageId, revision, timestamp, title, department, assignment?.PlaceholderId, customFields);
         var fingerprint = package.Fingerprint ?? throw new InvalidOperationException("A document fingerprint is required before Approver signing.");
         var signedFingerprint = CreateSignedStateFingerprint(fingerprint, signature);
         var audit = CreateAudit(packageId, revision, DocumentAuditAction.ApproverSignatureApplied, "ApproverSignatureApplied", signature.TimestampUtc.UtcDateTime, user, snapshotReference: package.SnapshotReference, documentVersionId: package.StepDocumentVersionId, fingerprint: signedFingerprint, signature: signature);
@@ -1145,6 +1150,18 @@ public sealed class WorkflowService : IWorkflowService
             throw new UnauthorizedAccessException("You are not authorized to sign this placeholder.");
         if (assignment.IsSigned) throw new InvalidOperationException("This signature placeholder has already been signed.");
         return assignment;
+    }
+    private static IReadOnlyDictionary<string, string> ResolveStampCustomFields(ReviewSubmission submission, SignaturePlaceholderAssignment? assignment, AuthenticatedUser user, int revision, DateTimeOffset timestamp)
+    {
+        var fields = submission.TemplateMapping?.CustomFieldMappings is { } configured
+            ? new Dictionary<string, string>(configured, StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        fields["SignerName"] = user.DisplayName;
+        fields["Role"] = assignment?.Role ?? user.Roles.FirstOrDefault() ?? string.Empty;
+        fields["TimestampUtc"] = timestamp.ToUniversalTime().ToString("O");
+        fields["DocumentRevision"] = revision.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (assignment is not null) fields["PlaceholderId"] = assignment.PlaceholderId.ToString("D");
+        return fields;
     }
     private static DocumentFingerprint CreateStampedFingerprint(DocumentFingerprint baseFingerprint, InternalApprovalStamp stamp) => baseFingerprint with { Value = SignatureData.ComputePayloadHash($"{baseFingerprint.Value}|{stamp.CanonicalRepresentation}") };
     private static Dictionary<string, string> SignatureMetadata(SignatureData signature, string extractionEvidence, string verificationEvidence) => new() { ["makerUserId"] = signature.MakerUserId, ["makerDisplayName"] = signature.MakerDisplayName, ["makerRole"] = signature.Role, ["signatureMethod"] = signature.Method.ToString(), ["signatureTimestampUtc"] = signature.TimestampUtc.ToString("O"), ["signaturePayloadHash"] = signature.PayloadHash, ["signatureCanonical"] = signature.CanonicalRepresentation, ["signatureDocumentId"] = signature.DocumentId.ToString("D"), ["signatureRevision"] = signature.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture), ["signatureTitle"] = signature.Title ?? string.Empty, ["signatureDepartment"] = signature.Department ?? string.Empty, ["extractionEvidence"] = extractionEvidence, ["verificationEvidence"] = verificationEvidence };
