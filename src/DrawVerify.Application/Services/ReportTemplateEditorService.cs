@@ -39,7 +39,7 @@ public sealed class ReportTemplateEditorService : IReportTemplateEditorService
         ReportTemplateValidator.Validate(updated);
         var audit = new ReportTemplateAuditEntry { TemplateId = template.Id, Version = expectedVersion + 1, ActorId = actorId, Action = "Modified", Summary = template.Name };
         var source = await _documents.GetAsync(template.Id, expectedVersion, cancellationToken).ConfigureAwait(false);
-        var stored = new ReportTemplateDocument { TemplateId = template.Id, Version = expectedVersion + 1, SourceId = source?.SourceId ?? Guid.NewGuid(), SourceFileName = source?.SourceFileName ?? "template.docx", Content = bytes };
+        var stored = new ReportTemplateDocument { TemplateId = template.Id, Version = expectedVersion + 1, SourceId = source?.SourceId ?? Guid.NewGuid(), SourceFileName = source?.SourceFileName ?? "template.docx", Content = bytes, TemplateMapping = TemplateMappingSnapshot.FromTemplate(template.Id, expectedVersion + 1, document.Placeholders) };
         try
         {
             return await publisher.PublishAsync(updated, expectedVersion, audit, stored, cancellationToken).ConfigureAwait(false);

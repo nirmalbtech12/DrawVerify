@@ -277,10 +277,11 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository
         try
         {
             var assignments = MarkAssignmentSigned(package.Submission.PlaceholderAssignments, signature);
-            var changed = await Exec(c, t, "UPDATE ReviewSubmission SET ApproverSignatureJson=$signature,ApproverSignatureFinalized=1,FingerprintJson=$fingerprint,FingerprintAlgorithm=$algorithm,FingerprintCanonicalizationVersion=$canonicalization,PlaceholderAssignmentsJson=$assignments WHERE PackageId=$package AND Revision=$revision AND ApproverSignatureFinalized IS NULL AND NOT EXISTS (SELECT 1 FROM RevisionLock WHERE PackageId=$package AND Revision=$revision)", token, ("$signature", JsonSerializer.Serialize(signature)), ("$fingerprint", JsonSerializer.Serialize(fingerprint)), ("$algorithm", fingerprint.Algorithm), ("$canonicalization", fingerprint.CanonicalizationVersion), ("$assignments", (object?)JsonSerializer.Serialize(assignments) ?? DBNull.Value), ("$package", package.PackageId.ToString()), ("$revision", package.Revision));
+            var assignmentAware = package.Submission.PlaceholderAssignments.Count > 0;
+            var changed = await Exec(c, t, "UPDATE ReviewSubmission SET ApproverSignatureJson=COALESCE(ApproverSignatureJson,$signature),ApproverSignatureFinalized=COALESCE(ApproverSignatureFinalized,1),FingerprintJson=CASE WHEN ApproverSignatureFinalized IS NULL THEN $fingerprint ELSE FingerprintJson END,FingerprintAlgorithm=CASE WHEN ApproverSignatureFinalized IS NULL THEN $algorithm ELSE FingerprintAlgorithm END,FingerprintCanonicalizationVersion=CASE WHEN ApproverSignatureFinalized IS NULL THEN $canonicalization ELSE FingerprintCanonicalizationVersion END,PlaceholderAssignmentsJson=$assignments WHERE PackageId=$package AND Revision=$revision AND (ApproverSignatureFinalized IS NULL OR $assignmentAware=1) AND NOT EXISTS (SELECT 1 FROM RevisionLock WHERE PackageId=$package AND Revision=$revision)", token, ("$signature", JsonSerializer.Serialize(signature)), ("$fingerprint", JsonSerializer.Serialize(fingerprint)), ("$algorithm", fingerprint.Algorithm), ("$canonicalization", fingerprint.CanonicalizationVersion), ("$assignments", (object?)JsonSerializer.Serialize(assignments) ?? DBNull.Value), ("$assignmentAware", assignmentAware ? 1 : 0), ("$package", package.PackageId.ToString()), ("$revision", package.Revision));
             if (changed != 1) throw new InvalidOperationException("A finalized Approver signature already exists for this document version.");
             await InsertAudit(c, t, auditEntry, token); await t.CommitAsync(token);
-            return package.Submission with { ApproverSignature = signature, Fingerprint = fingerprint, PlaceholderAssignments = assignments };
+            return package.Submission with { ApproverSignature = package.Submission.ApproverSignature ?? signature, Fingerprint = fingerprint, PlaceholderAssignments = assignments };
         }
         catch { await t.RollbackAsync(token); throw; }
     }
@@ -290,8 +291,11 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository
 
     private static IReadOnlyList<SignaturePlaceholderAssignment> MarkAssignmentSigned(IReadOnlyList<SignaturePlaceholderAssignment> assignments, SignatureData signature)
     {
+        var roleAssignments = assignments.Where(x => string.Equals(x.Role, signature.Role, StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (roleAssignments.Length == 0) return assignments;
+        if (signature.PlaceholderId is null) throw new InvalidOperationException("A placeholder target is required when assignments are configured for this signature role.");
         if (signature.PlaceholderId is not { } placeholderId) return assignments;
-        var assignment = assignments.SingleOrDefault(x => x.PlaceholderId == placeholderId) ?? throw new InvalidOperationException("The signature placeholder assignment was not found.");
+        var assignment = roleAssignments.SingleOrDefault(x => x.PlaceholderId == placeholderId) ?? throw new InvalidOperationException("The signature placeholder assignment was not found for this signature role.");
         if (assignment.IsSigned) throw new InvalidOperationException("The signature placeholder has already been signed.");
         return assignments.Select(x => x.PlaceholderId == placeholderId ? x with { IsSigned = true, SignedByUserId = signature.SignerUserId, SignedUtc = signature.TimestampUtc } : x).ToArray();
     }

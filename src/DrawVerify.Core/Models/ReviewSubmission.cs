@@ -43,6 +43,8 @@ public sealed record SubmissionReadiness(bool IsReady, IReadOnlyList<string> Fai
 
 public sealed record SubmissionRequest(Guid PackageId, string? Note = null)
 {
+    public Guid? TemplateId { get; init; }
+    public int? TemplateVersion { get; init; }
     public Guid DxfDocumentId { get; init; }
     public Guid StepDocumentVersionId { get; init; }
     public Guid DxfDocumentVersionId { get; init; }

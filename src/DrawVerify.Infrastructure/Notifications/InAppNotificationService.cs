@@ -32,6 +32,14 @@ public sealed class InAppNotificationService : INotificationService
             if (inserted == 1) await InsertNotificationAuditAsync(connection, submission, recipient, cancellationToken);
         }
     }
+    public async Task NotifyAdministratorAsync(Guid templateId, int templateVersion, Guid packageId, int revision, Guid placeholderId, string placeholderLabel, string reason, CancellationToken cancellationToken = default)
+    {
+        if (templateId == Guid.Empty || templateVersion < 1 || packageId == Guid.Empty || revision < 1 || placeholderId == Guid.Empty) throw new InvalidDataException("Configuration warning notification requires valid template, document, revision, and placeholder identity.");
+        await using var connection = new SqliteConnection(_connectionString); await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand(); command.CommandText = "INSERT INTO InAppNotification(NotificationId,UserId,PackageId,Revision,Message,CreatedUtc) VALUES($id,$user,$package,$revision,$message,$created)";
+        command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString()); command.Parameters.AddWithValue("$user", "Admin"); command.Parameters.AddWithValue("$package", packageId.ToString()); command.Parameters.AddWithValue("$revision", revision); command.Parameters.AddWithValue("$message", $"Template {templateId} version {templateVersion} has an invalid signature placeholder '{placeholderLabel}' ({placeholderId}) for document {packageId}, revision {revision}: {reason}"); command.Parameters.AddWithValue("$created", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
     public async Task NotifyApproverAsync(Guid packageId, int revision, ReviewDecision decision, CancellationToken cancellationToken = default)
     {
         if (packageId == Guid.Empty || revision < 1 || decision.DecisionId == Guid.Empty || string.IsNullOrWhiteSpace(decision.CheckerUserId) || string.IsNullOrWhiteSpace(decision.CheckerDisplayName) || decision.DecidedUtc == default)

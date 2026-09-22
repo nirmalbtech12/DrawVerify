@@ -20,4 +20,6 @@ public interface INotificationService
         => Task.CompletedTask;
     Task NotifyApproverAsync(Guid packageId, int revision, ReviewDecision decision, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
+    Task NotifyAdministratorAsync(Guid templateId, int templateVersion, Guid packageId, int revision, Guid placeholderId, string placeholderLabel, string reason, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
 }

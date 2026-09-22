@@ -8,6 +8,7 @@ public sealed record SignaturePlaceholderAssignment
     public string Role { get; init; } = string.Empty;
     public string? AssignedSignerUserId { get; init; }
     public bool IsSigned { get; init; }
+    public bool IsSkipped { get; init; }
     public string? SignedByUserId { get; init; }
     public DateTimeOffset? SignedUtc { get; init; }
 
@@ -25,7 +26,7 @@ public sealed record SignaturePlaceholderAssignment
     public bool IsEligible(string? userId, IEnumerable<string>? roles)
     {
         if (!SystemRoles.TryCanonicalize(Role, out var canonicalRole) || roles is null || !roles.Any(role => string.Equals(role, canonicalRole, StringComparison.OrdinalIgnoreCase))) return false;
-        return string.IsNullOrWhiteSpace(AssignedSignerUserId) || string.Equals(AssignedSignerUserId, userId, StringComparison.Ordinal);
+        return !IsSkipped && (string.IsNullOrWhiteSpace(AssignedSignerUserId) || string.Equals(AssignedSignerUserId, userId, StringComparison.Ordinal));
     }
 }
 
@@ -35,6 +36,7 @@ public sealed record TemplateMappingSnapshot
     public int TemplateVersion { get; init; }
     public IReadOnlyList<SignaturePlaceholderAssignment> Assignments { get; init; } = Array.Empty<SignaturePlaceholderAssignment>();
     public IReadOnlyDictionary<string, string> CustomFieldMappings { get; init; } = new Dictionary<string, string>();
+    public IReadOnlyDictionary<string, string> PlaceholderLabels { get; init; } = new Dictionary<string, string>();
 
     public void Validate()
     {
@@ -45,5 +47,16 @@ public sealed record TemplateMappingSnapshot
             assignment.Validate();
             if (!seen.Add(assignment.PlaceholderId)) throw new InvalidOperationException($"Placeholder '{assignment.PlaceholderId}' is assigned more than once.");
         }
+    }
+
+    public static TemplateMappingSnapshot FromTemplate(Guid templateId, int version, IEnumerable<TemplatePlaceholder> placeholders)
+    {
+        var source = placeholders.ToArray();
+        var assignments = source.Where(x => x.IsSignature).Select(x => new SignaturePlaceholderAssignment { PlaceholderId = x.Id, Role = x.Role ?? string.Empty }).ToArray();
+        var labels = source.ToDictionary(x => x.Id.ToString("D"), x => x.Label, StringComparer.OrdinalIgnoreCase);
+        var customFields = source.Where(x => x.Type == TemplatePlaceholderType.CustomText).ToDictionary(x => x.Id.ToString("D"), x => x.Label, StringComparer.OrdinalIgnoreCase);
+        var snapshot = new TemplateMappingSnapshot { TemplateId = templateId, TemplateVersion = version, Assignments = assignments, CustomFieldMappings = customFields, PlaceholderLabels = labels };
+        snapshot.Validate();
+        return snapshot;
     }
 }

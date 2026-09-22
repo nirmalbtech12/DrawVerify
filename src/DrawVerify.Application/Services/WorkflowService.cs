@@ -35,14 +35,15 @@ public sealed class WorkflowService : IWorkflowService
     private readonly IStepUploadFileStore? _stepFiles;
     private readonly IDxfUploadFileStore? _dxfFiles;
     private readonly IDocumentFingerprintService? _fingerprintService;
+    private readonly IReportTemplateDocumentRepository? _templateDocuments;
 
     /// <summary>Gets the immutable configuration version most recently resolved for this service operation.</summary>
     public int? EffectiveConfigurationVersion { get; private set; }
 
-    public WorkflowService(IWorkflowRepository workflow, ISessionAuthenticationService authentication, WorkflowConfiguration configuration, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null, IDocumentRepository? documents = null, IVerificationSessionRepository? sessions = null, Func<DateTime>? clock = null, INotificationService? notifications = null, IApprovalSnapshotStore? snapshots = null, IStepUploadFileStore? stepFiles = null, IDxfUploadFileStore? dxfFiles = null, IWorkflowConfigurationRepository? configurationRepository = null, IDocumentFingerprintService? fingerprintService = null)
+    public WorkflowService(IWorkflowRepository workflow, ISessionAuthenticationService authentication, WorkflowConfiguration configuration, RoleAuthorization? authorization = null, ICentralizedLogger? logger = null, IDocumentRepository? documents = null, IVerificationSessionRepository? sessions = null, Func<DateTime>? clock = null, INotificationService? notifications = null, IApprovalSnapshotStore? snapshots = null, IStepUploadFileStore? stepFiles = null, IDxfUploadFileStore? dxfFiles = null, IWorkflowConfigurationRepository? configurationRepository = null, IDocumentFingerprintService? fingerprintService = null, IReportTemplateDocumentRepository? templateDocuments = null)
     {
         _workflow = workflow ?? throw new ArgumentNullException(nameof(workflow)); _authentication = authentication ?? throw new ArgumentNullException(nameof(authentication));
-        _authorization = authorization ?? new RoleAuthorization(); _startupConfiguration = configuration ?? throw new ArgumentNullException(nameof(configuration)); _effectiveConfiguration = _startupConfiguration; _machine = new WorkflowStateMachine(_startupConfiguration); _configurationRepository = configurationRepository; _logger = logger; _documents = documents; _sessions = sessions; _clock = clock ?? (() => DateTime.UtcNow); _notifications = notifications; _snapshots = snapshots; _stepFiles = stepFiles; _dxfFiles = dxfFiles; _fingerprintService = fingerprintService;
+        _authorization = authorization ?? new RoleAuthorization(); _startupConfiguration = configuration ?? throw new ArgumentNullException(nameof(configuration)); _effectiveConfiguration = _startupConfiguration; _machine = new WorkflowStateMachine(_startupConfiguration); _configurationRepository = configurationRepository; _logger = logger; _documents = documents; _sessions = sessions; _clock = clock ?? (() => DateTime.UtcNow); _notifications = notifications; _snapshots = snapshots; _stepFiles = stepFiles; _dxfFiles = dxfFiles; _fingerprintService = fingerprintService; _templateDocuments = templateDocuments;
     }
     private async Task RefreshEffectiveConfigurationAsync(CancellationToken cancellationToken, int? version = null)
     {
@@ -250,7 +251,6 @@ public sealed class WorkflowService : IWorkflowService
             if (step.UploadStatus != CoreUploadStatus.Uploaded) failures.Add("The PDF/image drawing is not available for review because its persisted upload did not complete.");
             if (step.Version is null) failures.Add("The PDF/image drawing version is not available in the persisted package.");
             else if (request.StepDocumentVersionId != Guid.Empty && request.StepDocumentVersionId != step.Version.VersionId) failures.Add("The submitted PDF/image version is stale or does not belong to the persisted package.");
-            if (string.IsNullOrWhiteSpace(step.OriginalFileName) || step.FileSizeBytes <= 0) failures.Add("Required PDF/image drawing metadata is missing.");
             return;
         }
 
@@ -313,6 +313,19 @@ public sealed class WorkflowService : IWorkflowService
 
     public async Task<SubmissionResult> SubmitForReviewAsync(SubmissionRequest request, CancellationToken cancellationToken = default)
     {
+        TemplateMappingSnapshot? prevalidatedMapping = null;
+        if (request.TemplateMapping is { } requestedMapping)
+        {
+            var preflightState = await _workflow.GetStateAsync(request.PackageId, cancellationToken).ConfigureAwait(false);
+            if (preflightState is not null)
+                prevalidatedMapping = await ValidateAndApplyMappingPolicyAsync(requestedMapping, request.PackageId, preflightState.Revision, cancellationToken).ConfigureAwait(false);
+        }
+        if (prevalidatedMapping is not null && _effectiveConfiguration.UnmappedSignaturePlaceholderPolicy == UnmappedSignaturePlaceholderPolicy.Skip && _documents is not null)
+        {
+            var persistedDocument = await _documents.GetAsync(request.PackageId, cancellationToken).ConfigureAwait(false);
+            if (persistedDocument is not null && IsPdfOrImage(persistedDocument.DocumentType) && persistedDocument.Version is not null)
+                request = request with { StepDocumentVersionId = persistedDocument.Version.VersionId };
+        }
         var readiness = await ValidateReadinessAsync(request, cancellationToken).ConfigureAwait(false);
         var user = _authentication.CurrentUser;
         if (!readiness.IsReady)
@@ -365,8 +378,15 @@ public sealed class WorkflowService : IWorkflowService
             if (assignedCheckerUserIds.Length == 0 && !string.IsNullOrWhiteSpace(request.AssignedCheckerUserId)) assignedCheckerUserIds = new[] { request.AssignedCheckerUserId.Trim() };
             var assignedApproverUserIds = request.AssignedApproverUserIds.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
             if (assignedApproverUserIds.Length == 0 && !string.IsNullOrWhiteSpace(request.AssignedApproverUserId)) assignedApproverUserIds = new[] { request.AssignedApproverUserId.Trim() };
-            var mapping = request.TemplateMapping;
-            mapping?.Validate();
+            var mapping = prevalidatedMapping ?? request.TemplateMapping;
+            if (mapping is null && request.TemplateId is { } templateId)
+            {
+                if (_templateDocuments is null) throw new InvalidOperationException("Template-backed submission requires template document persistence.");
+                var templateDocument = await _templateDocuments.GetAsync(templateId, request.TemplateVersion, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException("The published template document was not found.");
+                mapping = templateDocument.TemplateMapping ?? throw new InvalidOperationException("The published template has no captured placeholder mapping.");
+            }
+            if (prevalidatedMapping is null)
+                mapping = await ValidateAndApplyMappingPolicyAsync(mapping, request.PackageId, state.Revision, cancellationToken).ConfigureAwait(false);
             var submission = new ReviewSubmission { PackageId = request.PackageId, DxfDocumentId = request.DxfDocumentId, Revision = state.Revision, MakerUserId = user.UserId, MakerDisplayName = user.DisplayName, MakerAuthorized = true, SubmittedUtc = now, Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim(), StepDocumentVersionId = request.StepDocumentVersionId, DxfDocumentVersionId = request.DxfDocumentVersionId, VerificationSessionId = request.VerificationSessionId, ExtractionEvidenceJson = request.ExtractionEvidenceJson, VerificationEvidenceJson = request.VerificationEvidenceJson, Fingerprint = fingerprint, MakerSignature = signature, AssignedCheckerUserId = assignedCheckerUserIds.FirstOrDefault(), AssignedCheckerUserIds = assignedCheckerUserIds, AssignedApproverUserId = assignedApproverUserIds.FirstOrDefault(), AssignedApproverUserIds = assignedApproverUserIds, TemplateMapping = mapping, PlaceholderAssignments = mapping?.Assignments ?? Array.Empty<SignaturePlaceholderAssignment>() };
             // Establish the durable version reference before the workflow transaction
             // can commit. A capture failure therefore cannot leave a submitted package
@@ -380,6 +400,30 @@ public sealed class WorkflowService : IWorkflowService
         {
             _logger?.Log(exception, "Workflow submission", $"Unable to submit packageId={request.PackageId}.");
             throw;
+        }
+    }
+
+    private async Task<TemplateMappingSnapshot?> ValidateAndApplyMappingPolicyAsync(TemplateMappingSnapshot? mapping, Guid packageId, int revision, CancellationToken cancellationToken)
+    {
+        if (mapping is null) return null;
+        try { mapping.Validate(); return mapping; }
+        catch (Exception exception) when (exception is InvalidOperationException or ArgumentException)
+        {
+            var invalid = mapping.Assignments.FirstOrDefault(x => x.PlaceholderId == Guid.Empty || !SystemRoles.TryCanonicalize(x.Role, out _));
+            var placeholderId = invalid?.PlaceholderId ?? Guid.Empty;
+            var label = placeholderId != Guid.Empty && mapping.PlaceholderLabels.TryGetValue(placeholderId.ToString("D"), out var knownLabel) ? knownLabel : "unmapped signature placeholder";
+            _logger?.Log(exception, "Invalid signature placeholder mapping", $"templateId={mapping.TemplateId}, templateVersion={mapping.TemplateVersion}, packageId={packageId}, revision={revision}, placeholderId={placeholderId}, placeholderLabel={label}.");
+            if (!Enum.IsDefined(_effectiveConfiguration.UnmappedSignaturePlaceholderPolicy)) throw new InvalidOperationException("The unmapped signature placeholder policy is missing or unsupported.", exception);
+            if (_notifications is null) throw new InvalidOperationException("Invalid signature placeholder mapping cannot proceed because administrator notification is not configured.", exception);
+            try { await _notifications.NotifyAdministratorAsync(mapping.TemplateId, mapping.TemplateVersion, packageId, revision, placeholderId, label, exception.Message, cancellationToken).ConfigureAwait(false); }
+            catch (Exception notificationException)
+            {
+                _logger?.Log(notificationException, "Invalid signature placeholder notification", $"templateId={mapping.TemplateId}, templateVersion={mapping.TemplateVersion}, packageId={packageId}, revision={revision}, placeholderId={placeholderId}.");
+                throw new InvalidOperationException("Administrator notification failed for the invalid signature placeholder mapping.", notificationException);
+            }
+            if (_effectiveConfiguration.UnmappedSignaturePlaceholderPolicy == UnmappedSignaturePlaceholderPolicy.Skip)
+                return mapping with { Assignments = mapping.Assignments.Where(x => x.PlaceholderId != Guid.Empty && SystemRoles.TryCanonicalize(x.Role, out _)).ToArray() };
+            throw new InvalidOperationException("Workflow progression is blocked because the signature placeholder mapping is invalid.", exception);
         }
     }
 
@@ -526,7 +570,7 @@ public sealed class WorkflowService : IWorkflowService
             throw new InvalidOperationException("Approver signature can only be applied in the current final-approval state.");
         if (package.Submission.MakerSignature is null) throw new InvalidOperationException("Maker signature required before Approver signature.");
         if (package.Submission.CheckerSignature is null) throw new InvalidOperationException("Checker signature required before Approver signature.");
-        if (package.Submission.ApproverSignature is not null) throw new InvalidOperationException("An Approver signature already exists for this document version.");
+        if (assignment is null && package.Submission.ApproverSignature is not null) throw new InvalidOperationException("An Approver signature already exists for this document version.");
         package.Submission.MakerSignature.Validate(); package.Submission.CheckerSignature.Validate();
         if (package.Submission.MakerSignature.Revision != revision || package.Submission.CheckerSignature.Revision != revision) throw new InvalidOperationException("Maker and Checker signatures must belong to the current document version.");
         var signature = SignatureData.CreateApprover(method, payload, user.UserId, user.DisplayName, packageId, revision, _clock().ToUniversalTime(), title, department, assignment?.PlaceholderId);
@@ -613,6 +657,7 @@ public sealed class WorkflowService : IWorkflowService
         InternalApprovalStamp? stamp = null;
         if (decisionType == ReviewDecisionType.Approve)
         {
+            if (package.Submission.PlaceholderAssignments.Any(x => !x.IsSigned && !x.IsSkipped)) throw new InvalidOperationException("All assigned signature placeholders must be signed before final approval.");
             var fingerprint = package.Fingerprint ?? throw new InvalidOperationException("A document fingerprint is required before internal approval stamping.");
             stamp = InternalApprovalStamp.Create(packageId, revision, user.UserId, user.DisplayName, decision.DecidedUtc, fingerprint.Value);
         }
