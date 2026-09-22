@@ -1,5 +1,6 @@
 using DrawVerify.Core.Models;
 using DrawVerify.Infrastructure.Persistence;
+using Microsoft.Data.Sqlite;
 using Xunit;
 
 namespace DrawVerify.Infrastructure.Tests;
@@ -37,6 +38,21 @@ public sealed class SqliteReportTemplateRepositoryTemplateTests
             var audit = await repository.GetAuditAsync(template.Id); Assert.Equal(new[] { "Created", "Assigned" }, audit.Select(x => x.Action));
         }
         finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-07 failed stale save leaves prior version intact")]
+    public async Task Stale_save_does_not_replace_prior_version()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-sqlite-stale-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteReportTemplateRepository(path); var id = Guid.NewGuid();
+            var initial = await repository.SaveAsync(new ReportTemplate { Id = id, Name = "initial" }, 0, Audit(id, "Created"));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => repository.SaveAsync(initial with { Name = "stale" }, 0, Audit(id, "Modified")));
+            Assert.Equal("initial", (await repository.GetAsync(id))!.Name);
+            Assert.Single(await repository.GetVersionsAsync(id));
+        }
+        finally { SqliteConnection.ClearAllPools(); foreach (var suffix in new[] { "", "-wal", "-shm" }) { var file = path + suffix; if (File.Exists(file)) File.Delete(file); } }
     }
 
     private static ReportTemplateAuditEntry Audit(Guid id, string action) => new() { TemplateId = id, ActorId = "test-actor", Action = action, Summary = "test" };

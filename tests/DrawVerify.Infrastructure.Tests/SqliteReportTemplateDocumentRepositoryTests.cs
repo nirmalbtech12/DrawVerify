@@ -22,4 +22,24 @@ public sealed class SqliteReportTemplateDocumentRepositoryTests
         try { var repository = new SqliteReportTemplateDocumentRepository(path); var source = new ReportTemplateSource { FileName = "source.pdf", PdfBytes = [1] }; await repository.SaveSourceAsync(source); var target = new ReportTemplateDocument { TemplateId = Guid.NewGuid(), Version = 1, SourceId = source.SourceId, SourceFileName = source.FileName, Content = [1] }; var other = target with { TemplateId = Guid.NewGuid(), Content = [9] }; await repository.SaveAsync(target); await repository.SaveAsync(other); await repository.SaveAsync(target with { Version = 2, Content = [2] }, 1); Assert.Equal(new byte[] { 2 }, (await repository.GetAsync(target.TemplateId, 2))!.Content); Assert.Equal(new byte[] { 9 }, (await repository.GetAsync(other.TemplateId, 1))!.Content); }
         finally { SqliteConnection.ClearAllPools(); foreach (var suffix in new[] { "", "-wal", "-shm" }) { var file = path + suffix; if (File.Exists(file)) File.Delete(file); } }
     }
+
+    [Fact(DisplayName = "TSD-07 stale and failed document saves retain prior versions")]
+    public async Task Stale_and_duplicate_document_saves_do_not_replace_history()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-doc-rollback-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteReportTemplateDocumentRepository(path); var templateId = Guid.NewGuid(); var sourceId = Guid.NewGuid();
+            var first = new ReportTemplateDocument { TemplateId = templateId, Version = 1, SourceId = sourceId, Content = [1] };
+            await repository.SaveAsync(first);
+            var second = first with { Version = 2, Content = [2] };
+            await repository.SaveAsync(second, 1);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => repository.SaveAsync(first with { Version = 3, Content = [3] }, 0));
+            await Assert.ThrowsAsync<SqliteException>(() => repository.SaveAsync(second with { Content = [9] }));
+            Assert.Equal(new byte[] { 1 }, (await repository.GetAsync(templateId, 1))!.Content);
+            Assert.Equal(new byte[] { 2 }, (await repository.GetAsync(templateId, 2))!.Content);
+            Assert.Null(await repository.GetAsync(templateId, 3));
+        }
+        finally { SqliteConnection.ClearAllPools(); foreach (var suffix in new[] { "", "-wal", "-shm" }) { var file = path + suffix; if (File.Exists(file)) File.Delete(file); } }
+    }
 }

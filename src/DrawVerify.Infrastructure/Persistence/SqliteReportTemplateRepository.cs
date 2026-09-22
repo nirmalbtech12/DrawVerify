@@ -1,6 +1,6 @@
 using System.Globalization; using System.Text.Json; using Microsoft.Data.Sqlite; using DrawVerify.Core.Interfaces; using DrawVerify.Core.Models;
 namespace DrawVerify.Infrastructure.Persistence;
-public sealed class SqliteReportTemplateRepository : IReportTemplateRepository, IReportTemplateAuditRepository
+public sealed class SqliteReportTemplateRepository : IReportTemplateRepository, IReportTemplateAuditRepository, IReportTemplatePublisher
 {
     private readonly string _connectionString;
     public SqliteReportTemplateRepository(string databasePath) { _connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath }.ToString(); Initialize(); }

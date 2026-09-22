@@ -94,6 +94,7 @@ public partial class MainWindow : Window
         if (target == ScreenRegistry.UserAdministration) return CreateAdministrationView();
         if (target == ScreenRegistry.WorkflowConfiguration) return new WorkflowConfigurationView { DataContext = new WorkflowConfigurationViewModel(CompositionRoot.CreateWorkflowConfigurationService(), CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization, new CentralizedLogger()) };
         if (target == ScreenRegistry.ReportTemplateConfiguration) return new ReportTemplateConfigurationView { DataContext = CompositionRoot.CreateReportTemplateConfigurationViewModel() };
+        if (target == ScreenRegistry.TemplateEditor) return new TemplateEditorView { DataContext = CompositionRoot.CreateTemplateEditorViewModel() };
         if (target == ScreenRegistry.AuditLog) return new AuditLogView { DataContext = new AuditLogViewModel(CompositionRoot.CreateAuditLogService()) };
         if (target == ScreenRegistry.Report) return new ReportView { DataContext = new ReportViewModel(CompositionRoot.CreateReportService(), new CentralizedLogger()) };
         if (target == ScreenRegistry.Help) return new Border { Child = new TextBlock { Text = "Help\n\nUse the menu to navigate to the screens allowed for your role.", TextWrapping = TextWrapping.Wrap, FontSize = 16 } };

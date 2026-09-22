@@ -231,6 +231,16 @@ public static class CompositionRoot
         var conversion = new ReportTemplateConversionService(repository, documents, new DrawVerify.Infrastructure.Pdf.PdfToWordConverter(), Session, Authorization, logger);
         return new ReportTemplateConfigurationViewModel(new ReportTemplateService(repository, Session, Authorization, logger), Session, Authorization, logger, new ReportTemplatePreviewService(new DrawVerify.Infrastructure.Pdf.PdfReportGenerator(), Session, Authorization, logger), new ReportTemplateExchangeService(Session, Authorization, repository, logger), conversion);
     }
+    public static TemplateEditorViewModel CreateTemplateEditorViewModel()
+    {
+        var logger = new CentralizedLogger();
+        var database = DatabasePath();
+        var templates = new SqliteReportTemplateRepository(database);
+        var documents = new SqliteReportTemplateDocumentRepository(database);
+        var editor = new DrawVerify.Infrastructure.Word.OpenXmlWordTemplateEditor();
+        var preview = new DrawVerify.Infrastructure.Word.OpenXmlWordTemplatePreviewService();
+        return new TemplateEditorViewModel(new ReportTemplateEditorService(templates, documents, editor, preview, Session, Authorization, logger), Session, Authorization, logger, new ReportTemplateService(templates, Session, Authorization, logger));
+    }
     public static MissingDimensionReviewService CreateMissingDimensionReviewService()
     {
         var database = DatabasePath();
