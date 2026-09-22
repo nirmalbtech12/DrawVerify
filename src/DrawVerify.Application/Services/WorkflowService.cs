@@ -407,10 +407,17 @@ public sealed class WorkflowService : IWorkflowService
     private async Task<TemplateMappingSnapshot?> ValidateAndApplyMappingPolicyAsync(TemplateMappingSnapshot? mapping, Guid packageId, int revision, CancellationToken cancellationToken)
     {
         if (mapping is null) return null;
-        try { mapping.Validate(); return mapping; }
+        try
+        {
+            var duplicate = mapping.Assignments.GroupBy(x => x.PlaceholderId).FirstOrDefault(group => group.Count() > 1);
+            if (duplicate is not null) throw new InvalidOperationException($"Placeholder '{duplicate.Key}' is assigned more than once.");
+            mapping.Validate();
+            return mapping;
+        }
         catch (Exception exception) when (exception is InvalidOperationException or ArgumentException)
         {
-            var invalid = mapping.Assignments.FirstOrDefault(x => x.PlaceholderId == Guid.Empty || !SystemRoles.TryCanonicalize(x.Role, out _));
+            var duplicate = mapping.Assignments.GroupBy(x => x.PlaceholderId).FirstOrDefault(group => group.Count() > 1);
+            var invalid = duplicate?.Skip(1).FirstOrDefault() ?? mapping.Assignments.FirstOrDefault(x => x.PlaceholderId == Guid.Empty || !SystemRoles.TryCanonicalize(x.Role, out _));
             var placeholderId = invalid?.PlaceholderId ?? Guid.Empty;
             var label = placeholderId != Guid.Empty && mapping.PlaceholderLabels.TryGetValue(placeholderId.ToString("D"), out var knownLabel) ? knownLabel : "unmapped signature placeholder";
             _logger?.Log(exception, "Invalid signature placeholder mapping", $"templateId={mapping.TemplateId}, templateVersion={mapping.TemplateVersion}, packageId={packageId}, revision={revision}, placeholderId={placeholderId}, placeholderLabel={label}.");
@@ -423,7 +430,15 @@ public sealed class WorkflowService : IWorkflowService
                 throw new InvalidOperationException("Administrator notification failed for the invalid signature placeholder mapping.", notificationException);
             }
             if (_effectiveConfiguration.UnmappedSignaturePlaceholderPolicy == UnmappedSignaturePlaceholderPolicy.Skip)
-                return mapping with { Assignments = mapping.Assignments.Where(x => x.PlaceholderId != Guid.Empty && SystemRoles.TryCanonicalize(x.Role, out _)).ToArray() };
+            {
+                var retained = new HashSet<Guid>();
+                return mapping with
+                {
+                    Assignments = mapping.Assignments
+                        .Where(x => x.PlaceholderId != Guid.Empty && SystemRoles.TryCanonicalize(x.Role, out _) && retained.Add(x.PlaceholderId))
+                        .ToArray()
+                };
+            }
             throw new InvalidOperationException("Workflow progression is blocked because the signature placeholder mapping is invalid.", exception);
         }
     }
@@ -551,7 +566,7 @@ public sealed class WorkflowService : IWorkflowService
         var makerSignature = package.Submission.MakerSignature;
         makerSignature.Validate();
         if (makerSignature.DocumentId != packageId || makerSignature.Revision != revision || !string.Equals(makerSignature.MakerUserId, package.MakerUserId, StringComparison.Ordinal) || !string.Equals(makerSignature.MakerDisplayName, package.MakerDisplayName, StringComparison.Ordinal)) throw new InvalidOperationException("The current revision Maker signature does not match the package.");
-        if (package.Submission.CheckerSignature is not null) throw new InvalidOperationException("A Checker signature already exists for this document version.");
+        if (assignment is null && package.Submission.CheckerSignature is not null) throw new InvalidOperationException("A Checker signature already exists for this document version.");
         var timestamp = _clock().ToUniversalTime();
         var customFields = ResolveStampCustomFields(package.Submission, assignment, user, revision, timestamp);
         var signature = SignatureData.CreateChecker(method, payload, user.UserId, user.DisplayName, packageId, revision, timestamp, title, department, assignment?.PlaceholderId, customFields);
