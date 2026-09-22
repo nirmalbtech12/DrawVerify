@@ -262,7 +262,7 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository
             if (changed != 1) throw new InvalidOperationException("A finalized Checker signature already exists for this document version.");
             await InsertAudit(c, t, auditEntry, token);
             await t.CommitAsync(token);
-            var checkerSignature = signature;
+            var checkerSignature = package.Submission.CheckerSignature ?? signature;
             return package.Submission with { CheckerSignature = checkerSignature, Fingerprint = fingerprint, PlaceholderAssignments = assignments };
         }
         catch { await t.RollbackAsync(token); throw; }
