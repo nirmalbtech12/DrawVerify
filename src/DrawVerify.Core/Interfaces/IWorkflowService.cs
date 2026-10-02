@@ -3,6 +3,14 @@ using DrawVerify.Core.Models;
 
 namespace DrawVerify.Core.Interfaces;
 
+public sealed record TemplateMigrationAssociation(Guid PackageId, int Revision, int Version, TemplateMappingSnapshot? PreviousMapping, TemplateMappingSnapshot Mapping, string ActorUserId, DateTime TimestampUtc);
+
+public interface ITemplateMigrationRepository
+{
+    Task<TemplateMigrationAssociation?> GetTemplateMigrationAsync(Guid packageId, int revision, CancellationToken cancellationToken = default);
+    Task SaveTemplateMigrationAsync(TemplateMigrationAssociation association, AuditEntry auditEntry, CancellationToken cancellationToken = default);
+}
+
 /// <summary>
 /// Orchestrates workflow state transitions. Rules are loaded from configuration,
 /// never hard-coded.
@@ -13,6 +21,8 @@ public interface IWorkflowService
     Task<SubmissionReadiness> ValidateReadinessAsync(SubmissionRequest request, CancellationToken cancellationToken = default)
         => ValidateReadinessAsync(request.PackageId, cancellationToken);
     Task<SubmissionResult> SubmitForReviewAsync(SubmissionRequest request, CancellationToken cancellationToken = default);
+    Task<TemplateMigrationAssociation> MigrateTemplateAsync(Guid packageId, int revision, TemplateMappingSnapshot mapping, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("Template migration is not supported by this workflow service.");
     Task RecordCancellationAsync(Guid packageId, int revision, string? note, CancellationToken cancellationToken = default);
     Task<WorkflowState?> GetPackageAsync(Guid packageId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ReviewSubmission>> GetSubmittedPackagesAsync(CancellationToken cancellationToken = default);

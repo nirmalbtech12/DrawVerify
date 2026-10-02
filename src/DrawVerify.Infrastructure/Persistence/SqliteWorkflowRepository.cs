@@ -13,7 +13,7 @@ namespace DrawVerify.Infrastructure.Persistence;
 /// <summary>
 /// SQLite persistence for workflow state and history.
 /// </summary>
-public sealed class SqliteWorkflowRepository : IWorkflowRepository
+public sealed class SqliteWorkflowRepository : IWorkflowRepository, ITemplateMigrationRepository
 {
     private readonly string _connectionString;
     private readonly WorkflowConfiguration _configuration;
@@ -34,6 +34,11 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository
         using var cmd = c.CreateCommand();
         cmd.CommandText = "PRAGMA foreign_keys=ON; CREATE TABLE IF NOT EXISTS WorkflowState (PackageId TEXT PRIMARY KEY, Status INTEGER NOT NULL, Revision INTEGER NOT NULL, UpdatedUtc TEXT NOT NULL); CREATE TABLE IF NOT EXISTS WorkflowInstances (WorkflowId TEXT PRIMARY KEY, ConfigurationVersion INTEGER NULL, StartedUtc TEXT NOT NULL); CREATE TABLE IF NOT EXISTS ReviewSubmission (SubmissionId TEXT PRIMARY KEY, PackageId TEXT NOT NULL, DxfDocumentId TEXT NOT NULL DEFAULT '', StepDocumentVersionId TEXT NOT NULL, DxfDocumentVersionId TEXT NOT NULL, VerificationSessionId TEXT NOT NULL, ExtractionEvidenceJson TEXT NOT NULL, VerificationEvidenceJson TEXT NOT NULL, Revision INTEGER NOT NULL, MakerUserId TEXT NOT NULL, MakerDisplayName TEXT NOT NULL, CreatedUtc TEXT NULL, SubmittedUtc TEXT NOT NULL, Note TEXT NULL, Status INTEGER NOT NULL); CREATE INDEX IF NOT EXISTS IX_ReviewSubmission_Package ON ReviewSubmission(PackageId); CREATE TABLE IF NOT EXISTS DocumentAuditLog (AuditId TEXT PRIMARY KEY, DocumentId TEXT NULL, Action INTEGER NOT NULL, UserId TEXT NULL, TimestampUtc TEXT NOT NULL, DetailsJson TEXT NOT NULL); CREATE TABLE IF NOT EXISTS ReviewDecision (DecisionId TEXT PRIMARY KEY, PackageId TEXT NOT NULL, Revision INTEGER NOT NULL, CheckerUserId TEXT NOT NULL, CheckerDisplayName TEXT NOT NULL, DecidedUtc TEXT NOT NULL, DecisionType INTEGER NOT NULL, Comments TEXT NULL, SnapshotReference TEXT NOT NULL, SnapshotJson TEXT NOT NULL, ApproverUserId TEXT NULL, ApproverDisplayName TEXT NULL, IsFinalApproval INTEGER NOT NULL DEFAULT 0, OverallReason TEXT NULL, CorrectionAction TEXT NULL, PriorDecisionId TEXT NULL, Route INTEGER NOT NULL DEFAULT 0, DestinationRole TEXT NULL, DestinationQueue TEXT NULL); CREATE TABLE IF NOT EXISTS ReviewComment (CommentId TEXT PRIMARY KEY, PackageId TEXT NOT NULL, Revision INTEGER NOT NULL, AuthorUserId TEXT NOT NULL, AuthorDisplayName TEXT NOT NULL, CreatedUtc TEXT NOT NULL, Text TEXT NOT NULL); CREATE TABLE IF NOT EXISTS DocumentMarkup (MarkupId TEXT PRIMARY KEY, DocumentId TEXT NOT NULL, DocumentVersionId TEXT NOT NULL, PackageId TEXT NOT NULL, Revision INTEGER NOT NULL, AuthorUserId TEXT NOT NULL, AuthorDisplayName TEXT NOT NULL, CreatedUtc TEXT NOT NULL, MarkupType TEXT NOT NULL, DataJson TEXT NOT NULL, PageNumber INTEGER NOT NULL, Location TEXT NULL); CREATE INDEX IF NOT EXISTS IX_DocumentMarkup_Version ON DocumentMarkup(DocumentId,DocumentVersionId); CREATE TABLE IF NOT EXISTS InAppNotification (NotificationId TEXT PRIMARY KEY, SubmissionId TEXT NULL, UserId TEXT NOT NULL, PackageId TEXT NOT NULL, Revision INTEGER NOT NULL, Message TEXT NOT NULL, CreatedUtc TEXT NOT NULL, IsRead INTEGER NOT NULL DEFAULT 0, Target TEXT NULL, EventType TEXT NULL, Channel TEXT NULL, ApprovalEventId TEXT NULL, RejectionEventId TEXT NULL); CREATE TABLE IF NOT EXISTS RevisionLock (PackageId TEXT NOT NULL, Revision INTEGER NOT NULL, LockedUtc TEXT NOT NULL, PRIMARY KEY(PackageId,Revision));";
         cmd.ExecuteNonQuery();
+        using (var migrations = c.CreateCommand())
+        {
+            migrations.CommandText = "CREATE TABLE IF NOT EXISTS TemplateMigrationAssociation (PackageId TEXT NOT NULL, Revision INTEGER NOT NULL, Version INTEGER NOT NULL, PreviousMappingJson TEXT NULL, MappingJson TEXT NOT NULL, ActorUserId TEXT NOT NULL, TimestampUtc TEXT NOT NULL, PRIMARY KEY(PackageId,Revision,Version));";
+            migrations.ExecuteNonQuery();
+        }
         SqliteAuditRepository.EnsureSchema(c);
         using (var finalTable = c.CreateCommand())
         {
@@ -128,6 +133,8 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository
         var submissions = await GetSubmissionsAsync(packageId, token).ConfigureAwait(false);
         var submission = submissions.FirstOrDefault(x => x.Revision == revision);
         if (submission is null) return null;
+        var migration = await GetTemplateMigrationAsync(packageId, revision, token).ConfigureAwait(false);
+        if (migration is not null) submission = submission with { TemplateMapping = migration.Mapping, PlaceholderAssignments = migration.Mapping.Assignments };
         var decision = await GetDecisionAsync(packageId, revision, token).ConfigureAwait(false) ?? await GetLatestPriorDecisionAsync(packageId, revision, token).ConfigureAwait(false);
         var comments = await GetReviewCommentsAsync(packageId, revision, token).ConfigureAwait(false);
         if (revision > 1)
@@ -139,6 +146,52 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository
         }
         var markups = await GetDocumentMarkupsAsync(packageId, submission.StepDocumentVersionId, token).ConfigureAwait(false);
         return ReviewPackage.FromSubmission(submission, decision, comments, markups);
+    }
+
+    public async Task<TemplateMigrationAssociation?> GetTemplateMigrationAsync(Guid packageId, int revision, CancellationToken token = default)
+    {
+        await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(token);
+        await using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT Version,PreviousMappingJson,MappingJson,ActorUserId,TimestampUtc FROM TemplateMigrationAssociation WHERE PackageId=$package AND Revision=$revision ORDER BY Version DESC LIMIT 1";
+        cmd.Parameters.AddWithValue("$package", packageId.ToString()); cmd.Parameters.AddWithValue("$revision", revision);
+        await using var reader = await cmd.ExecuteReaderAsync(token);
+        if (!await reader.ReadAsync(token)) return null;
+        return new TemplateMigrationAssociation(packageId, revision, reader.GetInt32(0), reader.IsDBNull(1) ? null : JsonSerializer.Deserialize<TemplateMappingSnapshot>(reader.GetString(1)), JsonSerializer.Deserialize<TemplateMappingSnapshot>(reader.GetString(2)) ?? throw new InvalidOperationException($"Stored template migration mapping is invalid for packageId={packageId}, revision={revision}."), reader.GetString(3), DateTime.Parse(reader.GetString(4), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
+    }
+
+    public async Task SaveTemplateMigrationAsync(TemplateMigrationAssociation association, AuditEntry auditEntry, CancellationToken token = default)
+    {
+        association.Mapping.Validate(); auditEntry.Validate();
+        var submissionExists = (await GetSubmissionsAsync(association.PackageId, token).ConfigureAwait(false)).Any(x => x.Revision == association.Revision);
+        if (!submissionExists) throw new KeyNotFoundException($"Submission not found for packageId={association.PackageId}, revision={association.Revision}.");
+        await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(token); await using var transaction = (SqliteTransaction)await c.BeginTransactionAsync(token);
+        try
+        {
+            await using (var currentState = c.CreateCommand())
+            {
+                currentState.Transaction = transaction;
+                currentState.CommandText = "SELECT Revision FROM WorkflowState WHERE PackageId=$package";
+                currentState.Parameters.AddWithValue("$package", association.PackageId.ToString());
+                var persistedRevision = await currentState.ExecuteScalarAsync(token).ConfigureAwait(false);
+                if (persistedRevision is null || persistedRevision is DBNull)
+                    throw new KeyNotFoundException($"Workflow state not found for packageId={association.PackageId}.");
+
+                var currentRevision = Convert.ToInt32(persistedRevision, CultureInfo.InvariantCulture);
+                if (currentRevision != association.Revision)
+                    throw new InvalidOperationException($"Template migration requires the current revision (requested {association.Revision}, current {currentRevision}).");
+            }
+
+            await using (var latest = c.CreateCommand())
+            {
+                latest.Transaction = transaction; latest.CommandText = "SELECT COALESCE(MAX(Version),0) FROM TemplateMigrationAssociation WHERE PackageId=$package AND Revision=$revision";
+                latest.Parameters.AddWithValue("$package", association.PackageId.ToString()); latest.Parameters.AddWithValue("$revision", association.Revision);
+                var currentVersion = Convert.ToInt32(await latest.ExecuteScalarAsync(token), CultureInfo.InvariantCulture);
+                if (association.Version != currentVersion + 1) throw new InvalidOperationException("Template migration version changed; reload the document and retry.");
+            }
+            await Exec(c, transaction, "INSERT INTO TemplateMigrationAssociation(PackageId,Revision,Version,PreviousMappingJson,MappingJson,ActorUserId,TimestampUtc) VALUES($package,$revision,$version,$previous,$mapping,$actor,$timestamp)", token, ("$package", association.PackageId.ToString()), ("$revision", association.Revision), ("$version", association.Version), ("$previous", (object?)(association.PreviousMapping is null ? null : JsonSerializer.Serialize(association.PreviousMapping)) ?? DBNull.Value), ("$mapping", JsonSerializer.Serialize(association.Mapping)), ("$actor", association.ActorUserId), ("$timestamp", association.TimestampUtc.ToString("O", CultureInfo.InvariantCulture)));
+            await InsertAudit(c, transaction, auditEntry, token); await transaction.CommitAsync(token);
+        }
+        catch { await transaction.RollbackAsync(token); throw; }
     }
 
     public async Task<InternalApprovalStamp?> GetInternalApprovalStampAsync(Guid packageId, int revision, CancellationToken token = default)
