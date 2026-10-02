@@ -167,6 +167,20 @@ public sealed class SqliteWorkflowRepository : IWorkflowRepository, ITemplateMig
         await using var c = new SqliteConnection(_connectionString); await c.OpenAsync(token); await using var transaction = (SqliteTransaction)await c.BeginTransactionAsync(token);
         try
         {
+            await using (var currentState = c.CreateCommand())
+            {
+                currentState.Transaction = transaction;
+                currentState.CommandText = "SELECT Revision FROM WorkflowState WHERE PackageId=$package";
+                currentState.Parameters.AddWithValue("$package", association.PackageId.ToString());
+                var persistedRevision = await currentState.ExecuteScalarAsync(token).ConfigureAwait(false);
+                if (persistedRevision is null || persistedRevision is DBNull)
+                    throw new KeyNotFoundException($"Workflow state not found for packageId={association.PackageId}.");
+
+                var currentRevision = Convert.ToInt32(persistedRevision, CultureInfo.InvariantCulture);
+                if (currentRevision != association.Revision)
+                    throw new InvalidOperationException($"Template migration requires the current revision (requested {association.Revision}, current {currentRevision}).");
+            }
+
             await using (var latest = c.CreateCommand())
             {
                 latest.Transaction = transaction; latest.CommandText = "SELECT COALESCE(MAX(Version),0) FROM TemplateMigrationAssociation WHERE PackageId=$package AND Revision=$revision";
