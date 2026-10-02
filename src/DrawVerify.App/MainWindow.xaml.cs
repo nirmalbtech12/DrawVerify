@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -19,6 +20,7 @@ public partial class MainWindow : Window
     private ReviewPackage? _pendingReviewPackage;
     private string? _pendingSharedLinkRoute;
     private readonly NavigationHistory _history = new();
+    private readonly List<(Guid DocumentId, string Name, string Path)> _uploadedStepModels = new();
     public Func<MessageBoxResult> DiscardConfirmation { get; set; } = () => MessageBox.Show("Discard unsaved changes?", "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Warning);
     public MainWindow()
     {
@@ -66,7 +68,7 @@ public partial class MainWindow : Window
     {
         if (target == ScreenRegistry.Dashboard) return new DashboardView { DataContext = new DashboardViewModel(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization) };
         if (target == ScreenRegistry.UploadVerify) { var view = new CombinedUploadVerifyView { DataContext = CompositionRoot.CreateCombinedUploadVerifyViewModel() }; view.AttachFilePickers((CombinedUploadVerifyViewModel)view.DataContext); view.BackRequested += () => HandleTaskBack((TaskScreenViewModel)view.DataContext); return view; }
-        if (target == ScreenRegistry.StepUpload) { var view = new StepUploadView { DataContext = CompositionRoot.CreateStepUploadViewModel() }; view.AttachFilePicker((StepUploadViewModel)view.DataContext); view.BackRequested += () => HandleTaskBack((TaskScreenViewModel)view.DataContext); return view; }
+        if (target == ScreenRegistry.StepUpload) { var view = new StepUploadView { DataContext = CompositionRoot.CreateStepUploadViewModel() }; var model = (StepUploadViewModel)view.DataContext; view.AttachFilePicker(model); model.DocumentUploaded += document => ShowUploadedStep(document); view.BackRequested += () => HandleTaskBack(model); return view; }
         if (target == ScreenRegistry.DxfUpload) { var view = new DxfUploadView { DataContext = CompositionRoot.CreateDxfUploadViewModel() }; view.AttachFilePicker((DxfUploadViewModel)view.DataContext); view.BackRequested += () => HandleTaskBack((TaskScreenViewModel)view.DataContext); return view; }
         if (target == ScreenRegistry.Verification) { var model = new VerificationViewModel(CompositionRoot.SessionAuthentication, CompositionRoot.RoleAuthorization, CompositionRoot.CreateDimensionMatchingService(), new CentralizedLogger(), CompositionRoot.ConfiguredDimensionMatching); var package = _pendingReviewPackage; var highlight = _pendingVerificationHighlight; _pendingReviewPackage = null; _pendingVerificationHighlight = null; if (package is not null) _ = model.LoadReviewContextAsync(package, highlight); else model.SetHighlight(highlight); var view = new VerificationView { DataContext = model }; view.BackRequested += () => HandleTaskBack((TaskScreenViewModel)view.DataContext); return view; }
         if (target == ScreenRegistry.NotificationCenter) { var model = CompositionRoot.CreateNotificationCenterViewModel(); model.ReviewRequested += async (packageId, revision) => { var package = await CompositionRoot.CreateWorkflowService().OpenReviewPackageAsync(packageId, revision); if (package is not null) { _pendingReviewPackage = package; Navigate(ScreenRegistry.Workflow); } }; return new NotificationCenterView { DataContext = model }; }
@@ -99,6 +101,23 @@ public partial class MainWindow : Window
         if (target == ScreenRegistry.Report) return new ReportView { DataContext = new ReportViewModel(CompositionRoot.CreateReportService(), new CentralizedLogger()) };
         if (target == ScreenRegistry.Help) return new Border { Child = new TextBlock { Text = "Help\n\nUse the menu to navigate to the screens allowed for your role.", TextWrapping = TextWrapping.Wrap, FontSize = 16 } };
         throw new InvalidOperationException($"No screen is registered for navigation target '{target}'.");
+    }
+    private void ShowUploadedStep(Document document)
+    {
+        if (document.Version is null || string.IsNullOrWhiteSpace(document.Version.StoredRelativePath))
+        {
+            new CentralizedLogger().Log(new InvalidDataException("The uploaded STEP document has no stored version path."), "Open uploaded STEP preview", $"documentId={document.DocumentId}; file='{document.OriginalFileName}'.");
+            MessageBox.Show("The upload completed, but its model preview could not be opened.", "Preview unavailable", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+        var path = Path.IsPathRooted(document.Version.StoredRelativePath) ? document.Version.StoredRelativePath : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "uploads", "step", document.Version.StoredRelativePath.Replace('/', Path.DirectorySeparatorChar)));
+        if (_uploadedStepModels.All(item => item.DocumentId != document.DocumentId)) _uploadedStepModels.Add((document.DocumentId, document.OriginalFileName, path));
+        var model = new StepPreviewViewModel(new CentralizedLogger());
+        foreach (var uploaded in _uploadedStepModels) model.AddUploadedModel(uploaded.DocumentId, uploaded.Name, uploaded.Path);
+        var view = new StepPreviewView { DataContext = model };
+        view.BackRequested += () => Navigate(ScreenRegistry.StepUpload);
+        view.Unloaded += (_, _) => model.Dispose();
+        _shell?.SetScreen(view, "StepPreview");
     }
     private static async Task LoadApprovedDocumentListAsync(DocumentListViewModel model)
     {

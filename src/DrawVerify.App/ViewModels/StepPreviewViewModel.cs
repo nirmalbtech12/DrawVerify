@@ -1,5 +1,8 @@
 using System.ComponentModel;
+using System.Collections.ObjectModel;
+using System.IO;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
@@ -16,9 +19,185 @@ public sealed class StepPreviewViewModel : INotifyPropertyChanged, IDisposable
     private readonly IStepPreviewService _preview;
     private Model3DGroup? _modelContent;
     private Model3DGroup? _highlightContent;
+    private Guid _documentId;
+    private bool _isProcessing;
+    private string _processingStatus = string.Empty;
+    private bool _suppressSettingsSave;
+    private bool _isSectionEnabled;
+    private string _sectionAxis = "Z";
+    private double _sectionPosition;
+    private readonly SemaphoreSlim _previewLoadGate = new(1, 1);
+    private CancellationTokenSource? _activeLoadCancellation;
+    public ObservableCollection<StepPreviewModelChoice> Models { get; } = new();
+    private StepPreviewModelChoice? _selectedModel;
     public StepPreviewViewModel(ICentralizedLogger? logger = null, IStepPreviewService? preview = null) { _logger = logger; _preview = preview ?? new StepPreviewService(logger: logger); }
     public event PropertyChangedEventHandler? PropertyChanged;
     public string? ModelPath { get; private set; }
+    public bool IsProcessing { get => _isProcessing; private set { _isProcessing = value; Notify(); } }
+    public string ProcessingStatus { get => _processingStatus; private set { _processingStatus = value; Notify(); } }
+    public StepPreviewModelChoice? SelectedModel { get => _selectedModel; set { if (ReferenceEquals(_selectedModel, value)) return; CancelProcessing(); _selectedModel = value; Notify(); if (value is not null) _ = SelectModelAsync(value); } }
+    public void CancelProcessing() => _activeLoadCancellation?.Cancel();
+    public void AddUploadedModel(Guid documentId, string name, string path)
+    {
+        var choice = Models.FirstOrDefault(item => item.DocumentId == documentId && string.Equals(item.Path, path, StringComparison.OrdinalIgnoreCase));
+        if (choice is null) { choice = new StepPreviewModelChoice(documentId, name, path); Models.Add(choice); }
+        SelectedModel = choice;
+        Notify(nameof(Models));
+    }
+    private async Task SelectModelAsync(StepPreviewModelChoice choice)
+    {
+        var cancellation = new CancellationTokenSource();
+        _activeLoadCancellation = cancellation;
+        var token = cancellation.Token;
+        IsProcessing = true; ProcessingStatus = "Processing 3D model…";
+        _modelContent = null; ModelPath = null; NotifyAll();
+        try
+        {
+            if (!choice.IsLoaded)
+            {
+                var mesh = await LoadMeshAsync(choice.Path, token).WaitAsync(token);
+                token.ThrowIfCancellationRequested();
+                _documentId = choice.DocumentId;
+                FitModel(mesh);
+                ProcessingStatus = string.Empty;
+                RestoreSettings(choice.DocumentId);
+                var content = BuildUploadedMesh(mesh);
+                if (content.Children.Count == 0) throw new InvalidDataException("The STEP model produced no renderable triangles.");
+                choice.IsLoaded = true;
+                _modelContent = content; ModelPath = choice.Path;
+            }
+            else { var mesh = await LoadMeshAsync(choice.Path, token).WaitAsync(token); token.ThrowIfCancellationRequested(); _documentId = choice.DocumentId; FitModel(mesh); ProcessingStatus = string.Empty; RestoreSettings(choice.DocumentId); _modelContent = BuildUploadedMesh(mesh); ModelPath = choice.Path; }
+            choice.Error = string.Empty;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            if (ReferenceEquals(_activeLoadCancellation, cancellation))
+            {
+                _modelContent = null; ModelPath = null;
+                ProcessingStatus = "Processing cancelled.";
+            }
+        }
+        catch (Exception exception)
+        {
+            choice.Error = exception.Message;
+            _logger?.Log(exception, "Upload STEP preview", $"Unable to load documentId={choice.DocumentId}; path='{choice.Path}'.");
+            if (ReferenceEquals(_activeLoadCancellation, cancellation))
+            {
+                _modelContent = null; ModelPath = null;
+                ProcessingStatus = $"STEP preview failed: {exception.Message}";
+            }
+        }
+        finally
+        {
+            if (ReferenceEquals(_activeLoadCancellation, cancellation))
+            {
+                _activeLoadCancellation = null;
+                IsProcessing = false;
+                NotifyAll();
+            }
+            cancellation.Dispose();
+            choice.NotifyChanged();
+        }
+    }
+    private async Task<StepPreviewMeshData> LoadMeshAsync(string path, CancellationToken cancellationToken)
+    {
+        await _previewLoadGate.WaitAsync(cancellationToken);
+        try
+        {
+            return await Task.Run(() =>
+            {
+                if (!_preview.LoadModel(path)) throw new InvalidDataException("The STEP preview service could not load the model.");
+                return _preview.ModelMesh ?? throw new InvalidDataException("The STEP preview service returned no model mesh.");
+            });
+        }
+        finally { _previewLoadGate.Release(); }
+    }
+    private string SettingsPath(Guid documentId) => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DrawVerify", "viewer-settings", $"{documentId:N}.json");
+    private void RestoreSettings(Guid documentId)
+    {
+        var path = SettingsPath(documentId); if (!File.Exists(path)) return;
+        try
+        {
+            var settings = JsonSerializer.Deserialize<ViewerSettings>(File.ReadAllText(path));
+            if (settings is null || !settings.IsValid) throw new InvalidDataException("Viewer settings contain invalid camera or section values.");
+            _suppressSettingsSave = true; CameraTarget = new Point3D(settings.TargetX, settings.TargetY, settings.TargetZ); CameraPosition = new Point3D(settings.PositionX, settings.PositionY, settings.PositionZ); CameraLookDirection = new Vector3D(settings.LookX, settings.LookY, settings.LookZ); CameraZoom = settings.Zoom; _isSectionEnabled = settings.SectionEnabled; _sectionAxis = settings.SectionAxis; _sectionPosition = settings.SectionPosition; _suppressSettingsSave = false;
+            Notify(nameof(IsSectionEnabled)); Notify(nameof(SectionAxis)); Notify(nameof(SectionPosition));
+        }
+        catch (Exception exception) { _suppressSettingsSave = false; _logger?.Log(exception, "Restore STEP viewer settings", $"Unable to restore settings for documentId={documentId}; path='{path}'."); ProcessingStatus = "Viewer settings could not be restored."; }
+    }
+    private void SaveSettings()
+    {
+        if (_suppressSettingsSave || _documentId == Guid.Empty || !IsCameraAvailable) return;
+        var path = SettingsPath(_documentId);
+        try { Directory.CreateDirectory(Path.GetDirectoryName(path)!); var settings = new ViewerSettings(CameraTarget.X, CameraTarget.Y, CameraTarget.Z, CameraPosition.X, CameraPosition.Y, CameraPosition.Z, CameraLookDirection.X, CameraLookDirection.Y, CameraLookDirection.Z, CameraZoom, IsSectionEnabled, SectionAxis, SectionPosition); File.WriteAllText(path, JsonSerializer.Serialize(settings)); }
+        catch (Exception exception) { _logger?.Log(exception, "Save STEP viewer settings", $"Unable to save settings for documentId={_documentId}; path='{path}'."); ProcessingStatus = "Viewer settings could not be saved."; }
+    }
+    private sealed record ViewerSettings(double TargetX, double TargetY, double TargetZ, double PositionX, double PositionY, double PositionZ, double LookX, double LookY, double LookZ, double Zoom, bool SectionEnabled = false, string SectionAxis = "Z", double SectionPosition = 0)
+    { public bool IsValid => new[] { TargetX, TargetY, TargetZ, PositionX, PositionY, PositionZ, LookX, LookY, LookZ, Zoom, SectionPosition }.All(double.IsFinite) && Zoom is >= 0.05 and <= 20 && new Vector3D(LookX, LookY, LookZ).Length > 0 && SectionAxis is "X" or "Y" or "Z"; }
+    public bool IsSectionEnabled { get => _isSectionEnabled; set { if (_isSectionEnabled == value) return; _isSectionEnabled = value; Notify(); RefreshSection(); } }
+    public IReadOnlyList<string> SectionAxes { get; } = ["X", "Y", "Z"];
+    public string SectionAxis { get => _sectionAxis; set { if (value is not ("X" or "Y" or "Z") || _sectionAxis == value) return; _sectionAxis = value; Notify(); RefreshSection(); } }
+    public double SectionPosition { get => _sectionPosition; set { if (!double.IsFinite(value) || _sectionPosition.Equals(value)) return; _sectionPosition = value; Notify(); RefreshSection(); } }
+    private void RefreshSection()
+    {
+        if (_selectedModel is null || !IsModelLoaded) return;
+        try
+        {
+            var mesh = _preview.ModelMesh ?? throw new InvalidDataException("The STEP preview mesh is unavailable for sectioning.");
+            _modelContent = BuildUploadedMesh(mesh); Notify(nameof(ModelContent)); SaveSettings();
+        }
+        catch (Exception exception)
+        {
+            _logger?.Log(exception, "Update STEP viewer section", $"Unable to apply section settings for documentId={_documentId}; axis={SectionAxis}; position={SectionPosition}.");
+            ProcessingStatus = "Viewer section could not be applied.";
+        }
+    }
+    private Model3DGroup BuildUploadedMesh(StepPreviewMeshData data)
+    {
+        if (!IsSectionEnabled) return BuildMesh(data);
+        var group = new Model3DGroup();
+        foreach (var face in data.Triangles.GroupBy(triangle => triangle.FaceId))
+        {
+            var positions = new Point3DCollection(); var indices = new Int32Collection();
+            foreach (var triangle in face)
+            {
+                var polygon = new List<Point3D>
+                {
+                    ToPoint(data.Vertices[triangle.First].Point), ToPoint(data.Vertices[triangle.Second].Point), ToPoint(data.Vertices[triangle.Third].Point)
+                };
+                polygon = ClipSectionPolygon(polygon);
+                for (var i = 1; i + 1 < polygon.Count; i++)
+                {
+                    var start = positions.Count;
+                    positions.Add(polygon[0]); positions.Add(polygon[i]); positions.Add(polygon[i + 1]);
+                    indices.Add(start); indices.Add(start + 1); indices.Add(start + 2);
+                }
+            }
+            if (indices.Count == 0) continue;
+            var material = new DiffuseMaterial(ComponentBrush(face.Key));
+            group.Children.Add(new GeometryModel3D(new MeshGeometry3D { Positions = positions, TriangleIndices = indices }, material) { BackMaterial = material });
+        }
+        return group;
+    }
+    private List<Point3D> ClipSectionPolygon(List<Point3D> polygon)
+    {
+        var clipped = new List<Point3D>();
+        for (var i = 0; i < polygon.Count; i++)
+        {
+            var current = polygon[i]; var previous = polygon[(i + polygon.Count - 1) % polygon.Count];
+            var currentDistance = SectionCoordinate(current) - SectionPosition; var previousDistance = SectionCoordinate(previous) - SectionPosition;
+            var currentInside = currentDistance >= 0; var previousInside = previousDistance >= 0;
+            if (currentInside != previousInside)
+            {
+                var ratio = previousDistance / (previousDistance - currentDistance);
+                clipped.Add(new Point3D(previous.X + (current.X - previous.X) * ratio, previous.Y + (current.Y - previous.Y) * ratio, previous.Z + (current.Z - previous.Z) * ratio));
+            }
+            if (currentInside) clipped.Add(current);
+        }
+        return clipped;
+    }
+    private double SectionCoordinate(Point3D point) => SectionAxis switch { "X" => point.X, "Y" => point.Y, _ => point.Z };
+    private static Point3D ToPoint(StepPreviewPoint point) => new(point.X, point.Y, point.Z);
     public InternalApprovalStamp? InternalApprovalStamp { get; private set; }
     public bool HasInternalApprovalStamp => InternalApprovalStamp is not null;
     public string ApprovalStampText => InternalApprovalStamp is null ? string.Empty : $"Internally Approved · {InternalApprovalStamp.ApproverDisplayName} · {InternalApprovalStamp.AppliedUtc:O} · Revision {InternalApprovalStamp.Revision} · {InternalApprovalStamp.StampId} · {InternalApprovalStamp.FingerprintReference} · {InternalApprovalStamp.VerificationStatus}";
@@ -85,6 +264,7 @@ public sealed class StepPreviewViewModel : INotifyPropertyChanged, IDisposable
         CameraPosition = CameraTarget + offset;
         CameraLookDirection = CameraTarget - CameraPosition;
         Notify(nameof(CameraPosition)); Notify(nameof(CameraLookDirection)); Notify(nameof(CameraStatus));
+        SaveSettings();
     }
     public void Zoom(double factor)
     {
@@ -96,6 +276,7 @@ public sealed class StepPreviewViewModel : INotifyPropertyChanged, IDisposable
         CameraLookDirection = CameraTarget - CameraPosition;
         CameraZoom = Math.Max(0.05, Math.Min(20, CameraZoom / factor));
         Notify(nameof(CameraPosition)); Notify(nameof(CameraLookDirection)); Notify(nameof(CameraZoom)); Notify(nameof(CameraStatus));
+        SaveSettings();
     }
     private static Model3DGroup BuildMesh(StepPreviewMeshData data, Brush? brush = null) => BuildMesh(data.Triangles, data, brush);
     private static Model3DGroup BuildMesh(IReadOnlyList<StepPreviewTriangle> triangles, StepPreviewMeshData data, Brush? brush = null)
@@ -131,7 +312,21 @@ public sealed class StepPreviewViewModel : INotifyPropertyChanged, IDisposable
     }
     private void UpdateCamera(StepPreviewBounds b) { CameraTarget = new Point3D((b.MinimumX + b.MaximumX) / 2, (b.MinimumY + b.MaximumY) / 2, (b.MinimumZ + b.MaximumZ) / 2); var d = Math.Sqrt(Math.Pow(b.MaximumX - b.MinimumX, 2) + Math.Pow(b.MaximumY - b.MinimumY, 2) + Math.Pow(b.MaximumZ - b.MinimumZ, 2)); var distance = Math.Max(double.IsFinite(d) ? d * 2 / CameraZoom : 0, 1); CameraPosition = CameraTarget + new Vector3D(0, 0, distance); CameraLookDirection = CameraTarget - CameraPosition; }
     private static bool IsFinite(Point3D p) => double.IsFinite(p.X) && double.IsFinite(p.Y) && double.IsFinite(p.Z); private static bool IsFinite(Vector3D v) => double.IsFinite(v.X) && double.IsFinite(v.Y) && double.IsFinite(v.Z);
-    public void Dispose() { _preview.Dispose(); GC.SuppressFinalize(this); }
-    private void NotifyAll() { foreach (var n in new[] { nameof(ModelPath), nameof(IsModelLoaded), nameof(HighlightedFeatureReference), nameof(HighlightedLocationX), nameof(HighlightedLocationY), nameof(IsPreviewAvailable), nameof(IsFeatureResolved), nameof(IsCameraAvailable), nameof(ModelContent), nameof(HighlightContent), nameof(PreviewStatus), nameof(CameraZoom), nameof(CameraTarget), nameof(CameraPosition), nameof(CameraLookDirection), nameof(CameraUpDirection), nameof(CameraStatus) }) Notify(n); }
+    public void Dispose() { CancelProcessing(); _previewLoadGate.Wait(); _previewLoadGate.Release(); _preview.Dispose(); GC.SuppressFinalize(this); }
+    private void NotifyAll() { foreach (var n in new[] { nameof(ModelPath), nameof(IsModelLoaded), nameof(HighlightedFeatureReference), nameof(HighlightedLocationX), nameof(HighlightedLocationY), nameof(IsPreviewAvailable), nameof(IsFeatureResolved), nameof(IsCameraAvailable), nameof(ModelContent), nameof(HighlightContent), nameof(PreviewStatus), nameof(CameraZoom), nameof(CameraTarget), nameof(CameraPosition), nameof(CameraLookDirection), nameof(CameraUpDirection), nameof(CameraStatus), nameof(Models) }) Notify(n); }
     private void Notify([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+}
+
+public sealed class StepPreviewModelChoice(Guid documentId, string name, string path) : INotifyPropertyChanged
+{
+    private bool _isLoaded;
+    private string _error = string.Empty;
+    public Guid DocumentId { get; } = documentId;
+    public string Name { get; } = name;
+    public string Path { get; } = path;
+    public bool IsLoaded { get => _isLoaded; set { _isLoaded = value; NotifyChanged(nameof(IsLoaded)); } }
+    public string Error { get => _error; set { _error = value; NotifyChanged(nameof(Error)); } }
+    public event PropertyChangedEventHandler? PropertyChanged;
+    public void NotifyChanged(string? property = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(property));
+    public override string ToString() => string.IsNullOrEmpty(Error) ? Name : $"{Name} — {Error}";
 }

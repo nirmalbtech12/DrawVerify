@@ -10,6 +10,8 @@ public partial class StepPreviewView : UserControl
     private Point _lastMousePosition;
     private bool _isDragging;
     public StepPreviewView() => InitializeComponent();
+    public event Action? BackRequested;
+    private void BackClick(object sender, RoutedEventArgs e) => BackRequested?.Invoke();
 
     private void ViewportMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
