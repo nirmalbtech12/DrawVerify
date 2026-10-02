@@ -23,6 +23,41 @@ public sealed class DocumentDetailViewModelTests
         var model = new DocumentDetailViewModel(document);
         Assert.Equal(document.DocumentId, model.Document!.DocumentId); Assert.Equal(4, model.CurrentVersion); Assert.Equal("part.step", model.OriginalFileName);
     }
+
+    [Fact(DisplayName = "TSD-01 legacy document detail loads its submitted revision snapshot")]
+    public async Task TSD_01_document_detail_loads_legacy_snapshot()
+    {
+        var legacyId = Guid.NewGuid();
+        var snapshot = new ReviewSubmission { PackageId = legacyId, Revision = 3, MakerUserId = "maker", MakerDisplayName = "Legacy Maker", Status = WorkflowStatus.Rejected, TemplateMapping = null, Fingerprint = new DocumentFingerprint { Value = new string('a', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 } };
+        var auth = AuthorizedChecker();
+        var view = new DocumentDetailViewModel(new Document { DocumentId = legacyId, OriginalFileName = "legacy.pdf", CurrentVersion = 3, Version = new DocumentVersion { DocumentId = legacyId, VersionId = Guid.NewGuid(), VersionNumber = 3 } }, null, new HistoryService(new[] { PriorVersion(snapshot) }), authentication: auth);
+
+        await WaitUntilAsync(() => view.SubmittedSnapshotStatus == "Loaded");
+
+        Assert.Equal("legacy.pdf", view.OriginalFileName);
+        Assert.Equal("Legacy Maker", view.SubmittedMakerDisplayName);
+
+    }
+
+    [Fact(DisplayName = "TSD-09 legacy and mapped documents load their own revision snapshots")]
+    public async Task TSD_09_document_detail_loads_legacy_and_mapped_revisions()
+    {
+        var legacyId = Guid.NewGuid();
+        var mappedId = Guid.NewGuid();
+        var legacySnapshot = new ReviewSubmission { PackageId = legacyId, Revision = 2, MakerDisplayName = "Legacy", TemplateMapping = null, Fingerprint = new DocumentFingerprint { Value = new string('a', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 } };
+        var mapping = new TemplateMappingSnapshot { TemplateId = Guid.NewGuid(), TemplateVersion = 1, Assignments = new[] { new SignaturePlaceholderAssignment { PlaceholderId = Guid.NewGuid(), Role = "Approver", AssignedSignerUserId = "approver" } } };
+        var mappedSnapshot = new ReviewSubmission { PackageId = mappedId, Revision = 4, MakerDisplayName = "Mapped", TemplateMapping = mapping, Fingerprint = new DocumentFingerprint { Value = new string('b', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 } };
+        var auth = AuthorizedChecker();
+        var legacyView = new DocumentDetailViewModel(new Document { DocumentId = legacyId, OriginalFileName = "legacy.pdf", CurrentVersion = 2, Version = new DocumentVersion { VersionId = Guid.NewGuid(), VersionNumber = 2 } }, null, new HistoryService(new[] { PriorVersion(legacySnapshot) }), authentication: auth);
+        var mappedView = new DocumentDetailViewModel(new Document { DocumentId = mappedId, OriginalFileName = "mapped.pdf", CurrentVersion = 4, Version = new DocumentVersion { VersionId = Guid.NewGuid(), VersionNumber = 4 } }, null, new HistoryService(new[] { PriorVersion(mappedSnapshot) }), authentication: auth);
+
+        await WaitUntilAsync(() => legacyView.SubmittedSnapshotStatus == "Loaded" && mappedView.SubmittedSnapshotStatus == "Loaded");
+
+        Assert.Equal("Legacy", legacyView.SubmittedMakerDisplayName);
+        Assert.Equal("Mapped", mappedView.SubmittedMakerDisplayName);
+        Assert.Equal("legacy.pdf", legacyView.OriginalFileName);
+        Assert.Equal("mapped.pdf", mappedView.OriginalFileName);
+    }
     [Fact(DisplayName = "TD-07 exposes fingerprint metadata and exact verification states")]
     public void Fingerprint_metadata_and_result_messages_are_distinct()
     {
@@ -392,6 +427,8 @@ public sealed class DocumentDetailViewModelTests
         authentication.SignIn(new AuthenticatedUser("checker", new[] { SystemRoles.Checker }) { UserId = "checker-001", DisplayName = "Checker One" });
         return authentication;
     }
+
+    private static PriorVersionReview PriorVersion(ReviewSubmission submission) => new() { PackageId = submission.PackageId, SubmissionId = submission.SubmissionId, Revision = submission.Revision, MakerUserId = submission.MakerUserId, MakerDisplayName = submission.MakerDisplayName, Status = submission.Status, StepDocumentVersionId = submission.StepDocumentVersionId, DxfDocumentVersionId = submission.DxfDocumentVersionId, VerificationSessionId = submission.VerificationSessionId, Package = ReviewPackage.FromSubmission(submission) };
 
     private static Document Document(Guid id, int revision) => new() { DocumentId = id, CurrentVersion = revision, Version = new DocumentVersion { VersionId = Guid.NewGuid() } };
 

@@ -901,8 +901,8 @@ public sealed class SqliteWorkflowRepositoryTests
         finally { Delete(path); }
     }
 
-    [Fact(DisplayName = "TD-INF-01 round trips multiple revisions with exact identifiers and filters")]
-    public async Task Historical_revision_rows_preserve_identity_and_filtering()
+    [Fact(DisplayName = "TSD-03 legacy rows without template fields preserve status and revision history")]
+    public async Task TSD_03_legacy_revision_rows_without_template_fields_preserve_history()
     {
         var path = Path.Combine(Path.GetTempPath(), $"drawverify-history-{Guid.NewGuid():N}.db");
         try
@@ -920,7 +920,136 @@ public sealed class SqliteWorkflowRepositoryTests
             var repository = new SqliteWorkflowRepository(path);
             var all = await ((IWorkflowRepository)repository).GetPriorSubmissionsAsync(package, new PriorVersionFilter { MakerUserId = "MAKER-A" });
             Assert.Equal(new[] { 3, 1 }, all.Select(x => x.Revision)); Assert.All(all, x => Assert.Equal(package, x.PackageId));
-            Assert.Equal(WorkflowStatus.Rejected, (await repository.GetSubmissionsAsync(package)).Single(x => x.Revision == 1).Status);
+            var legacy = (await repository.GetSubmissionsAsync(package)).Single(x => x.Revision == 1);
+            Assert.Equal(WorkflowStatus.Rejected, legacy.Status);
+            Assert.Null(legacy.TemplateMapping);
+            Assert.Equal("note-1", legacy.Note);
+            Assert.Equal("{\"revision\":1}", legacy.VerificationEvidenceJson);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-07 versioned template migration and audit persist atomically")]
+    public async Task TSD_07_template_migration_retains_prior_mapping_and_audit()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-template-migration-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteWorkflowRepository(path);
+            var package = Guid.NewGuid();
+            var original = Snapshot(package) with { Revision = 1 };
+            await repository.SubmitAtomicallyAsync(new WorkflowState { PackageId = package, Status = WorkflowStatus.Draft, Revision = 1 }, original, Audit(DocumentAuditAction.SubmissionSucceeded, package, "submitted"));
+            var selected = new TemplateMappingSnapshot { TemplateId = Guid.NewGuid(), TemplateVersion = 2, Assignments = new[] { new SignaturePlaceholderAssignment { PlaceholderId = Guid.NewGuid(), Role = "Approver", AssignedSignerUserId = "approver-1" } } };
+            var timestamp = new DateTime(2026, 10, 2, 10, 0, 0, DateTimeKind.Utc);
+            var association = new TemplateMigrationAssociation(package, 1, 1, null, selected, "admin-1", timestamp);
+            var audit = new AuditEntry { DocumentId = package, UserId = "admin-1", Action = DocumentAuditAction.MetadataUpdated, TimestampUtc = timestamp, DetailsJson = "{\"eventType\":\"TemplateMigrationApplied\"}" };
+
+            await repository.SaveTemplateMigrationAsync(association, audit);
+
+            var saved = await repository.GetTemplateMigrationAsync(package, 1);
+            var reopened = await repository.GetReviewPackageAsync(package, 1);
+            Assert.NotNull(saved);
+            Assert.Equal(1, saved!.Version);
+            Assert.Null(saved.PreviousMapping);
+            Assert.Equal(selected.TemplateId, saved.Mapping.TemplateId);
+            Assert.Equal("admin-1", saved.ActorUserId);
+            Assert.Equal(timestamp, saved.TimestampUtc);
+            Assert.Equal(selected.TemplateId, reopened!.Submission.TemplateMapping!.TemplateId);
+            Assert.Null((await repository.GetSubmissionsAsync(package)).Single().TemplateMapping);
+            await using var connection = new SqliteConnection($"Data Source={path}"); await connection.OpenAsync();
+            await using var auditCount = connection.CreateCommand(); auditCount.CommandText = "SELECT COUNT(*) FROM DocumentAuditLog WHERE DocumentId=$package AND Action=$action"; auditCount.Parameters.AddWithValue("$package", package.ToString()); auditCount.Parameters.AddWithValue("$action", (int)DocumentAuditAction.MetadataUpdated);
+            Assert.Equal(1, Convert.ToInt32(await auditCount.ExecuteScalarAsync()));
+
+            var nextMapping = selected with { TemplateId = Guid.NewGuid(), TemplateVersion = 3 };
+            var nextAssociation = association with { Version = 2, PreviousMapping = selected, Mapping = nextMapping };
+            await repository.SaveTemplateMigrationAsync(nextAssociation, Audit(DocumentAuditAction.MetadataUpdated, package, "migration-v2"));
+            var versionTwo = await repository.GetTemplateMigrationAsync(package, 1);
+            Assert.Equal(2, versionTwo!.Version);
+            Assert.Equal(selected.TemplateId, versionTwo.PreviousMapping!.TemplateId);
+            Assert.Equal(nextMapping.TemplateId, versionTwo.Mapping.TemplateId);
+
+            var invalid = selected with { TemplateId = Guid.Empty };
+            await Assert.ThrowsAsync<InvalidOperationException>(() => repository.SaveTemplateMigrationAsync(association with { Version = 3, Mapping = invalid }, Audit(DocumentAuditAction.MetadataUpdated, package, "migration-invalid")));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => repository.SaveTemplateMigrationAsync(association with { Version = 4 }, Audit(DocumentAuditAction.MetadataUpdated, package, "migration-conflict")));
+            await Assert.ThrowsAsync<SqliteException>(() => repository.SaveTemplateMigrationAsync(association with { Version = 3 }, audit));
+            var unchanged = await repository.GetTemplateMigrationAsync(package, 1);
+            Assert.Equal(2, unchanged!.Version);
+            Assert.Equal(nextMapping.TemplateId, unchanged.Mapping.TemplateId);
+            Assert.Equal(2, Convert.ToInt32(await auditCount.ExecuteScalarAsync()));
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact(DisplayName = "TSD-08 SQLite reload keeps legacy and mapped submission policies separate")]
+    public async Task TSD_08_sqlite_reloads_legacy_and_mapped_template_policies_independently()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-template-modes-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteWorkflowRepository(path);
+            var legacyId = Guid.NewGuid();
+            var mappedId = Guid.NewGuid();
+            var assignments = new[] { new SignaturePlaceholderAssignment { PlaceholderId = Guid.NewGuid(), Role = "Approver", AssignedSignerUserId = "approver-1" } };
+            var mapping = new TemplateMappingSnapshot { TemplateId = Guid.NewGuid(), TemplateVersion = 4, Assignments = assignments };
+            var legacy = Snapshot(legacyId) with { TemplateMapping = null, PlaceholderAssignments = Array.Empty<SignaturePlaceholderAssignment>() };
+            var mapped = Snapshot(mappedId) with { TemplateMapping = mapping, PlaceholderAssignments = assignments };
+            await repository.SubmitAtomicallyAsync(new WorkflowState { PackageId = legacyId, Status = WorkflowStatus.Draft, Revision = 1 }, legacy, Audit(DocumentAuditAction.SubmissionSucceeded, legacyId, "legacy"));
+            await repository.SubmitAtomicallyAsync(new WorkflowState { PackageId = mappedId, Status = WorkflowStatus.Draft, Revision = 1 }, mapped, Audit(DocumentAuditAction.SubmissionSucceeded, mappedId, "mapped"));
+
+            var legacyReload = (await repository.GetReviewPackageAsync(legacyId, 1))!.Submission;
+            var mappedReload = (await repository.GetReviewPackageAsync(mappedId, 1))!.Submission;
+
+            Assert.Null(legacyReload.TemplateMapping);
+            Assert.Empty(legacyReload.PlaceholderAssignments);
+            Assert.Equal(mapping.TemplateId, mappedReload.TemplateMapping!.TemplateId);
+            Assert.Equal(assignments.Single().PlaceholderId, mappedReload.TemplateMapping.Assignments.Single().PlaceholderId);
+        }
+        finally { Delete(path); }
+    }
+
+    [Theory(DisplayName = "TSD-10 workflow data and audit reload for each document workflow shape")]
+    [InlineData("PDF-only")]
+    [InlineData("3D+2D")]
+    [InlineData("mixed")]
+    public async Task TSD_10_workflow_state_feedback_and_audit_reload(string workflowShape)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-regression-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteWorkflowRepository(path);
+            var package = Guid.NewGuid();
+            var submittedUtc = new DateTime(2026, 10, 2, 10, 0, 0, DateTimeKind.Utc);
+            var assignment = new SignaturePlaceholderAssignment { PlaceholderId = Guid.NewGuid(), Role = "Approver", AssignedSignerUserId = "approver-1" };
+            var mapping = workflowShape == "mixed" ? new TemplateMappingSnapshot { TemplateId = Guid.NewGuid(), TemplateVersion = 1, Assignments = new[] { assignment } } : null;
+            var submission = Snapshot(package) with { Revision = 1, Status = WorkflowStatus.SubmittedForReview, Note = workflowShape, MakerSignature = SignatureData.Create(SignatureMethod.Typed, "maker signature", "maker-001", "Maker One", package, 1, new DateTimeOffset(submittedUtc)), TemplateMapping = mapping, PlaceholderAssignments = mapping?.Assignments ?? Array.Empty<SignaturePlaceholderAssignment>() };
+            await repository.SubmitAtomicallyAsync(new WorkflowState { PackageId = package, Status = WorkflowStatus.Draft, Revision = 1 }, submission, Audit(DocumentAuditAction.SubmissionSucceeded, package, $"{workflowShape}-submitted"));
+            var review = await repository.GetReviewPackageAsync(package, 1);
+            Assert.NotNull(review);
+            var decision = new ReviewDecision { PackageId = package, Revision = 1, CheckerUserId = "checker-1", CheckerDisplayName = "Checker", DecisionType = ReviewDecisionType.Approve, Comments = workflowShape, SnapshotReference = review!.SnapshotReference, SnapshotJson = JsonSerializer.Serialize(review), DecidedUtc = new DateTime(2026, 10, 2, 10, 0, 0, DateTimeKind.Utc) };
+            await repository.SaveReviewDecisionAsync(review, decision, WorkflowStatus.Approved, Audit(DocumentAuditAction.Approved, package, $"{workflowShape}-approved"));
+            var feedback = new ReviewComment { PackageId = package, Revision = 1, AuthorUserId = "checker-1", AuthorDisplayName = "Checker", Text = $"{workflowShape} comment", IsDraft = false };
+            await repository.SaveReviewCommentAsync(feedback, Audit(DocumentAuditAction.ReviewCommentAdded, package, $"{workflowShape}-comment"));
+            var markup = new DocumentMarkup { PackageId = package, Revision = 1, DocumentId = package, DocumentVersionId = submission.StepDocumentVersionId, AuthorUserId = "checker-1", AuthorDisplayName = "Checker", MarkupType = "note", DataJson = "{\"text\":\"preserved\"}" };
+            await repository.SaveDocumentMarkupAsync(markup, Audit(DocumentAuditAction.ReviewCommentAdded, package, $"{workflowShape}-markup"));
+
+            var reloaded = await repository.GetReviewPackageAsync(package, 1);
+            Assert.Equal(WorkflowStatus.Approved, reloaded!.Submission.Status);
+            Assert.Equal(workflowShape, reloaded.Submission.Note);
+            Assert.Equal(submission.MakerSignature, reloaded.Submission.MakerSignature);
+            Assert.Equal(mapping?.TemplateId, reloaded.Submission.TemplateMapping?.TemplateId);
+            Assert.Contains(reloaded.Comments, item => item.Text == feedback.Text && item.AuthorUserId == feedback.AuthorUserId);
+            Assert.Contains(reloaded.Markups, item => item.MarkupId == markup.MarkupId && item.DataJson == markup.DataJson);
+            Assert.Equal(decision.Comments, (await repository.GetDecisionHistoryAsync(package, 1)).Single().Comments);
+            await using var connection = new SqliteConnection($"Data Source={path}"); await connection.OpenAsync();
+            await using var auditEvents = connection.CreateCommand(); auditEvents.CommandText = "SELECT Action,DetailsJson FROM DocumentAuditLog WHERE DocumentId=$package ORDER BY TimestampUtc,AuditId"; auditEvents.Parameters.AddWithValue("$package", package.ToString());
+            var persistedAudit = new List<(DocumentAuditAction Action, string Details)>();
+            await using (var reader = await auditEvents.ExecuteReaderAsync())
+                while (await reader.ReadAsync()) persistedAudit.Add(((DocumentAuditAction)reader.GetInt32(0), reader.GetString(1)));
+            Assert.Equal(4, persistedAudit.Count);
+            Assert.Contains(persistedAudit, item => item.Action == DocumentAuditAction.SubmissionSucceeded && item.Details.Contains($"{workflowShape}-submitted", StringComparison.Ordinal));
+            Assert.Contains(persistedAudit, item => item.Action == DocumentAuditAction.Approved && item.Details.Contains($"{workflowShape}-approved", StringComparison.Ordinal));
+            Assert.Contains(persistedAudit, item => item.Action == DocumentAuditAction.ReviewCommentAdded && item.Details.Contains($"{workflowShape}-comment", StringComparison.Ordinal));
+            Assert.Contains(persistedAudit, item => item.Action == DocumentAuditAction.ReviewCommentAdded && item.Details.Contains($"{workflowShape}-markup", StringComparison.Ordinal));
         }
         finally { Delete(path); }
     }
@@ -933,15 +1062,15 @@ public sealed class SqliteWorkflowRepositoryTests
         Assert.Equal("Fix DIM-4", comment.Text); Assert.Equal(4, comment.Revision); Assert.Equal("DIM-4", comment.ReferenceId); Assert.NotEqual(comment, snapshot);
     }
 
-    [Fact(DisplayName = "TSD-AC05-FEEDBACK SQLite persists and reloads version-scoped reviewer feedback")]
-    public async Task Reviewer_comments_reload_for_the_requested_revision_only()
+    [Fact(DisplayName = "TSD-05 persists version markups with audit and rolls back a failed write")]
+    public async Task TSD_05_version_scoped_markups_preserve_rows_and_atomic_audit()
     {
         var path = Path.Combine(Path.GetTempPath(), $"drawverify-feedback-{Guid.NewGuid():N}.db");
         try
         {
             var repository = new SqliteWorkflowRepository(path);
             var package = Guid.NewGuid();
-            var document = Guid.NewGuid();
+            var document = package;
             var version = Guid.NewGuid();
             var submission = Snapshot(package) with
             {
@@ -968,16 +1097,30 @@ public sealed class SqliteWorkflowRepositoryTests
 
             var markup = new DocumentMarkup { DocumentId = document, DocumentVersionId = version, PackageId = package, Revision = 2, AuthorUserId = "checker-1", AuthorDisplayName = "Checker", MarkupType = "highlight", DataJson = "{\"color\":\"yellow\"}", PageNumber = 2, Location = "x=10,y=20" };
             await repository.SaveDocumentMarkupAsync(markup, Audit(DocumentAuditAction.ReviewCommentDraftSaved, package, "markup"));
+            var secondMarkup = markup with { MarkupId = Guid.NewGuid(), MarkupType = "note", DataJson = "{\"text\":\"Keep this\"}" };
+            await repository.SaveDocumentMarkupAsync(secondMarkup, Audit(DocumentAuditAction.ReviewCommentDraftSaved, package, "markup-2"));
             var markups = await repository.GetDocumentMarkupsAsync(document, version);
-            var reloadedMarkup = Assert.Single(markups);
+            Assert.Equal(2, markups.Count);
+            var reloadedMarkup = markups.Single(item => item.MarkupId == markup.MarkupId);
             Assert.Equal(document, reloadedMarkup.DocumentId);
             Assert.Equal(version, reloadedMarkup.DocumentVersionId);
             Assert.Equal(2, reloadedMarkup.PageNumber);
             Assert.Equal(markup.DataJson, reloadedMarkup.DataJson);
             var reopened = await repository.GetReviewPackageAsync(package, 2);
-            var reopenedMarkup = Assert.Single(reopened!.Markups);
+            Assert.Equal(2, reopened!.Markups.Count);
+            var reopenedMarkup = reopened.Markups.Single(item => item.MarkupId == markup.MarkupId);
             Assert.Equal(document, reopenedMarkup.DocumentId);
             Assert.Equal(version, reopenedMarkup.DocumentVersionId);
+
+            await using var auditConnection = new SqliteConnection($"Data Source={path}"); await auditConnection.OpenAsync();
+            await using var auditCount = auditConnection.CreateCommand();
+            auditCount.CommandText = "SELECT COUNT(*) FROM DocumentAuditLog WHERE DocumentId=$package AND DetailsJson LIKE '%markup%'";
+            auditCount.Parameters.AddWithValue("$package", package.ToString());
+            var auditRowsBeforeFailure = Convert.ToInt32(await auditCount.ExecuteScalarAsync());
+            Assert.Equal(2, auditRowsBeforeFailure);
+            await Assert.ThrowsAsync<SqliteException>(() => repository.SaveDocumentMarkupAsync(secondMarkup, Audit(DocumentAuditAction.ReviewCommentDraftSaved, package, "markup-failed")));
+            Assert.Equal(2, (await repository.GetDocumentMarkupsAsync(document, version)).Count);
+            Assert.Equal(auditRowsBeforeFailure, Convert.ToInt32(await auditCount.ExecuteScalarAsync()));
             Assert.Throws<ArgumentException>(() => (markup with { DataJson = string.Empty }).Validate());
         }
         finally { Delete(path); }

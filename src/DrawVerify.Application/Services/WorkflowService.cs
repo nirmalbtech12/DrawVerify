@@ -311,6 +311,25 @@ public sealed class WorkflowService : IWorkflowService
         if (!string.IsNullOrWhiteSpace(request.VerificationError)) failures.Add($"Verification failed: {request.VerificationError}");
     }
 
+    public async Task<TemplateMigrationAssociation> MigrateTemplateAsync(Guid packageId, int revision, TemplateMappingSnapshot mapping, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(mapping);
+        var user = _authentication.CurrentUser ?? throw new UnauthorizedAccessException("An authenticated Admin is required to migrate a document template.");
+        if (!user.HasRole("Admin")) throw new UnauthorizedAccessException("Only an Admin can migrate a document template.");
+        mapping.Validate();
+        var state = await _workflow.GetStateAsync(packageId, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException($"Workflow package '{packageId}' was not found.");
+        if (state.Revision != revision) throw new InvalidOperationException($"Template migration requires the current revision (requested {revision}, current {state.Revision}).");
+        var submission = (await _workflow.GetSubmissionsAsync(packageId, cancellationToken).ConfigureAwait(false)).FirstOrDefault(x => x.Revision == revision) ?? throw new KeyNotFoundException($"Workflow package '{packageId}' revision {revision} was not found.");
+        if (submission.TemplateMapping?.TemplateId == mapping.TemplateId && submission.TemplateMapping.TemplateVersion == mapping.TemplateVersion) throw new InvalidOperationException("The selected template mapping is already associated with this revision.");
+        if (_workflow is not ITemplateMigrationRepository migrationRepository) throw new NotSupportedException("The configured workflow repository does not support template migration.");
+        var prior = await migrationRepository.GetTemplateMigrationAsync(packageId, revision, cancellationToken).ConfigureAwait(false);
+        var timestamp = _clock().ToUniversalTime();
+        var association = new TemplateMigrationAssociation(packageId, revision, (prior?.Version ?? 0) + 1, prior?.Mapping ?? submission.TemplateMapping, mapping, user.UserId, timestamp);
+        var audit = new AuditEntry { DocumentId = packageId, UserId = user.UserId, Action = DocumentAuditAction.MetadataUpdated, TimestampUtc = timestamp, DetailsJson = JsonSerializer.Serialize(new { eventType = "TemplateMigrationApplied", association.PackageId, association.Revision, association.Version, previousTemplateId = association.PreviousMapping?.TemplateId, previousTemplateVersion = association.PreviousMapping?.TemplateVersion, templateId = mapping.TemplateId, templateVersion = mapping.TemplateVersion }) };
+        try { await migrationRepository.SaveTemplateMigrationAsync(association, audit, cancellationToken).ConfigureAwait(false); return association; }
+        catch (Exception exception) { _logger?.Log(exception, "Template migration", $"Unable to migrate template for packageId={packageId}, revision={revision}, templateId={mapping.TemplateId}, templateVersion={mapping.TemplateVersion}."); throw; }
+    }
+
     public async Task<SubmissionResult> SubmitForReviewAsync(SubmissionRequest request, CancellationToken cancellationToken = default)
     {
         await ResolveWorkflowConfigurationAsync(request.PackageId, cancellationToken, allowCurrentForNewSubmission: true).ConfigureAwait(false);

@@ -296,6 +296,35 @@ public sealed class WorkflowServiceTests
         Assert.Empty(result.Submission!.DxfDocumentId == Guid.Empty ? Array.Empty<Guid>() : new[] { result.Submission.DxfDocumentId });
     }
 
+    [Theory(DisplayName = "TSD-10 PDF-only, 3D+2D, and mixed submissions preserve workflow progression")]
+    [InlineData("PDF-only")]
+    [InlineData("3D+2D")]
+    [InlineData("mixed")]
+    public async Task TSD_10_submission_shapes_progress_with_signature_and_audit(string workflowShape)
+    {
+        var f = Fixture.Create();
+        f.Request = f.Request with { Note = workflowShape };
+        if (workflowShape == "mixed")
+        {
+            var assignment = new SignaturePlaceholderAssignment { PlaceholderId = Guid.NewGuid(), Role = SystemRoles.Approver, AssignedSignerUserId = "approver-1" };
+            f.Request = f.Request with { TemplateMapping = new TemplateMappingSnapshot { TemplateId = Guid.NewGuid(), TemplateVersion = 1, Assignments = new[] { assignment } } };
+        }
+        if (workflowShape == "PDF-only")
+        {
+            var version = Guid.NewGuid();
+            f.Document = f.Document! with { DocumentType = DrawVerify.Core.Enums.DocumentType.PdfDrawing, OriginalFileName = "drawing.pdf", FileSizeBytes = 12, UploadStatus = DrawVerify.Core.Enums.UploadStatus.Uploaded, Version = new DocumentVersion { DocumentId = Package, VersionId = version, VersionNumber = 1 } };
+            f.Request = f.Request with { StepDocumentVersionId = version, DxfDocumentId = Guid.Empty, DxfDocumentVersionId = Guid.Empty, VerificationSessionId = Guid.Empty, ExtractionEvidenceJson = "{}", VerificationEvidenceJson = "{}" };
+        }
+
+        var result = await f.Service.SubmitForReviewAsync(f.Request);
+
+        Assert.True(result.Succeeded, result.Message);
+        Assert.Equal(WorkflowStatus.SubmittedForReview, result.State!.Status);
+        Assert.Equal(workflowShape, result.Submission!.Note);
+        Assert.NotNull(result.Submission.MakerSignature);
+        Assert.Contains(f.Workflow.Audits, entry => entry.Action == DocumentAuditAction.MakerSignatureApplied);
+    }
+
     [Fact(DisplayName = "TSD-AC03-STATUS configured PDF/image mapping exposes neutral labels and progress")]
     public void Pdf_image_status_mapping_is_configured_and_unknown_states_fail_explicitly()
     {
@@ -682,8 +711,8 @@ public sealed class WorkflowServiceTests
         await Assert.ThrowsAsync<ArgumentException>(() => f.Service.AddReviewCommentAsync(Package, 7, " "));
     }
 
-    [Fact(DisplayName = "TD-APP-01 aggregates exact prior revision metadata and preserves context")]
-    public async Task Prior_versions_are_aggregated_without_cross_revision_data()
+    [Fact(DisplayName = "TSD-02 prior-version queries return legacy revisions and history")]
+    public async Task TSD_02_prior_versions_preserve_revision_identity_and_filtering()
     {
         var f = Fixture.Create();
         f.Auth.User = new AuthenticatedUser("checker", new[] { SystemRoles.Checker }) { UserId = "checker-001", DisplayName = "Checker" };
@@ -705,7 +734,85 @@ public sealed class WorkflowServiceTests
         Assert.All(result, x => Assert.Equal(revisions.Single(s => s.Revision == x.Revision).StepDocumentVersionId, x.StepDocumentVersionId));
         Assert.Equal("maker-1", (await f.Service.GetPriorVersionAsync(Package, 1))!.MakerUserId);
         Assert.Equal(WorkflowStatus.Rejected, result.Single(x => x.Revision == 1).Status);
+        Assert.Equal("revision 1", result.Single(x => x.Revision == 1).Note);
+        Assert.Equal("{\"revision\":1}", result.Single(x => x.Revision == 1).Package!.Submission.VerificationEvidenceJson);
         Assert.Null(await f.Service.GetPriorVersionAsync(Package, 99));
+    }
+
+    [Fact(DisplayName = "TSD-06 Admin migration captures mapping and retains legacy submission history")]
+    public async Task TSD_06_admin_migration_versions_mapping_without_rewriting_submission()
+    {
+        var f = Fixture.Create();
+        var legacy = new ReviewSubmission { SubmissionId = Guid.NewGuid(), PackageId = Package, Revision = 1, MakerUserId = "maker-1", TemplateMapping = null };
+        f.Workflow.Submissions.Add(legacy);
+        f.Auth.User = new AuthenticatedUser("admin", new[] { SystemRoles.Admin }) { UserId = "admin-1" };
+        var mapping = new TemplateMappingSnapshot { TemplateId = Guid.NewGuid(), TemplateVersion = 1, Assignments = new[] { new SignaturePlaceholderAssignment { PlaceholderId = Guid.NewGuid(), Role = "Approver", AssignedSignerUserId = "approver-1" } } };
+
+        var migrated = await f.Service.MigrateTemplateAsync(Package, 1, mapping);
+
+        Assert.Equal(mapping, migrated.Mapping);
+        Assert.Null(migrated.PreviousMapping);
+        Assert.Equal("admin-1", migrated.ActorUserId);
+        Assert.Null(legacy.TemplateMapping);
+        Assert.Contains(f.Workflow.Audits, entry => entry.Action == DocumentAuditAction.MetadataUpdated && entry.UserId == "admin-1");
+        var nextMapping = mapping with { TemplateId = Guid.NewGuid(), TemplateVersion = 2 };
+        var next = await f.Service.MigrateTemplateAsync(Package, 1, nextMapping);
+        Assert.Equal(2, next.Version);
+        Assert.Equal(mapping.TemplateId, next.PreviousMapping!.TemplateId);
+        Assert.Equal(nextMapping.TemplateId, next.Mapping.TemplateId);
+        Assert.Null(legacy.TemplateMapping);
+    }
+
+    [Fact(DisplayName = "TSD-08 signature behavior follows each submission mapping and rejects invalid assignments")]
+    public async Task TSD_08_signatures_use_per_submission_mapping_and_reject_invalid_mapping()
+    {
+        var f = Fixture.Create();
+        var timestamp = new DateTimeOffset(Now);
+        var mappingId = Guid.NewGuid();
+        var placeholder = new SignaturePlaceholderAssignment { PlaceholderId = mappingId, Role = SystemRoles.Approver, AssignedSignerUserId = "approver-1" };
+        var mapping = new TemplateMappingSnapshot { TemplateId = Guid.NewGuid(), TemplateVersion = 1, Assignments = new[] { placeholder } };
+        f.Auth.User = new AuthenticatedUser("approver", new[] { SystemRoles.Approver }) { UserId = "approver-1", DisplayName = "Approver One" };
+        f.Workflow.ReviewPackage = SignaturePackage(TemplateMapping: mapping, assignments: new[] { placeholder });
+
+        var mappedSignature = await f.Service.ApplyApproverSignatureAsync(Package, 7, SignatureMethod.Typed, "mapped approval", placeholderId: mappingId);
+        Assert.Equal(mappingId, mappedSignature.PlaceholderId);
+
+        f.Workflow.ReviewPackage = SignaturePackage(packageId: Guid.NewGuid(), TemplateMapping: null, assignments: Array.Empty<SignaturePlaceholderAssignment>());
+        var legacySignature = await f.Service.ApplyApproverSignatureAsync(f.Workflow.ReviewPackage.PackageId, 7, SignatureMethod.Typed, "legacy approval");
+        Assert.Null(legacySignature.PlaceholderId);
+
+        var invalid = placeholder with { Role = "UnknownRole" };
+        f.Workflow.ReviewPackage = SignaturePackage(packageId: Guid.NewGuid(), TemplateMapping: mapping with { Assignments = new[] { invalid } }, assignments: new[] { invalid });
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Service.ApplyApproverSignatureAsync(f.Workflow.ReviewPackage.PackageId, 7, SignatureMethod.Typed, "invalid approval", placeholderId: invalid.PlaceholderId));
+    }
+    [Fact(DisplayName = "TSD-04 review package retains existing and newly added version feedback")]
+    public async Task TSD_04_review_package_reloads_existing_and_new_feedback()
+    {
+        var f = Fixture.Create();
+        var package = ReviewPackageFixture() with { Status = WorkflowStatus.SubmittedForReview, StepDocumentId = Guid.NewGuid(), StepDocumentVersionId = Guid.NewGuid() };
+        f.Workflow.ReviewPackage = package;
+        f.Workflow.Comments.Add(new ReviewComment { CommentId = Guid.NewGuid(), PackageId = Package, Revision = package.Revision, AuthorUserId = "checker-old", AuthorDisplayName = "Old Checker", Text = "Existing note", ReferenceType = "drawing", ReferenceId = "page-1" });
+        var existingMarkup = new DocumentMarkup { MarkupId = Guid.NewGuid(), PackageId = Package, Revision = package.Revision, DocumentId = package.StepDocumentId, DocumentVersionId = package.StepDocumentVersionId, AuthorUserId = "checker-old", AuthorDisplayName = "Old Checker", MarkupType = "highlight", DataJson = "{\"color\":\"yellow\"}", PageNumber = 1, Location = "page-1" };
+        f.Workflow.Markups.Add(existingMarkup);
+        f.WorkflowState = new WorkflowState { PackageId = Package, Status = WorkflowStatus.SubmittedForReview, Revision = package.Revision };
+        f.Document = f.Document! with { DocumentId = package.StepDocumentId, DocumentType = DrawVerify.Core.Enums.DocumentType.PdfDrawing, OriginalFileName = "drawing.pdf", FileSizeBytes = 12, Version = new DocumentVersion { DocumentId = package.StepDocumentId, VersionId = package.StepDocumentVersionId, VersionNumber = 1 } };
+        f.Auth.User = new AuthenticatedUser("checker", new[] { SystemRoles.Checker }) { UserId = "checker-new", DisplayName = "New Checker" };
+
+        var added = await f.Service.AddReviewCommentAsync(Package, package.Revision, "New note");
+        var addedMarkup = await f.Service.AddDocumentMarkupAsync(new DocumentMarkup { PackageId = Package, Revision = package.Revision, DocumentId = package.StepDocumentId, DocumentVersionId = package.StepDocumentVersionId, MarkupType = "note", DataJson = "{\"text\":\"preserved\"}", PageNumber = 1, Location = "page-2" });
+        var reopened = await f.Service.OpenReviewPackageAsync(Package, package.Revision);
+
+        Assert.NotNull(reopened);
+        Assert.Contains(reopened!.Comments, comment => comment.Text == "Existing note" && comment.AuthorUserId == "checker-old" && comment.ReferenceId == "page-1");
+        Assert.Contains(reopened.Comments, comment => comment.CommentId == added.CommentId && comment.Text == "New note" && comment.AuthorUserId == "checker-new" && comment.Revision == package.Revision);
+        var reloadedExistingMarkup = Assert.Single(reopened.Markups, markup => markup.MarkupId == existingMarkup.MarkupId);
+        Assert.Equal(existingMarkup.DocumentVersionId, reloadedExistingMarkup.DocumentVersionId);
+        Assert.Equal(existingMarkup.DataJson, reloadedExistingMarkup.DataJson);
+        var reloadedAddedMarkup = Assert.Single(reopened.Markups, markup => markup.MarkupId == addedMarkup.MarkupId);
+        Assert.Equal(package.StepDocumentId, reloadedAddedMarkup.DocumentId);
+        Assert.Equal(package.StepDocumentVersionId, reloadedAddedMarkup.DocumentVersionId);
+        Assert.Equal("checker-new", reloadedAddedMarkup.AuthorUserId);
+        Assert.Equal("{\"text\":\"preserved\"}", reloadedAddedMarkup.DataJson);
     }
 
     [Fact(DisplayName = "TD-APP-03 authorizes prior access and audits successful detail access")]
@@ -871,6 +978,16 @@ public sealed class WorkflowServiceTests
         Assert.Equal(DateTimeKind.Utc, Assert.Single(notifications.Approvals).Decision.DecidedUtc.Kind);
     }
 
+    private static ReviewPackage SignaturePackage(Guid? packageId = null, TemplateMappingSnapshot? TemplateMapping = null, IReadOnlyList<SignaturePlaceholderAssignment>? assignments = null)
+    {
+        var id = packageId ?? Package;
+        var submitted = new DateTimeOffset(Now);
+        var maker = SignatureData.Create(SignatureMethod.Typed, "maker", "maker-1", "Maker One", id, 7, submitted);
+        var checker = SignatureData.CreateChecker(SignatureMethod.Typed, "checker", "checker-1", "Checker One", id, 7, submitted);
+        var submission = new ReviewSubmission { SubmissionId = Guid.NewGuid(), PackageId = id, Revision = 7, MakerUserId = "maker-1", MakerDisplayName = "Maker One", SubmittedUtc = Now, CreatedUtc = Now, Status = WorkflowStatus.ApprovedByChecker, MakerSignature = maker, CheckerSignature = checker, Fingerprint = new DocumentFingerprint { Value = new string('a', 64), Algorithm = "SHA-256", CanonicalizationVersion = 1 }, TemplateMapping = TemplateMapping, PlaceholderAssignments = assignments ?? Array.Empty<SignaturePlaceholderAssignment>() };
+        var decision = new ReviewDecision { PackageId = id, Revision = 7, CheckerUserId = "checker-1", DecisionType = ReviewDecisionType.Approve, DecidedUtc = Now };
+        return ReviewPackage.FromSubmission(submission, decision) with { Status = WorkflowStatus.ApprovedByChecker };
+    }
     private static ReviewPackage ReviewPackageFixture() => ReviewPackage.FromSubmission(new ReviewSubmission
     {
         PackageId = Package, Revision = 7, StepDocumentVersionId = Guid.Parse("00000000-0000-0000-0000-000000000011"),
@@ -967,5 +1084,5 @@ public sealed class WorkflowServiceTests
             return Task.FromResult(new FingerprintVerificationResult(FingerprintVerificationStatus.Match, expected, "Fingerprint Verified - Document Unchanged") { Stored = expected });
         }
     }
-    private sealed class FakeWorkflow : IWorkflowRepository { public Func<WorkflowState>? StateProvider { get; set; } public WorkflowStatus InitialStatus { get; set; } = WorkflowStatus.Draft; public bool ThrowOnSubmit { get; set; } public bool ThrowOnMarkup { get; set; } public int ViewerInvocations { get; private set; } public Guid? SupersededSubmissionId { get; private set; } public List<ReviewSubmission> Submissions { get; } = new(); public List<AuditEntry> Audits { get; } = new(); public List<WorkflowQueueItem> Queue { get; } = new(); public ReviewPackage? ReviewPackage { get; set; } public Dictionary<int, ReviewPackage> ReviewPackages { get; } = new(); public int ReviewStartedCalls { get; private set; } public int DecisionCalls { get; private set; } public ReviewDecision? LastDecision { get; private set; } public WorkflowStatus? SavedStatus { get; private set; } public List<ReviewComment> Comments { get; } = new(); public List<DocumentMarkup> Markups { get; } = new(); public Task<WorkflowState?> GetStateAsync(Guid id, CancellationToken ct = default) => Task.FromResult<WorkflowState?>(StateProvider?.Invoke()); public Task<ReviewSubmission?> GetSubmissionAsync(Guid id, CancellationToken ct = default) => Task.FromResult<ReviewSubmission?>(Submissions.FirstOrDefault(x => x.SubmissionId == id)); public Task<IReadOnlyList<ReviewSubmission>> GetSubmissionsAsync(Guid id, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<ReviewSubmission>>(Submissions); public Task<IReadOnlyList<WorkflowQueueItem>> GetCheckerQueueAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<WorkflowQueueItem>>(Queue); public Task<ReviewPackage?> GetReviewPackageAsync(Guid id, int revision, CancellationToken ct = default) { var package = ReviewPackages.TryGetValue(revision, out var selected) ? selected : ReviewPackage; return Task.FromResult(package is null ? null : package with { Markups = Markups.Where(x => x.PackageId == package.PackageId && x.Revision == package.Revision).ToArray() }); } public Task<IReadOnlyList<ReviewComment>> GetReviewCommentsAsync(Guid id, int revision, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<ReviewComment>>(Comments); public Task SaveReviewCommentAsync(ReviewComment comment, AuditEntry a, CancellationToken ct = default) { Comments.Add(comment); Audits.Add(a); return Task.CompletedTask; } public Task UpdateReviewCommentAsync(ReviewComment comment, AuditEntry a, CancellationToken ct = default) { var index = Comments.FindIndex(x => x.CommentId == comment.CommentId); if (index >= 0) Comments[index] = comment; Audits.Add(a); return Task.CompletedTask; } public Task DiscardReviewCommentAsync(Guid commentId, AuditEntry a, CancellationToken ct = default) { Comments.RemoveAll(x => x.CommentId == commentId); Audits.Add(a); return Task.CompletedTask; } public Task<IReadOnlyList<DocumentMarkup>> GetDocumentMarkupsAsync(Guid documentId, Guid versionId, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<DocumentMarkup>>(Markups.Where(x => x.DocumentId == documentId && x.DocumentVersionId == versionId).ToArray()); public Task SaveDocumentMarkupAsync(DocumentMarkup markup, AuditEntry a, CancellationToken ct = default) { if (ThrowOnMarkup) throw new InvalidOperationException("markup persistence failed"); Markups.Add(markup); Audits.Add(a); return Task.CompletedTask; } public Task RecordReviewStartedAsync(ReviewPackage package, AuditEntry a, CancellationToken ct = default) { ReviewStartedCalls++; Audits.Add(a); return Task.CompletedTask; } public Task<ReviewDecision> SaveReviewDecisionAsync(ReviewPackage package, ReviewDecision decision, WorkflowStatus status, AuditEntry a, CancellationToken ct = default) { DecisionCalls++; LastDecision = decision; SavedStatus = status; Audits.Add(a); return Task.FromResult(decision); } public Task<ReviewSubmission> SubmitAtomicallyAsync(WorkflowState s, ReviewSubmission sub, AuditEntry a, CancellationToken ct = default) { if (ThrowOnSubmit) throw new InvalidOperationException("persist failed"); Submissions.Add(sub); Audits.Add(a); return Task.FromResult(sub); } public Task RecordAuditAsync(AuditEntry a, CancellationToken ct = default) { Audits.Add(a); return Task.CompletedTask; } public Task MarkSupersededAsync(Guid id, AuditEntry a, CancellationToken ct = default) { SupersededSubmissionId = id; return Task.CompletedTask; } }
+    private sealed class FakeWorkflow : IWorkflowRepository, ITemplateMigrationRepository { public Dictionary<(Guid PackageId, int Revision), TemplateMigrationAssociation> Migrations { get; } = new(); public Task<TemplateMigrationAssociation?> GetTemplateMigrationAsync(Guid packageId, int revision, CancellationToken ct = default) => Task.FromResult(Migrations.TryGetValue((packageId, revision), out var value) ? value : null); public Task SaveTemplateMigrationAsync(TemplateMigrationAssociation association, AuditEntry audit, CancellationToken ct = default) { Migrations[(association.PackageId, association.Revision)] = association; Audits.Add(audit); return Task.CompletedTask; } public Func<WorkflowState>? StateProvider { get; set; } public WorkflowStatus InitialStatus { get; set; } = WorkflowStatus.Draft; public bool ThrowOnSubmit { get; set; } public bool ThrowOnMarkup { get; set; } public int ViewerInvocations { get; private set; } public Guid? SupersededSubmissionId { get; private set; } public List<ReviewSubmission> Submissions { get; } = new(); public List<AuditEntry> Audits { get; } = new(); public List<WorkflowQueueItem> Queue { get; } = new(); public ReviewPackage? ReviewPackage { get; set; } public Dictionary<int, ReviewPackage> ReviewPackages { get; } = new(); public int ReviewStartedCalls { get; private set; } public int DecisionCalls { get; private set; } public ReviewDecision? LastDecision { get; private set; } public WorkflowStatus? SavedStatus { get; private set; } public List<ReviewComment> Comments { get; } = new(); public List<DocumentMarkup> Markups { get; } = new(); public Task<WorkflowState?> GetStateAsync(Guid id, CancellationToken ct = default) => Task.FromResult<WorkflowState?>(StateProvider?.Invoke()); public Task<ReviewSubmission?> GetSubmissionAsync(Guid id, CancellationToken ct = default) => Task.FromResult<ReviewSubmission?>(Submissions.FirstOrDefault(x => x.SubmissionId == id)); public Task<IReadOnlyList<ReviewSubmission>> GetSubmissionsAsync(Guid id, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<ReviewSubmission>>(Submissions); public Task<IReadOnlyList<WorkflowQueueItem>> GetCheckerQueueAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<WorkflowQueueItem>>(Queue); public Task<ReviewPackage?> GetReviewPackageAsync(Guid id, int revision, CancellationToken ct = default) { var package = ReviewPackages.TryGetValue(revision, out var selected) ? selected : ReviewPackage; return Task.FromResult(package is null ? null : package with { Comments = Comments.Where(x => x.PackageId == package.PackageId && x.Revision == package.Revision).ToArray(), Markups = Markups.Where(x => x.PackageId == package.PackageId && x.Revision == package.Revision).ToArray() }); } public Task<IReadOnlyList<ReviewComment>> GetReviewCommentsAsync(Guid id, int revision, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<ReviewComment>>(Comments); public Task SaveReviewCommentAsync(ReviewComment comment, AuditEntry a, CancellationToken ct = default) { Comments.Add(comment); Audits.Add(a); return Task.CompletedTask; } public Task UpdateReviewCommentAsync(ReviewComment comment, AuditEntry a, CancellationToken ct = default) { var index = Comments.FindIndex(x => x.CommentId == comment.CommentId); if (index >= 0) Comments[index] = comment; Audits.Add(a); return Task.CompletedTask; } public Task DiscardReviewCommentAsync(Guid commentId, AuditEntry a, CancellationToken ct = default) { Comments.RemoveAll(x => x.CommentId == commentId); Audits.Add(a); return Task.CompletedTask; } public Task<IReadOnlyList<DocumentMarkup>> GetDocumentMarkupsAsync(Guid documentId, Guid versionId, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<DocumentMarkup>>(Markups.Where(x => x.DocumentId == documentId && x.DocumentVersionId == versionId).ToArray()); public Task SaveDocumentMarkupAsync(DocumentMarkup markup, AuditEntry a, CancellationToken ct = default) { if (ThrowOnMarkup) throw new InvalidOperationException("markup persistence failed"); Markups.Add(markup); Audits.Add(a); return Task.CompletedTask; } public Task RecordReviewStartedAsync(ReviewPackage package, AuditEntry a, CancellationToken ct = default) { ReviewStartedCalls++; Audits.Add(a); return Task.CompletedTask; } public Task<ReviewDecision> SaveReviewDecisionAsync(ReviewPackage package, ReviewDecision decision, WorkflowStatus status, AuditEntry a, CancellationToken ct = default) { DecisionCalls++; LastDecision = decision; SavedStatus = status; Audits.Add(a); return Task.FromResult(decision); } public Task<ReviewSubmission> SaveApproverSignatureAsync(ReviewPackage package, SignatureData signature, DocumentFingerprint fingerprint, AuditEntry audit, CancellationToken ct = default) { var saved = package.Submission with { ApproverSignature = signature, Fingerprint = fingerprint }; ReviewPackage = package with { Submission = saved }; Audits.Add(audit); return Task.FromResult(saved); } public Task<ReviewSubmission> SubmitAtomicallyAsync(WorkflowState s, ReviewSubmission sub, AuditEntry a, CancellationToken ct = default) { if (ThrowOnSubmit) throw new InvalidOperationException("persist failed"); Submissions.Add(sub); Audits.Add(a); return Task.FromResult(sub); } public Task RecordAuditAsync(AuditEntry a, CancellationToken ct = default) { Audits.Add(a); return Task.CompletedTask; } public Task MarkSupersededAsync(Guid id, AuditEntry a, CancellationToken ct = default) { SupersededSubmissionId = id; return Task.CompletedTask; } }
 }

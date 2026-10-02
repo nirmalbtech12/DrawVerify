@@ -11,8 +11,8 @@ namespace DrawVerify.Application.Tests;
 
 public sealed class MultipleSignerPlaceholderWorkflowTests
 {
-    [Fact(DisplayName = "TSD-02 each configured signer owns one placeholder and completion waits for both")]
-    public async Task Multiple_signers_execute_commands_persist_state_and_complete_only_after_both_sign()
+    [Fact(DisplayName = "Each configured signer owns one placeholder and completion waits for both")]
+    public async Task Multiple_signers_execute_commands_and_complete_only_after_both_sign()
     {
         var path = Path.Combine(Path.GetTempPath(), $"drawverify-multiple-approver-{Guid.NewGuid():N}.db");
         var firstId = Guid.NewGuid();
@@ -85,6 +85,38 @@ public sealed class MultipleSignerPlaceholderWorkflowTests
             Assert.Equal("approver-1", restored.Submission.PlaceholderAssignments.Single(x => x.PlaceholderId == firstId).SignedByUserId);
             Assert.Equal("approver-2", restored.Submission.PlaceholderAssignments.Single(x => x.PlaceholderId == secondId).SignedByUserId);
             Assert.All(restored.Submission.PlaceholderAssignments, assignment => Assert.Equal(timestamp, assignment.SignedUtc));
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (File.Exists(path)) File.Delete(path);
+            if (File.Exists(path + "-wal")) File.Delete(path + "-wal");
+            if (File.Exists(path + "-shm")) File.Delete(path + "-shm");
+        }
+    }
+
+    [Fact(DisplayName = "TSD-08 legacy and mapped submissions retain independent signature mappings")]
+    public async Task TSD_08_legacy_and_mapped_submission_mappings_are_independent()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drawverify-mixed-mapping-{Guid.NewGuid():N}.db");
+        try
+        {
+            var repository = new SqliteWorkflowRepository(path);
+            var legacyId = Guid.NewGuid();
+            var mappedId = Guid.NewGuid();
+            var placeholder = new SignaturePlaceholderAssignment { PlaceholderId = Guid.NewGuid(), Role = "Approver", AssignedSignerUserId = "approver-1" };
+            var mapping = new TemplateMappingSnapshot { TemplateId = Guid.NewGuid(), TemplateVersion = 1, Assignments = new[] { placeholder } };
+            var legacy = new ReviewSubmission { SubmissionId = Guid.NewGuid(), PackageId = legacyId, Revision = 1, MakerUserId = "legacy-maker", TemplateMapping = null };
+            var mapped = new ReviewSubmission { SubmissionId = Guid.NewGuid(), PackageId = mappedId, Revision = 1, MakerUserId = "mapped-maker", TemplateMapping = mapping, PlaceholderAssignments = mapping.Assignments };
+            await repository.SubmitAtomicallyAsync(new WorkflowState { PackageId = legacyId, Status = WorkflowStatus.Draft, Revision = 1 }, legacy, Audit(legacyId, "legacy-maker", "Maker", DocumentAuditAction.SubmissionSucceeded, DateTimeOffset.UtcNow));
+            await repository.SubmitAtomicallyAsync(new WorkflowState { PackageId = mappedId, Status = WorkflowStatus.Draft, Revision = 1 }, mapped, Audit(mappedId, "mapped-maker", "Maker", DocumentAuditAction.SubmissionSucceeded, DateTimeOffset.UtcNow));
+
+            var legacyReload = await repository.GetReviewPackageAsync(legacyId, 1);
+            var mappedReload = await repository.GetReviewPackageAsync(mappedId, 1);
+
+            Assert.Null(legacyReload!.Submission.TemplateMapping);
+            Assert.Equal(mapping.TemplateId, mappedReload!.Submission.TemplateMapping!.TemplateId);
+            Assert.Equal(placeholder.PlaceholderId, mappedReload.Submission.TemplateMapping.Assignments.Single().PlaceholderId);
         }
         finally
         {

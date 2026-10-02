@@ -76,6 +76,36 @@ public sealed class WorkflowViewModelTests
         }
     }
 
+    [Theory(DisplayName = "TSD-10 PDF-only, 3D+2D, and mixed reviews retain submitted feedback and signatures")]
+    [InlineData(DrawVerify.Core.Enums.DocumentType.PdfDrawing)]
+    [InlineData(DrawVerify.Core.Enums.DocumentType.StepModel)]
+    [InlineData(DrawVerify.Core.Enums.DocumentType.Unknown)]
+    public async Task TSD_10_review_viewmodel_retains_workflow_data(DrawVerify.Core.Enums.DocumentType documentType)
+    {
+        var original = ReviewFixture();
+        var placeholderId = Guid.NewGuid();
+        var assignment = new SignaturePlaceholderAssignment { PlaceholderId = placeholderId, Role = SystemRoles.Checker, AssignedSignerUserId = "checker-1" };
+        var mapping = documentType == DrawVerify.Core.Enums.DocumentType.Unknown ? new TemplateMappingSnapshot { TemplateId = Guid.NewGuid(), TemplateVersion = 1, Assignments = new[] { assignment } } : null;
+        var signature = SignatureData.CreateChecker(SignatureMethod.Typed, "checker signature", "checker-1", "Checker", original.PackageId, original.Revision, DateTimeOffset.UtcNow, placeholderId: mapping is null ? null : placeholderId);
+        var package = original with
+        {
+            DocumentType = documentType,
+            Status = WorkflowStatus.Approved,
+            Submission = original.Submission with { CheckerSignature = signature, TemplateMapping = mapping, PlaceholderAssignments = mapping?.Assignments ?? Array.Empty<SignaturePlaceholderAssignment>() },
+            Comments = new[] { new ReviewComment { CommentId = Guid.NewGuid(), PackageId = original.PackageId, Revision = original.Revision, AuthorUserId = "checker-1", Text = "preserved comment" } },
+            Markups = new[] { new DocumentMarkup { MarkupId = Guid.NewGuid(), PackageId = original.PackageId, Revision = original.Revision, DocumentId = original.PackageId, DocumentVersionId = Guid.NewGuid(), AuthorUserId = "checker-1", MarkupType = "note", DataJson = "{\"text\":\"preserved\"}" } }
+        };
+        var model = new WorkflowViewModel(new FakeWorkflowService { ReviewPackage = package });
+
+        await model.OpenReviewAsync(new WorkflowQueueItem(package.PackageId, package.Revision, package.MakerDisplayName, package.SubmittedUtc, package.Status, "verified"));
+
+        Assert.Equal(documentType, model.ReviewPackage!.DocumentType);
+        Assert.Equal("preserved comment", Assert.Single(model.ReviewPackage.Comments).Text);
+        Assert.Equal(signature, model.ReviewPackage.Submission.CheckerSignature);
+        Assert.Equal("{\"text\":\"preserved\"}", Assert.Single(model.ReviewPackage.Markups).DataJson);
+        Assert.Equal(mapping?.TemplateId, model.ReviewPackage.Submission.TemplateMapping?.TemplateId);
+    }
+
     private static IEnumerable<T> FindVisualChildren<T>(DependencyObject root) where T : DependencyObject
     {
         for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
