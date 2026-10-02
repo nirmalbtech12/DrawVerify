@@ -111,7 +111,7 @@ public partial class MainWindow : Window
             return;
         }
         var path = Path.IsPathRooted(document.Version.StoredRelativePath) ? document.Version.StoredRelativePath : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "uploads", "step", document.Version.StoredRelativePath.Replace('/', Path.DirectorySeparatorChar)));
-        if (_uploadedStepModels.All(item => item.DocumentId != document.DocumentId)) _uploadedStepModels.Add((document.DocumentId, document.OriginalFileName, path));
+        if (_uploadedStepModels.All(item => item.DocumentId != document.DocumentId || !string.Equals(item.Path, path, StringComparison.OrdinalIgnoreCase))) _uploadedStepModels.Add((document.DocumentId, document.OriginalFileName, path));
         var model = new StepPreviewViewModel(new CentralizedLogger());
         foreach (var uploaded in _uploadedStepModels) model.AddUploadedModel(uploaded.DocumentId, uploaded.Name, uploaded.Path);
         var view = new StepPreviewView { DataContext = model };
